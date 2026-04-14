@@ -1,0 +1,551 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\AccessPoint;
+use App\Models\ControllerSetting;
+use App\Models\Site;
+use GuzzleHttp\Cookie\CookieJar;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use RuntimeException;
+
+class OmadaService
+{
+    public function testConnection(ControllerSetting $settings): array
+    {
+        $normalized = $this->normalizeSettings($settings);
+        $info = $this->extractControllerInfo(
+            $this->request($this->client($normalized), 'get', '/api/info')
+        );
+
+        if ($this->hasOpenApiCredentials($normalized)) {
+            $this->requestOpenApiAccessToken($normalized, $info['omadac_id']);
+
+            return [
+                'controller_name' => $info['controller_name'] ?? $normalized['controller_name'],
+                'version' => $info['version'],
+                'api_version' => $info['api_version'],
+            ];
+        }
+
+        if (! $this->hasLegacyCredentials($normalized)) {
+            throw new RuntimeException('Add either a local controller username/password or an OpenAPI client ID/secret before testing the connection.');
+        }
+
+        $client = $this->authenticatedClient($normalized, 'connection testing');
+        $controllerSettings = $this->request($client, 'get', '/api/v2/controller/setting');
+
+        return [
+            'controller_name' => Arr::get($controllerSettings, 'result.name')
+                ?? Arr::get($controllerSettings, 'result.controllerName')
+                ?? $info['controller_name']
+                ?? $normalized['controller_name'],
+            'version' => $info['version'],
+            'api_version' => $info['api_version'],
+        ];
+    }
+
+    public function getClientMacAddress(ControllerSetting $settings, string $clientIp): ?string
+    {
+        try {
+            $normalized = $this->normalizeSettings($settings);
+            $client = $this->authenticatedClient($normalized, 'client MAC lookup');
+            
+            // Try to get connected clients from the controller
+            $payload = $this->request($client, 'get', '/api/v2/controller/clients');
+            
+            // Look for client by IP address
+            $clients = $this->extractClientsFromPayload($payload);
+            
+            foreach ($clients as $clientData) {
+                $clientIpFromApi = $this->firstFilled($clientData, [
+                    'ip',
+                    'ipAddress',
+                    'clientIp',
+                ]);
+                
+                if ($clientIpFromApi && $clientIpFromApi === $clientIp) {
+                    return $this->normalizeMac($this->firstFilled($clientData, [
+                        'mac',
+                        'macAddress',
+                        'clientMac',
+                    ]));
+                }
+            }
+            
+            return null;
+        } catch (\Throwable $e) {
+            // Log error but don't throw - we'll fallback to manual input
+            return null;
+        }
+    }
+
+    private function extractClientsFromPayload(array $payload): array
+    {
+        foreach ([
+            'result.data',
+            'result.rows',
+            'result.clients',
+            'result.list',
+            'data',
+            'rows',
+        ] as $path) {
+            $value = Arr::get($payload, $path);
+
+            if (is_array($value) && array_is_list($value)) {
+                return $value;
+            }
+        }
+
+        $result = Arr::get($payload, 'result');
+
+        return is_array($result) && array_is_list($result) ? $result : [];
+    }
+
+    public function syncAccessPoints(ControllerSetting $settings): array
+    {
+        $normalized = $this->normalizeSettings($settings);
+        $client = $this->authenticatedClient($normalized, 'AP sync');
+        $syncedAt = now();
+
+        $adoptedDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/adopted');
+        $pendingDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/pending');
+
+        $created = 0;
+        $updated = 0;
+        $claimed = 0;
+        $pending = 0;
+
+        foreach ($adoptedDevices as $device) {
+            $result = $this->upsertAccessPoint($device, AccessPoint::CLAIM_STATUS_CLAIMED, $normalized, $syncedAt);
+
+            if (! $result) {
+                continue;
+            }
+
+            $claimed++;
+            $result['was_created'] ? $created++ : $updated++;
+        }
+
+        foreach ($pendingDevices as $device) {
+            $result = $this->upsertAccessPoint($device, AccessPoint::CLAIM_STATUS_PENDING, $normalized, $syncedAt);
+
+            if (! $result) {
+                continue;
+            }
+
+            $pending++;
+            $result['was_created'] ? $created++ : $updated++;
+        }
+
+        return [
+            'created' => $created,
+            'updated' => $updated,
+            'claimed' => $claimed,
+            'pending' => $pending,
+            'total' => count($adoptedDevices) + count($pendingDevices),
+        ];
+    }
+
+    private function authenticatedClient(array $settings, string $purpose): PendingRequest
+    {
+        if (! $this->hasLegacyCredentials($settings)) {
+            throw new RuntimeException("{$purpose} currently requires a local controller username/password. OpenAPI client credentials are only wired for connection testing right now.");
+        }
+
+        $client = $this->client($settings);
+        $loginResponse = $client->post('/api/v2/login', [
+            'name' => $settings['username'],
+            'password' => $settings['password'],
+        ]);
+
+        $payload = $this->decodeResponse($loginResponse->body());
+
+        if (($payload['errorCode'] ?? null) !== 0) {
+            throw new RuntimeException(Arr::get($payload, 'msg', 'Omada login failed.'));
+        }
+
+        return $client;
+    }
+
+    private function requestOpenApiAccessToken(array $settings, ?string $omadacId): string
+    {
+        if (! $this->hasOpenApiCredentials($settings)) {
+            throw new RuntimeException('OpenAPI client ID and client secret are required.');
+        }
+
+        if (blank($omadacId)) {
+            throw new RuntimeException('Omada controller ID is missing from /api/info, so OpenAPI authentication cannot proceed.');
+        }
+
+        $payload = $this->request(
+            $this->client($settings),
+            'post',
+            '/openapi/authorize/token?grant_type=client_credentials',
+            [
+                'omadacId' => $omadacId,
+                'client_id' => $settings['api_client_id'],
+                'client_secret' => $settings['api_client_secret'],
+            ]
+        );
+
+        $token = Arr::get($payload, 'result.accessToken');
+
+        if (! is_string($token) || trim($token) === '') {
+            throw new RuntimeException('Omada returned a successful OpenAPI response without an access token.');
+        }
+
+        return $token;
+    }
+
+    private function client(array $settings): PendingRequest
+    {
+        return Http::baseUrl($settings['base_url'])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(20)
+            ->connectTimeout(10)
+            ->withHeaders([
+                'Referer' => $settings['base_url'],
+                'Origin' => $settings['base_url'],
+                'X-Requested-With' => 'XMLHttpRequest',
+            ])
+            ->withOptions([
+                'cookies' => new CookieJar,
+                'verify' => $this->shouldVerifySsl($settings['base_url']),
+            ]);
+    }
+
+    private function request(PendingRequest $client, string $method, string $uri, array $payload = []): array
+    {
+        $response = $client->{$method}($uri, $payload);
+
+        if ($response->failed()) {
+            throw new RuntimeException("Omada request failed for [{$uri}] with HTTP {$response->status()}.");
+        }
+
+        $decoded = $this->decodeResponse($response->body());
+
+        if (array_key_exists('errorCode', $decoded) && $decoded['errorCode'] !== 0) {
+            throw new RuntimeException(Arr::get($decoded, 'msg', "Omada request failed for [{$uri}]."));
+        }
+
+        return $decoded;
+    }
+
+    private function fetchDeviceList(PendingRequest $client, string $uri): array
+    {
+        $payload = $this->request($client, 'get', $uri);
+
+        foreach ([
+            'result.data',
+            'result.rows',
+            'result.devices',
+            'result.list',
+            'data',
+            'rows',
+        ] as $path) {
+            $value = Arr::get($payload, $path);
+
+            if (is_array($value) && array_is_list($value)) {
+                return $value;
+            }
+        }
+
+        $result = Arr::get($payload, 'result');
+
+        return is_array($result) && array_is_list($result) ? $result : [];
+    }
+
+    private function upsertAccessPoint(array $device, string $claimStatus, array $settings, Carbon $syncedAt): ?array
+    {
+        $macAddress = $this->normalizeMac($this->firstFilled($device, [
+            'mac',
+            'macAddress',
+        ]));
+
+        if ($macAddress === null) {
+            return null;
+        }
+
+        $omadaDeviceId = $this->stringOrNull($this->firstFilled($device, [
+            'deviceId',
+            'id',
+            'device_id',
+        ]));
+
+        $accessPoint = AccessPoint::query()
+            ->where(function ($query) use ($omadaDeviceId, $macAddress): void {
+                if ($omadaDeviceId) {
+                    $query->where('omada_device_id', $omadaDeviceId)
+                        ->orWhere('mac_address', $macAddress);
+
+                    return;
+                }
+
+                $query->where('mac_address', $macAddress);
+            })
+            ->first() ?? new AccessPoint;
+
+        $wasCreated = ! $accessPoint->exists;
+        $site = $this->resolveSite(
+            $this->stringOrNull($this->firstFilled($device, [
+                'siteName',
+                'site',
+            ])) ?? $settings['site_name']
+        );
+
+        $accessPoint->fill([
+            'site_id' => $site?->id,
+            'serial_number' => $this->stringOrNull($this->firstFilled($device, [
+                'sn',
+                'serialNumber',
+                'serial_number',
+            ])) ?? $accessPoint->serial_number,
+            'omada_device_id' => $omadaDeviceId,
+            'name' => $this->stringOrNull($this->firstFilled($device, [
+                'name',
+                'displayName',
+                'deviceName',
+            ])) ?? ($accessPoint->name ?: "AP {$macAddress}"),
+            'mac_address' => $macAddress,
+            'vendor' => $this->stringOrNull($this->firstFilled($device, [
+                'vendor',
+                'manufacturer',
+            ])) ?? ($accessPoint->vendor ?: 'TP-Link'),
+            'model' => $this->stringOrNull($this->firstFilled($device, [
+                'model',
+                'deviceModel',
+            ])) ?? $accessPoint->model,
+            'ip_address' => $this->stringOrNull($this->firstFilled($device, [
+                'ip',
+                'ipAddress',
+            ])) ?? $accessPoint->ip_address,
+            'claim_status' => $claimStatus,
+            'claimed_at' => $claimStatus === AccessPoint::CLAIM_STATUS_CLAIMED
+                ? ($accessPoint->claimed_at ?? $syncedAt)
+                : null,
+            'last_synced_at' => $syncedAt,
+            'is_online' => $this->resolveOnlineState($device),
+            'last_seen_at' => $this->resolveLastSeenAt($device) ?? $accessPoint->last_seen_at,
+        ]);
+
+        if ($wasCreated) {
+            $accessPoint->custom_ssid = 'KapitWiFi';
+            $accessPoint->allow_client_pause = true;
+            $accessPoint->block_tethering = true;
+            $accessPoint->is_portal_enabled = true;
+        }
+
+        $accessPoint->save();
+
+        return [
+            'was_created' => $wasCreated,
+            'access_point_id' => $accessPoint->id,
+        ];
+    }
+
+    private function resolveOnlineState(array $device): bool
+    {
+        $value = $this->firstFilled($device, [
+            'isOnline',
+            'connected',
+            'status',
+            'statusCategory',
+        ]);
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value === 1;
+        }
+
+        $status = strtolower(trim((string) $value));
+
+        return in_array($status, ['connected', 'online', 'normal', 'up'], true);
+    }
+
+    private function resolveLastSeenAt(array $device): ?Carbon
+    {
+        $value = $this->firstFilled($device, [
+            'lastSeenAt',
+            'lastSeen',
+            'latestSeen',
+            'lastSeenTime',
+        ]);
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            $timestamp = (int) $value;
+
+            if ($timestamp > 9999999999) {
+                $timestamp = (int) floor($timestamp / 1000);
+            }
+
+            return Carbon::createFromTimestamp($timestamp);
+        }
+
+        try {
+            return Carbon::parse((string) $value);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function resolveSite(?string $siteName): ?Site
+    {
+        if (blank($siteName)) {
+            return null;
+        }
+
+        $site = Site::query()->firstWhere('name', $siteName);
+
+        if ($site) {
+            return $site;
+        }
+
+        $baseSlug = Str::slug($siteName) ?: 'location';
+        $slug = $baseSlug;
+        $suffix = 2;
+
+        while (Site::query()->where('slug', $slug)->exists()) {
+            $slug = "{$baseSlug}-{$suffix}";
+            $suffix++;
+        }
+
+        return Site::query()->create([
+            'name' => $siteName,
+            'slug' => $slug,
+        ]);
+    }
+
+    private function normalizeSettings(ControllerSetting $settings): array
+    {
+        if (blank($settings->base_url)) {
+            throw new RuntimeException('Controller URL is missing.');
+        }
+
+        return [
+            'controller_name' => $settings->controller_name ?: 'Primary Omada Controller',
+            'base_url' => rtrim((string) $settings->base_url, '/'),
+            'username' => $this->stringOrNull($settings->username),
+            'password' => $this->stringOrNull($settings->password),
+            'api_client_id' => $this->stringOrNull($settings->api_client_id),
+            'api_client_secret' => $this->stringOrNull($settings->api_client_secret),
+            'site_name' => $settings->site_name ?: null,
+        ];
+    }
+
+    private function hasLegacyCredentials(array $settings): bool
+    {
+        return filled($settings['username'] ?? null) && filled($settings['password'] ?? null);
+    }
+
+    private function hasOpenApiCredentials(array $settings): bool
+    {
+        return filled($settings['api_client_id'] ?? null) && filled($settings['api_client_secret'] ?? null);
+    }
+
+    private function extractControllerInfo(array $payload): array
+    {
+        return [
+            'controller_name' => $this->stringOrNull(
+                Arr::get($payload, 'result.controllerName')
+                    ?? Arr::get($payload, 'result.omadacName')
+                    ?? Arr::get($payload, 'controllerName')
+                    ?? Arr::get($payload, 'omadacName')
+            ),
+            'version' => $this->stringOrNull(
+                Arr::get($payload, 'result.controllerVer')
+                    ?? Arr::get($payload, 'omadacVersion')
+                    ?? Arr::get($payload, 'controllerVer')
+            ),
+            'api_version' => $this->stringOrNull(
+                Arr::get($payload, 'result.apiVer')
+                    ?? Arr::get($payload, 'apiVer')
+            ),
+            'omadac_id' => $this->stringOrNull(
+                Arr::get($payload, 'result.omadacId')
+                    ?? Arr::get($payload, 'omadacId')
+            ),
+        ];
+    }
+
+    private function shouldVerifySsl(string $baseUrl): bool
+    {
+        $host = parse_url($baseUrl, PHP_URL_HOST);
+
+        if (! is_string($host) || $host === '') {
+            return true;
+        }
+
+        if (in_array($host, ['localhost', 'host.docker.internal', '127.0.0.1', '::1'], true)) {
+            return false;
+        }
+
+        if (filter_var($host, FILTER_VALIDATE_IP) === false) {
+            return true;
+        }
+
+        return filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+    }
+
+    private function normalizeMac(mixed $value): ?string
+    {
+        $mac = strtoupper(preg_replace('/[^A-Fa-f0-9]/', '', (string) $value) ?? '');
+
+        if (strlen($mac) !== 12) {
+            return null;
+        }
+
+        return implode(':', str_split($mac, 2));
+    }
+
+    private function firstFilled(array $payload, array $keys): mixed
+    {
+        foreach ($keys as $key) {
+            $value = Arr::get($payload, $key);
+
+            if ($value !== null && $value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    private function stringOrNull(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $string = trim((string) $value);
+
+        return $string === '' ? null : $string;
+    }
+
+    private function decodeResponse(string $body): array
+    {
+        try {
+            $decoded = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $exception) {
+            throw new RuntimeException('Omada returned an invalid JSON response.', previous: $exception);
+        }
+
+        if (! is_array($decoded)) {
+            throw new RuntimeException('Omada returned an unexpected response payload.');
+        }
+
+        return $decoded;
+    }
+}

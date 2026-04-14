@@ -1,0 +1,49 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\AccessPoint;
+use App\Models\Plan;
+use App\Models\Site;
+use App\Models\WifiSession;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class PlanSelectionApiTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_it_creates_a_wifi_session_with_access_point_attribution_from_portal_context(): void
+    {
+        $plan = Plan::query()->create([
+            'name' => '1 Hour',
+            'price' => 25,
+            'duration_minutes' => 60,
+        ]);
+
+        $response = $this->postJson('/api/select-plan', [
+            'plan_id' => $plan->id,
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+            'ap_mac' => '11:22:33:44:55:66',
+            'ap_name' => 'North Pole AP',
+            'site_name' => 'Main Site',
+            'ssid_name' => 'Guest WiFi',
+            'client_ip' => '192.168.20.10',
+        ]);
+
+        $response->assertCreated();
+
+        $site = Site::query()->firstOrFail();
+        $accessPoint = AccessPoint::query()->firstOrFail();
+        $session = WifiSession::query()->firstOrFail();
+
+        $this->assertSame('Main Site', $site->name);
+        $this->assertSame($site->id, $accessPoint->site_id);
+        $this->assertSame('North Pole AP', $accessPoint->name);
+        $this->assertSame('11:22:33:44:55:66', $accessPoint->mac_address);
+        $this->assertSame($site->id, $session->site_id);
+        $this->assertSame($accessPoint->id, $session->access_point_id);
+        $this->assertSame('Guest WiFi', $session->ssid_name);
+        $this->assertSame('192.168.20.10', $session->client_ip);
+    }
+}

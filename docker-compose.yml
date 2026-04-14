@@ -1,0 +1,98 @@
+services:
+  portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: captive-portal-app
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - portal-storage:/var/www/html/storage
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: captive-portal-worker
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["php", "artisan", "queue:work", "--tries=1", "--sleep=3", "--timeout=120"]
+    volumes:
+      - portal-storage:/var/www/html/storage
+
+  db:
+    image: mysql:8.4
+    container_name: captive-portal-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-kapitwifi}
+      MYSQL_USER: ${DB_USERNAME:-kapitwifi_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-change_me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_root_password}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  omada-controller:
+    image: ${OMADA_CONTROLLER_IMAGE:-mbentley/omada-controller}:${OMADA_CONTROLLER_TAG:-6.1.0.19}
+    container_name: omada-controller
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Manila}
+      MANAGE_HTTP_PORT: 8088
+      MANAGE_HTTPS_PORT: 8043
+      PORTAL_HTTP_PORT: 8088
+      PORTAL_HTTPS_PORT: 8843
+      PORT_APP_DISCOVERY: 27001
+      PORT_DISCOVERY: 29810
+      PORT_MANAGER_V1: 29811
+      PORT_ADOPT_V1: 29812
+      PORT_UPGRADE_V1: 29813
+      PORT_MANAGER_V2: 29814
+      PORT_TRANSFER_V2: 29815
+      PORT_RTTY: 29816
+      SHOW_SERVER_LOGS: "true"
+      SHOW_MONGODB_LOGS: "false"
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 8192
+    ports:
+      - "8043:8043/tcp"
+      - "8088:8088/tcp"
+      - "8843:8843/tcp"
+      - "27001:27001/udp"
+      - "27002:27002/tcp"
+      - "29810:29810/udp"
+      - "29811-29817:29811-29817/tcp"
+    volumes:
+      - omada-data:/opt/tplink/EAPController/data
+      - omada-work:/opt/tplink/EAPController/work
+      - omada-logs:/opt/tplink/EAPController/logs
+
+volumes:
+  mysql-data:
+  omada-data:
+  omada-work:
+  omada-logs:
+  portal-storage:
