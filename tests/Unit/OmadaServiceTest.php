@@ -3,7 +3,10 @@
 namespace Tests\Unit;
 
 use App\Models\ControllerSetting;
+use App\Models\Site;
+use App\Models\WifiSession;
 use App\Services\OmadaService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -88,5 +91,128 @@ class OmadaServiceTest extends TestCase
         $this->assertSame('3', $result['api_version']);
 
         Http::assertSent(fn ($request) => str_contains($request->url(), '/api/v2/login'));
+    }
+
+    public function test_authorize_client_uses_hotspot_login_and_external_portal_auth_endpoint(): void
+    {
+        Http::fake([
+            'https://localhost:8043/api/info' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
+            ]),
+            'https://localhost:8043/controller-id/api/v2/hotspot/login' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'token' => 'csrf-token',
+                ],
+            ]),
+            'https://localhost:8043/controller-id/api/v2/hotspot/extPortal/auth' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+            ]),
+        ]);
+
+        $service = app(OmadaService::class);
+
+        $session = new WifiSession([
+            'mac_address' => 'aa:bb:cc:dd:ee:ff',
+            'ap_mac' => '11:22:33:44:55:66',
+            'ssid_name' => 'Guest WiFi',
+            'radio_id' => 1,
+            'end_time' => Carbon::create(2026, 4, 15, 12, 30, 0, 'Asia/Manila'),
+        ]);
+        $session->setRelation('site', new Site([
+            'name' => 'Main Branch',
+            'slug' => 'main-branch',
+        ]));
+
+        $service->authorizeClient(new ControllerSetting([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'hotspot_operator_username' => 'operator',
+            'hotspot_operator_password' => 'secret',
+        ]), $session);
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/controller-id/api/v2/hotspot/login')
+            && data_get($request->data(), 'name') === 'operator'
+            && data_get($request->data(), 'password') === 'secret');
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/controller-id/api/v2/hotspot/extPortal/auth')
+            && $request->hasHeader('Csrf-Token', 'csrf-token')
+            && data_get($request->data(), 'authType') === 4
+            && data_get($request->data(), 'clientMac') === 'AA:BB:CC:DD:EE:FF'
+            && data_get($request->data(), 'apMac') === '11:22:33:44:55:66'
+            && data_get($request->data(), 'ssidName') === 'Guest WiFi'
+            && data_get($request->data(), 'radioId') === 1
+            && data_get($request->data(), 'site') === 'Main Branch'
+            && data_get($request->data(), 'time') === 1776227400000000);
+    }
+
+    public function test_deauthorize_client_uses_openapi_unauth_and_disconnect_endpoints(): void
+    {
+        Http::fake([
+            'https://localhost:8043/api/info' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
+            ]),
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'access-token',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/main-branch/hotspot/clients/AA-BB-CC-DD-EE-FF/unauth' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => 'Guest Client',
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/main-branch/clients/AA-BB-CC-DD-EE-FF/disconnect' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+            ]),
+        ]);
+
+        $service = app(OmadaService::class);
+
+        $session = new WifiSession([
+            'mac_address' => 'aa:bb:cc:dd:ee:ff',
+            'ap_mac' => '11:22:33:44:55:66',
+            'ssid_name' => 'Guest WiFi',
+            'radio_id' => 1,
+        ]);
+        $session->setRelation('site', new Site([
+            'name' => 'Main Branch',
+            'slug' => 'main-branch',
+        ]));
+
+        $service->deauthorizeClient(new ControllerSetting([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
+        ]), $session);
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/openapi/authorize/token?grant_type=client_credentials')
+            && data_get($request->data(), 'client_id') === 'pilot-client'
+            && data_get($request->data(), 'client_secret') === 'pilot-secret');
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/openapi/v1/controller-id/sites/main-branch/hotspot/clients/AA-BB-CC-DD-EE-FF/unauth')
+            && $request->hasHeader('Authorization', 'AccessToken=access-token'));
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/openapi/v1/controller-id/sites/main-branch/clients/AA-BB-CC-DD-EE-FF/disconnect')
+            && $request->hasHeader('Authorization', 'AccessToken=access-token'));
     }
 }

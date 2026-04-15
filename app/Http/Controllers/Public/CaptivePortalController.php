@@ -42,6 +42,7 @@ class CaptivePortalController extends Controller
                 'ap_name' => $this->firstFilled($request, ['apName', 'ap_name']),
                 'site_name' => $this->firstFilled($request, ['siteName', 'site_name', 'site']),
                 'ssid_name' => $this->firstFilled($request, ['ssidName', 'ssid_name', 'ssid']),
+                'radio_id' => $this->firstFilled($request, ['radioId', 'radio_id']),
                 'client_ip' => $this->firstFilled($request, ['clientIp', 'client_ip']) ?: $request->ip(),
             ],
             'existingClient' => $existingClient ? [

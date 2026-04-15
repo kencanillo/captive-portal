@@ -7,9 +7,11 @@ use App\Models\WifiSession;
 use App\Services\PayMongoService;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class PaymentController extends Controller
 {
@@ -21,18 +23,33 @@ class PaymentController extends Controller
             'session_id' => ['required', 'integer', Rule::exists('wifi_sessions', 'id')],
         ]);
 
-        $session = WifiSession::query()->with('plan')->findOrFail($validated['session_id']);
+        $session = WifiSession::query()->with(['plan', 'client'])->findOrFail($validated['session_id']);
 
         if ($session->payment_status !== WifiSession::STATUS_PENDING) {
             return $this->error('Session is not eligible for payment.', ['session_id' => ['Invalid state.']], 409);
         }
 
-        $intent = $payMongoService->createPaymentIntent($session);
+        try {
+            $intent = $payMongoService->createPaymentIntent($session);
+        } catch (Throwable $exception) {
+            Log::error('PayMongo checkout creation failed', [
+                'session_id' => $session->id,
+                'error' => $exception->getMessage(),
+            ]);
 
-        return $this->success([
-            'checkout_url' => $intent['checkout_url'],
-            'payment_intent_id' => $intent['payment_intent_id'],
-        ], 'Payment checkout initialized.', 201);
+            return $this->error('Payment checkout initialization failed.', [
+                'paymongo' => [$exception->getMessage()],
+            ], 502);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment checkout initialized.',
+            'data' => [
+                'checkout_url' => $intent['checkout_url'],
+                'payment_intent_id' => $intent['payment_intent_id'],
+            ],
+        ], 201);
     }
 
     public function success(Request $request): Response

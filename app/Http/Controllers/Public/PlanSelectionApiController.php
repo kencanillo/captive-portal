@@ -23,6 +23,7 @@ class PlanSelectionApiController extends Controller
                 'ap_name',
                 'site_name',
                 'ssid_name',
+                'radio_id',
                 'client_ip',
             ]),
             $request->getClientRegistrationData()

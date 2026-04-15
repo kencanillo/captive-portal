@@ -19,20 +19,25 @@ const props = defineProps({
         <thead>
           <tr class="border-b">
             <th class="px-2 py-2">ID</th>
-            <th class="px-2 py-2">MAC</th>
+            <th class="px-2 py-2">Client</th>
             <th class="px-2 py-2">Site</th>
             <th class="px-2 py-2">Access Point</th>
             <th class="px-2 py-2">SSID</th>
             <th class="px-2 py-2">Plan</th>
             <th class="px-2 py-2">Status</th>
             <th class="px-2 py-2">Active</th>
+            <th class="px-2 py-2">Time Left</th>
             <th class="px-2 py-2">Ends</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in props.sessions.data" :key="item.id" class="border-b border-slate-100">
             <td class="px-2 py-2">{{ item.id }}</td>
-            <td class="px-2 py-2">{{ item.mac_address }}</td>
+            <td class="px-2 py-2">
+              <p class="font-medium text-slate-900">{{ item.client?.name || 'Unknown client' }}</p>
+              <p v-if="item.client?.phone_number" class="text-xs text-slate-500">{{ item.client.phone_number }}</p>
+              <p class="text-xs text-slate-500">{{ item.mac_address }}</p>
+            </td>
             <td class="px-2 py-2">{{ item.site?.name || '-' }}</td>
             <td class="px-2 py-2">
               <p>{{ item.access_point?.name || item.ap_name || '-' }}</p>
@@ -42,6 +47,7 @@ const props = defineProps({
             <td class="px-2 py-2">{{ item.plan?.name }}</td>
             <td class="px-2 py-2 uppercase">{{ item.payment_status }}</td>
             <td class="px-2 py-2">{{ item.is_active ? 'Yes' : 'No' }}</td>
+            <td class="px-2 py-2 font-medium">{{ item.remaining_time }}</td>
             <td class="px-2 py-2">{{ item.end_time || '-' }}</td>
           </tr>
         </tbody>

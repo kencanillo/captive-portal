@@ -20,6 +20,8 @@ const form = reactive({
   portal_base_url: props.controllerSettings.portal_base_url || '',
   username: props.controllerSettings.username || '',
   password: '',
+  hotspot_operator_username: props.controllerSettings.hotspot_operator_username || '',
+  hotspot_operator_password: '',
   api_client_id: props.controllerSettings.api_client_id || '',
   api_client_secret: '',
   default_session_minutes: props.controllerSettings.default_session_minutes || 60,
@@ -40,6 +42,8 @@ const buildPayload = () => {
     portal_base_url: String(formData.get('portal_base_url') ?? form.portal_base_url ?? ''),
     username: String(formData.get('username') ?? form.username ?? ''),
     password: String(formData.get('password') ?? ''),
+    hotspot_operator_username: String(formData.get('hotspot_operator_username') ?? form.hotspot_operator_username ?? ''),
+    hotspot_operator_password: String(formData.get('hotspot_operator_password') ?? ''),
     api_client_id: String(formData.get('api_client_id') ?? form.api_client_id ?? ''),
     api_client_secret: String(formData.get('api_client_secret') ?? ''),
     default_session_minutes: Number(formData.get('default_session_minutes') ?? form.default_session_minutes ?? 60),
@@ -105,6 +109,20 @@ const testConnection = () => {
             <input v-model="form.password" name="password" type="password" class="mt-1 w-full rounded-md border-slate-300" autocomplete="current-password" />
             <p class="mt-1 text-xs text-slate-500">
               {{ props.controllerSettings.has_password ? 'Leave blank to keep the current password.' : 'No password saved yet.' }}
+            </p>
+          </div>
+          <div>
+            <label class="text-sm font-medium text-slate-700">Hotspot operator username</label>
+            <input v-model="form.hotspot_operator_username" name="hotspot_operator_username" class="mt-1 w-full rounded-md border-slate-300" autocomplete="username" />
+            <p class="mt-1 text-xs text-slate-500">
+              Use the Omada hotspot operator account for external portal authorization. If blank, the app will fall back to the controller username.
+            </p>
+          </div>
+          <div>
+            <label class="text-sm font-medium text-slate-700">Hotspot operator password</label>
+            <input v-model="form.hotspot_operator_password" name="hotspot_operator_password" type="password" class="mt-1 w-full rounded-md border-slate-300" autocomplete="current-password" />
+            <p class="mt-1 text-xs text-slate-500">
+              {{ props.controllerSettings.has_hotspot_operator_password ? 'Leave blank to keep the current hotspot operator password.' : 'No hotspot operator password saved yet.' }}
             </p>
           </div>
           <div>

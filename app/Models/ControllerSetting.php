@@ -14,6 +14,8 @@ class ControllerSetting extends Model
         'portal_base_url',
         'username',
         'password',
+        'hotspot_operator_username',
+        'hotspot_operator_password',
         'api_client_id',
         'api_client_secret',
         'default_session_minutes',
@@ -22,6 +24,7 @@ class ControllerSetting extends Model
 
     protected $hidden = [
         'password',
+        'hotspot_operator_password',
         'api_client_secret',
     ];
 
@@ -29,6 +32,7 @@ class ControllerSetting extends Model
     {
         return [
             'password' => 'encrypted',
+            'hotspot_operator_password' => 'encrypted',
             'api_client_secret' => 'encrypted',
             'default_session_minutes' => 'integer',
             'last_tested_at' => 'datetime',
@@ -62,5 +66,10 @@ class ControllerSetting extends Model
     public function canSyncAccessPoints(): bool
     {
         return filled($this->base_url) && $this->hasLegacyCredentials();
+    }
+
+    public function hasHotspotOperatorCredentials(): bool
+    {
+        return filled($this->hotspot_operator_username) && filled($this->hotspot_operator_password);
     }
 }

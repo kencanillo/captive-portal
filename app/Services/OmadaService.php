@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
 use App\Models\Site;
+use App\Models\WifiSession;
 use GuzzleHttp\Cookie\CookieJar;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Arr;
@@ -151,6 +152,55 @@ class OmadaService
         ];
     }
 
+    public function authorizeClient(ControllerSetting $settings, WifiSession $session): array
+    {
+        $normalized = $this->normalizeSettings($settings);
+        $hotspotSession = $this->hotspotAuthenticatedClient($normalized);
+
+        if (! $session->end_time) {
+            throw new RuntimeException('Session end time is missing, so Omada authorization expiry cannot be calculated.');
+        }
+
+        return $this->submitExtPortalAuth($hotspotSession, $normalized, $session, $session->end_time);
+    }
+
+    public function deauthorizeClient(ControllerSetting $settings, WifiSession $session): array
+    {
+        $normalized = $this->normalizeSettings($settings);
+        $siteId = $this->resolveOpenApiSiteIdentifier($settings, $session);
+        $clientMac = $this->normalizeMacForPath($session->mac_address);
+
+        if (blank($siteId)) {
+            throw new RuntimeException('Omada deauthorization requires a site identifier.');
+        }
+
+        if (! $this->hasOpenApiCredentials($normalized)) {
+            throw new RuntimeException('Omada deauthorization requires OpenAPI client credentials.');
+        }
+
+        $openApi = $this->openApiAuthenticatedClient($normalized);
+
+        $unauthResponse = $this->request(
+            $openApi['client'],
+            'post',
+            "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/hotspot/clients/{$clientMac}/unauth"
+        );
+
+        try {
+            $this->request(
+                $openApi['client'],
+                'post',
+                "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/clients/{$clientMac}/disconnect"
+            );
+        } catch (RuntimeException $exception) {
+            if (! str_contains($exception->getMessage(), 'This client does not exist')) {
+                throw $exception;
+            }
+        }
+
+        return $unauthResponse;
+    }
+
     private function authenticatedClient(array $settings, string $purpose): PendingRequest
     {
         if (! $this->hasLegacyCredentials($settings)) {
@@ -170,6 +220,98 @@ class OmadaService
         }
 
         return $client;
+    }
+
+    private function hotspotAuthenticatedClient(array $settings): array
+    {
+        if (! $this->hasHotspotCredentials($settings)) {
+            throw new RuntimeException('Hotspot operator credentials are required for Omada client authorization.');
+        }
+
+        $client = $this->client($settings);
+        $info = $this->extractControllerInfo(
+            $this->request($client, 'get', '/api/info')
+        );
+
+        if (blank($info['omadac_id'])) {
+            throw new RuntimeException('Omada controller ID is missing from /api/info, so hotspot authorization cannot proceed.');
+        }
+
+        $loginResponse = $client->post("/{$info['omadac_id']}/api/v2/hotspot/login", [
+            'name' => $settings['hotspot_operator_username'],
+            'password' => $settings['hotspot_operator_password'],
+        ]);
+
+        if ($loginResponse->failed()) {
+            throw new RuntimeException("Omada request failed for [/{$info['omadac_id']}/api/v2/hotspot/login] with HTTP {$loginResponse->status()}.");
+        }
+
+        $payload = $this->decodeResponse($loginResponse->body());
+
+        if (($payload['errorCode'] ?? null) !== 0) {
+            throw new RuntimeException(Arr::get($payload, 'msg', 'Omada hotspot operator login failed.'));
+        }
+
+        $csrfToken = Arr::get($payload, 'result.token');
+
+        if (! is_string($csrfToken) || trim($csrfToken) === '') {
+            throw new RuntimeException('Omada hotspot operator login succeeded without returning a CSRF token.');
+        }
+
+        return [
+            'controller_id' => $info['omadac_id'],
+            'client' => $client->withHeaders([
+                'Csrf-Token' => $csrfToken,
+            ]),
+        ];
+    }
+
+    private function submitExtPortalAuth(array $hotspotSession, array $settings, WifiSession $session, Carbon $time): array
+    {
+        $site = $session->site?->name
+            ?? $session->getAttribute('site_name')
+            ?? $settings['site_identifier']
+            ?? $settings['site_name'];
+
+        if (blank($session->mac_address) || blank($session->ap_mac) || blank($session->ssid_name) || $session->radio_id === null || blank($site)) {
+            throw new RuntimeException('Omada authorization requires client MAC, AP MAC, SSID, radio ID, and site.');
+        }
+
+        return $this->request(
+            $hotspotSession['client'],
+            'post',
+            "/{$hotspotSession['controller_id']}/api/v2/hotspot/extPortal/auth",
+            [
+                'authType' => 4,
+                'clientMac' => strtoupper($session->mac_address),
+                'apMac' => strtoupper($session->ap_mac),
+                'ssidName' => $session->ssid_name,
+                'radioId' => $session->radio_id,
+                'site' => $site,
+                'time' => $this->toOmadaEpochMicros($time),
+            ]
+        );
+    }
+
+    private function openApiAuthenticatedClient(array $settings): array
+    {
+        $client = $this->client($settings);
+        $info = $this->extractControllerInfo(
+            $this->request($client, 'get', '/api/info')
+        );
+
+        if (blank($info['omadac_id'])) {
+            throw new RuntimeException('Omada controller ID is missing from /api/info, so OpenAPI authentication cannot proceed.');
+        }
+
+        $token = $this->requestOpenApiAccessToken($settings, $info['omadac_id']);
+
+        return [
+            'controller_id' => $info['omadac_id'],
+            'client' => $client->withHeaders([
+                'Authorization' => "AccessToken={$token}",
+            ]),
+        ];
     }
 
     private function requestOpenApiAccessToken(array $settings, ?string $omadacId): string
@@ -439,8 +581,13 @@ class OmadaService
             'base_url' => rtrim((string) $settings->base_url, '/'),
             'username' => $this->stringOrNull($settings->username),
             'password' => $this->stringOrNull($settings->password),
+            'hotspot_operator_username' => $this->stringOrNull($settings->hotspot_operator_username)
+                ?? $this->stringOrNull($settings->username),
+            'hotspot_operator_password' => $this->stringOrNull($settings->hotspot_operator_password)
+                ?? $this->stringOrNull($settings->password),
             'api_client_id' => $this->stringOrNull($settings->api_client_id),
             'api_client_secret' => $this->stringOrNull($settings->api_client_secret),
+            'site_identifier' => $this->stringOrNull($settings->site_identifier),
             'site_name' => $settings->site_name ?: null,
         ];
     }
@@ -453,6 +600,11 @@ class OmadaService
     private function hasOpenApiCredentials(array $settings): bool
     {
         return filled($settings['api_client_id'] ?? null) && filled($settings['api_client_secret'] ?? null);
+    }
+
+    private function hasHotspotCredentials(array $settings): bool
+    {
+        return filled($settings['hotspot_operator_username'] ?? null) && filled($settings['hotspot_operator_password'] ?? null);
     }
 
     private function extractControllerInfo(array $payload): array
@@ -547,5 +699,28 @@ class OmadaService
         }
 
         return $decoded;
+    }
+
+    private function toOmadaEpochMicros(Carbon $time): int
+    {
+        return ((int) $time->getTimestamp()) * 1000000 + ((int) $time->micro);
+    }
+
+    private function resolveOpenApiSiteIdentifier(ControllerSetting $settings, WifiSession $session): ?string
+    {
+        return $this->stringOrNull($session->site?->slug)
+            ?? $this->stringOrNull($session->site?->name)
+            ?? $this->stringOrNull($settings->site_identifier);
+    }
+
+    private function normalizeMacForPath(?string $macAddress): string
+    {
+        $normalized = $this->normalizeMac($macAddress);
+
+        if ($normalized === null) {
+            throw new RuntimeException('Omada deauthorization requires a valid client MAC address.');
+        }
+
+        return str_replace(':', '-', $normalized);
     }
 }

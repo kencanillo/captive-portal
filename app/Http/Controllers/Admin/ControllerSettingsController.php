@@ -24,10 +24,12 @@ class ControllerSettingsController extends Controller
                 'site_name' => $settings->site_name,
                 'portal_base_url' => $settings->portal_base_url,
                 'username' => $settings->username,
+                'hotspot_operator_username' => $settings->hotspot_operator_username,
                 'api_client_id' => $settings->api_client_id,
                 'default_session_minutes' => $settings->default_session_minutes,
                 'last_tested_at' => optional($settings->last_tested_at)?->toDateTimeString(),
                 'has_password' => filled($settings->getRawOriginal('password')),
+                'has_hotspot_operator_password' => filled($settings->getRawOriginal('hotspot_operator_password')),
                 'has_api_client_secret' => filled($settings->getRawOriginal('api_client_secret')),
             ],
         ]);
@@ -76,6 +78,8 @@ class ControllerSettingsController extends Controller
         $preserveOnBlank = [
             'username',
             'password',
+            'hotspot_operator_username',
+            'hotspot_operator_password',
             'api_client_id',
             'api_client_secret',
         ];

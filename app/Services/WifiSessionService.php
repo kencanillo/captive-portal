@@ -3,15 +3,18 @@
 namespace App\Services;
 
 use App\Models\Client;
+use App\Models\ControllerSetting;
 use App\Models\Plan;
 use App\Models\WifiSession;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class WifiSessionService
 {
     public function __construct(
         private readonly PortalSessionContextResolver $portalSessionContextResolver,
+        private readonly OmadaService $omadaService,
     ) {
     }
 
@@ -32,6 +35,7 @@ class WifiSessionService
                 'ap_mac' => $resolvedContext['ap_mac'],
                 'ap_name' => $resolvedContext['ap_name'],
                 'ssid_name' => $resolvedContext['ssid_name'],
+                'radio_id' => $resolvedContext['radio_id'] ?? null,
                 'client_ip' => $resolvedContext['client_ip'],
                 'amount_paid' => $plan->price,
                 'payment_status' => WifiSession::STATUS_PENDING,
@@ -87,11 +91,36 @@ class WifiSessionService
             'end_time' => $end,
         ])->save();
 
+        $session = $session->refresh()->loadMissing(['site', 'accessPoint', 'plan', 'client']);
+        $settings = ControllerSetting::query()->first();
+
+        if (! $settings) {
+            throw new \RuntimeException('Omada controller settings are missing, so the paid client cannot be authorized.');
+        }
+
+        $this->omadaService->authorizeClient($settings, $session);
+
         return $session->refresh();
     }
 
-    public function expireSession(WifiSession $session): WifiSession
+    public function expireSession(WifiSession $session, ?ControllerSetting $settings = null): WifiSession
     {
+        $settings ??= ControllerSetting::query()->first();
+        $session->loadMissing(['site', 'accessPoint', 'plan', 'client']);
+
+        if ($settings) {
+            try {
+                $this->omadaService->deauthorizeClient($settings, $session);
+            } catch (\Throwable $exception) {
+                Log::warning('Failed to deauthorize expired WiFi session in Omada.', [
+                    'wifi_session_id' => $session->id,
+                    'client_id' => $session->client_id,
+                    'mac_address' => $session->mac_address,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
         $session->forceFill(['is_active' => false])->save();
 
         return $session->refresh();
@@ -113,10 +142,21 @@ class WifiSessionService
 
     public function expireAllDueSessions(): int
     {
-        return WifiSession::query()
+        $settings = ControllerSetting::query()->first();
+        $expiredCount = 0;
+
+        WifiSession::query()
             ->where('is_active', true)
             ->whereNotNull('end_time')
             ->where('end_time', '<=', now())
-            ->update(['is_active' => false, 'updated_at' => now()]);
+            ->orderBy('id')
+            ->chunkById(100, function ($sessions) use (&$expiredCount, $settings): void {
+                foreach ($sessions as $session) {
+                    $this->expireSession($session, $settings);
+                    $expiredCount++;
+                }
+            });
+
+        return $expiredCount;
     }
 }

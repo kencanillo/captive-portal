@@ -13,6 +13,7 @@ class PortalSessionContextResolver
         $siteName = $this->cleanString($attributes['site_name'] ?? null);
         $apName = $this->cleanString($attributes['ap_name'] ?? null);
         $ssidName = $this->cleanString($attributes['ssid_name'] ?? null);
+        $radioId = $this->normalizeRadioId($attributes['radio_id'] ?? null);
         $clientIp = filter_var($attributes['client_ip'] ?? null, FILTER_VALIDATE_IP) ?: null;
         $apMac = $this->normalizeMac($attributes['ap_mac'] ?? null);
 
@@ -54,6 +55,7 @@ class PortalSessionContextResolver
             'ap_mac' => $apMac,
             'ap_name' => $apName ?: $accessPoint?->name,
             'ssid_name' => $ssidName,
+            'radio_id' => $radioId,
             'client_ip' => $clientIp,
         ];
     }
@@ -93,5 +95,20 @@ class PortalSessionContextResolver
         $value = strtolower(trim((string) $value));
 
         return $value !== '' ? $value : null;
+    }
+
+    private function normalizeRadioId(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (! is_numeric($value)) {
+            return null;
+        }
+
+        $radioId = (int) $value;
+
+        return $radioId >= 0 ? $radioId : null;
     }
 }

@@ -7,6 +7,7 @@ use App\Models\WifiSession;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class PayMongoService
@@ -23,7 +24,7 @@ class PayMongoService
     }
 
     /**
-     * Creates a PayMongo Checkout Session for GCash and stores the reference on wifi_sessions.
+     * Creates a PayMongo Checkout Session for QRPH and stores the reference on wifi_sessions.
      */
     public function createPaymentIntent(WifiSession $session): array
     {
@@ -37,7 +38,7 @@ class PayMongoService
                         'name' => $session->plan->name,
                         'quantity' => 1,
                     ]],
-                    'payment_method_types' => ['gcash'],
+                    'payment_method_types' => ['qrph'],
                     'success_url' => route('payment.success', ['session' => $session->id]),
                     'cancel_url' => route('payment.failed', ['session' => $session->id]),
                     'description' => "KapitWiFi session {$session->id}",
@@ -105,28 +106,30 @@ class PayMongoService
             ->when($metadataSessionId, fn ($q) => $q->whereKey($metadataSessionId), fn ($q) => $q->where('paymongo_payment_intent_id', $checkoutSessionId))
             ->firstOrFail();
 
-        if ($session->payment_status !== WifiSession::STATUS_PAID) {
-            $session->update([
-                'payment_status' => WifiSession::STATUS_PAID,
-                'amount_paid' => $session->plan->price,
-            ]);
-        }
+        DB::transaction(function () use ($session, $checkoutSessionId, $decoded) {
+            if ($session->payment_status !== WifiSession::STATUS_PAID) {
+                $session->update([
+                    'payment_status' => WifiSession::STATUS_PAID,
+                    'amount_paid' => $session->plan->price,
+                ]);
+            }
 
-        Payment::updateOrCreate(
-            [
-                'wifi_session_id' => $session->id,
-                'reference_id' => $checkoutSessionId ?? Str::uuid()->toString(),
-            ],
-            [
-                'provider' => 'paymongo',
-                'status' => WifiSession::STATUS_PAID,
-                'raw_response' => $decoded,
-            ]
-        );
+            Payment::updateOrCreate(
+                [
+                    'wifi_session_id' => $session->id,
+                    'reference_id' => $checkoutSessionId ?? Str::uuid()->toString(),
+                ],
+                [
+                    'provider' => 'paymongo',
+                    'status' => WifiSession::STATUS_PAID,
+                    'raw_response' => $decoded,
+                ]
+            );
 
-        if (! $session->is_active) {
-            app(WifiSessionService::class)->activateSession($session->fresh('plan'));
-        }
+            if (! $session->is_active) {
+                app(WifiSessionService::class)->activateSession($session->fresh('plan'));
+            }
+        });
     }
 
     private function verifySignature(string $payload, ?string $signatureHeader): bool

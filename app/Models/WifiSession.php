@@ -24,6 +24,7 @@ class WifiSession extends Model
         'ap_mac',
         'ap_name',
         'ssid_name',
+        'radio_id',
         'client_ip',
         'amount_paid',
         'payment_status',
@@ -38,6 +39,7 @@ class WifiSession extends Model
         return [
             'amount_paid' => 'decimal:2',
             'is_active' => 'boolean',
+            'radio_id' => 'integer',
             'start_time' => 'datetime',
             'end_time' => 'datetime',
         ];
