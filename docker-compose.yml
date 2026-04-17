@@ -86,8 +86,8 @@ services:
     container_name: captive-portal-db
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: ${DB_DATABASE:-kapitwifi}
-      MYSQL_USER: ${DB_USERNAME:-kapitwifi_user}
+      MYSQL_DATABASE: ${DB_DATABASE:-kennfi_lab}
+      MYSQL_USER: ${DB_USERNAME:-kennfi_lab_user}
       MYSQL_PASSWORD: ${DB_PASSWORD:-change_me}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_root_password}
     command:

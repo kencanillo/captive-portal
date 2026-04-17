@@ -477,7 +477,7 @@ class OmadaService
         ]);
 
         if ($wasCreated) {
-            $accessPoint->custom_ssid = 'KapitWiFi';
+            $accessPoint->custom_ssid = 'KennFi Lab';
             $accessPoint->allow_client_pause = true;
             $accessPoint->block_tethering = true;
             $accessPoint->is_portal_enabled = true;

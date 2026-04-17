@@ -21,7 +21,7 @@ const defaultForm = () => ({
   ip_address: '',
   omada_device_id: '',
   claim_status: 'claimed',
-  custom_ssid: 'KapitWiFi',
+  custom_ssid: 'KennFi Lab',
   voucher_ssid_name: '',
   allow_client_pause: true,
   block_tethering: true,

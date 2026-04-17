@@ -2,7 +2,7 @@
 
 ## Project Context
 
-This project is a paid Wi-Fi captive portal for `KapitWiFi`.
+This project is a paid Wi-Fi captive portal for `KennFi Lab`.
 
 The target setup is straightforward:
 

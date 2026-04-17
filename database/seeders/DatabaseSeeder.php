@@ -11,9 +11,9 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         User::query()->updateOrCreate(
-            ['email' => 'admin@kapitwifi.test'],
+            ['email' => 'admin@kennfilab.test'],
             [
-                'name' => 'KapitWiFi Admin',
+                'name' => 'KennFi Lab Admin',
                 'password' => Hash::make('password'),
                 'is_admin' => true,
                 'email_verified_at' => now(),

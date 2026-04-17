@@ -240,7 +240,7 @@ class PayMongoQrPhService
                     'currency' => 'PHP',
                     'capture_type' => 'automatic',
                     'payment_method_allowed' => ['qrph'],
-                    'description' => "KapitWiFi {$session->plan->name}",
+                    'description' => "KennFi Lab {$session->plan->name}",
                     'metadata' => [
                         'wifi_session_id' => (string) $session->id,
                         'mac_address' => $session->mac_address,
@@ -688,10 +688,10 @@ class PayMongoQrPhService
         $normalizedPhone = preg_replace('/\D+/', '', (string) $session->client?->phone_number);
 
         if ($normalizedPhone) {
-            return "client{$normalizedPhone}@kapitwifi.local";
+            return "client{$normalizedPhone}@kennfilab.local";
         }
 
-        return "session{$session->id}@kapitwifi.local";
+        return "session{$session->id}@kennfilab.local";
     }
 
     private function normalizePhoneNumber(?string $phoneNumber): string

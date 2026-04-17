@@ -279,7 +279,7 @@ onBeforeUnmount(() => {
 <template>
   <Head title="QR Payment" />
 
-  <MainLayout title="KapitWiFi Payment">
+  <MainLayout title="KennFi Lab Payment">
     <section class="mx-auto max-w-xl space-y-4">
       <div class="rounded-xl bg-white p-6 shadow">
         <div class="flex items-start justify-between gap-4">

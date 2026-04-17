@@ -134,7 +134,7 @@ const proceedToPlans = () => {
 
 	<Head title="Connect" />
 
-	<MainLayout title="KapitWiFi Portal">
+	<MainLayout title="KennFi Lab Portal">
 		<section class="mx-auto max-w-2xl space-y-4">
 			<!-- Welcome message for existing clients -->
 			<div v-if="existingClient" class="rounded-lg bg-green-50 border border-green-200 p-6 shadow">
@@ -144,7 +144,7 @@ const proceedToPlans = () => {
 
 			<!-- Registration form for new clients -->
 			<div v-else-if="showRegistrationForm" class="rounded-lg bg-white p-6 shadow">
-				<h2 class="text-lg font-semibold text-slate-900">Welcome to KapitWiFi</h2>
+				<h2 class="text-lg font-semibold text-slate-900">Welcome to KennFi Lab</h2>
 				<p class="mt-1 text-sm text-slate-600">Please register to get started with your WiFi connection.</p>
 
 				<div class="mt-6 space-y-4">
