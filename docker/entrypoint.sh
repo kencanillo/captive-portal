@@ -17,6 +17,7 @@ if [[ -n "${DB_HOST:-}" ]]; then
     until mysqladmin ping "${mysql_args[@]}" --silent; do
         sleep 2
     done
+    echo "MySQL is reachable."
 fi
 
 mkdir -p \
