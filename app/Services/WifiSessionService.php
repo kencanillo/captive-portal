@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Client;
 use App\Models\ControllerSetting;
+use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\WifiSession;
 use Carbon\Carbon;
@@ -38,7 +39,8 @@ class WifiSessionService
                 'radio_id' => $resolvedContext['radio_id'] ?? null,
                 'client_ip' => $resolvedContext['client_ip'],
                 'amount_paid' => $plan->price,
-                'payment_status' => WifiSession::STATUS_PENDING,
+                'payment_status' => WifiSession::PAYMENT_STATUS_PENDING,
+                'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
                 'is_active' => false,
             ]);
         });
@@ -78,20 +80,23 @@ class WifiSessionService
 
     public function activateSession(WifiSession $session): WifiSession
     {
-        if ($session->payment_status !== WifiSession::STATUS_PAID) {
+        if ($session->payment_status !== WifiSession::PAYMENT_STATUS_PAID) {
             throw new \RuntimeException('Session cannot be activated without paid status.');
+        }
+
+        if ($session->session_status === WifiSession::SESSION_STATUS_ACTIVE && $session->is_active) {
+            return $session;
         }
 
         $start = Carbon::now();
         $end = $start->copy()->addMinutes($session->plan->duration_minutes);
-
         $session->forceFill([
-            'is_active' => true,
             'start_time' => $start,
             'end_time' => $end,
-        ])->save();
+            'session_status' => WifiSession::SESSION_STATUS_PAID,
+        ]);
 
-        $session = $session->refresh()->loadMissing(['site', 'accessPoint', 'plan', 'client']);
+        $session = $session->loadMissing(['site', 'accessPoint', 'plan', 'client']);
         $settings = ControllerSetting::query()->first();
 
         if (! $settings) {
@@ -99,6 +104,30 @@ class WifiSessionService
         }
 
         $this->omadaService->authorizeClient($settings, $session);
+
+        $session->forceFill([
+            'is_active' => true,
+            'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
+            'release_failure_reason' => null,
+        ])->save();
+
+        return $session->refresh();
+    }
+
+    public function markReleaseFailed(WifiSession $session, string $reason): WifiSession
+    {
+        $session->forceFill([
+            'is_active' => false,
+            'start_time' => null,
+            'end_time' => null,
+            'session_status' => WifiSession::SESSION_STATUS_RELEASE_FAILED,
+            'release_failure_reason' => $reason,
+        ])->save();
+
+        Log::error('WiFi session release failed.', [
+            'wifi_session_id' => $session->id,
+            'reason' => $reason,
+        ]);
 
         return $session->refresh();
     }
@@ -121,7 +150,10 @@ class WifiSessionService
             }
         }
 
-        $session->forceFill(['is_active' => false])->save();
+        $session->forceFill([
+            'is_active' => false,
+            'session_status' => WifiSession::SESSION_STATUS_EXPIRED,
+        ])->save();
 
         return $session->refresh();
     }

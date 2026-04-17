@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ReleaseWifiAccessJob;
 use App\Models\Client;
 use App\Models\ControllerSetting;
 use App\Models\Payment;
@@ -9,8 +10,10 @@ use App\Models\Plan;
 use App\Models\Site;
 use App\Models\WifiSession;
 use App\Services\OmadaService;
-use Illuminate\Support\Facades\Http;
+use App\Services\WifiSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 use Mockery;
 use Tests\TestCase;
 
@@ -18,7 +21,402 @@ class PaymentControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_create_payment_initializes_a_qrph_checkout_session_and_leaves_wifi_pending(): void
+    public function test_create_qrph_payment_attempt_and_reuse_existing_attempt_on_repeat_request(): void
+    {
+        $session = $this->createWifiSession();
+
+        config()->set('services.paymongo.secret_key', 'sk_test_123');
+        config()->set('services.paymongo.base_url', 'https://api.paymongo.com/v1');
+        config()->set('services.paymongo.qrph_expiry_seconds', 1800);
+
+        Http::fake([
+            'https://api.paymongo.com/v1/payment_intents' => Http::response([
+                'data' => [
+                    'id' => 'pi_test_qrph_123',
+                    'attributes' => [
+                        'status' => 'awaiting_payment_method',
+                    ],
+                ],
+            ]),
+            'https://api.paymongo.com/v1/payment_methods' => Http::response([
+                'data' => [
+                    'id' => 'pm_test_qrph_123',
+                ],
+            ]),
+            'https://api.paymongo.com/v1/payment_intents/pi_test_qrph_123/attach' => Http::response([
+                'data' => [
+                    'id' => 'pi_test_qrph_123',
+                    'attributes' => [
+                        'status' => 'awaiting_next_action',
+                        'next_action' => [
+                            'type' => 'consume_qr',
+                            'code' => [
+                                'id' => 'code_test_qrph_123',
+                                'image_url' => 'data:image/png;base64,abc123',
+                            ],
+                        ],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $firstResponse = $this->postJson('/api/create-payment', [
+            'session_id' => $session->id,
+        ]);
+
+        $firstResponse->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.payment_intent_id', 'pi_test_qrph_123');
+
+        $paymentId = $firstResponse->json('data.payment_id');
+
+        $secondResponse = $this->postJson('/api/create-payment', [
+            'session_id' => $session->id,
+        ]);
+
+        $secondResponse->assertOk()
+            ->assertJsonPath('data.payment_id', $paymentId)
+            ->assertJsonPath('data.payment_intent_id', 'pi_test_qrph_123');
+
+        Http::assertSentCount(3);
+
+        $session->refresh();
+        $payment = Payment::query()->findOrFail($paymentId);
+
+        $this->assertSame(WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT, $session->payment_status);
+        $this->assertSame(WifiSession::SESSION_STATUS_PENDING_PAYMENT, $session->session_status);
+        $this->assertSame(Payment::STATUS_AWAITING_PAYMENT, $payment->payment_status);
+        $this->assertSame('pi_test_qrph_123', $payment->paymongo_payment_intent_id);
+        $this->assertSame('pm_test_qrph_123', $payment->paymongo_payment_method_id);
+        $this->assertSame('code_test_qrph_123', $payment->qr_reference);
+        $this->assertNotNull($payment->qr_expires_at);
+        $this->assertSame(1, Payment::query()->count());
+    }
+
+    public function test_status_endpoint_returns_waiting_state_initially(): void
+    {
+        $payment = $this->createPendingPayment();
+
+        $response = $this->getJson("/payments/{$payment->id}/status");
+
+        $response->assertOk()
+            ->assertJsonPath('data.payment_id', $payment->id)
+            ->assertJsonPath('data.payment_status', Payment::STATUS_AWAITING_PAYMENT)
+            ->assertJsonPath('data.wifi_session_status', WifiSession::SESSION_STATUS_PENDING_PAYMENT)
+            ->assertJsonPath('data.should_continue_polling', true)
+            ->assertJsonPath('data.next_step', 'keep_waiting');
+    }
+
+    public function test_paymongo_payment_paid_webhook_updates_payment_and_session_and_dispatches_release_job(): void
+    {
+        Bus::fake();
+        config()->set('services.paymongo.webhook_secret', 'whsec_test_123');
+
+        $payment = $this->createPendingPayment([
+            'paymongo_payment_intent_id' => 'pi_test_paid_123',
+        ]);
+
+        $payload = json_encode([
+            'data' => [
+                'id' => 'evt_test_paid_123',
+                'type' => 'event',
+                'attributes' => [
+                    'type' => 'payment.paid',
+                    'data' => [
+                        'id' => 'pay_test_paid_123',
+                        'type' => 'payment',
+                        'attributes' => [
+                            'payment_intent_id' => 'pi_test_paid_123',
+                            'external_reference_number' => 'QRREF123',
+                            'paid_at' => now()->timestamp,
+                            'source' => [
+                                'provider' => [
+                                    'code_id' => 'code_test_paid_123',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR);
+
+        $timestamp = (string) now()->timestamp;
+        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", 'whsec_test_123');
+
+        $response = $this->call(
+            'POST',
+            '/api/paymongo/webhook',
+            [],
+            [],
+            [],
+            [
+                'CONTENT_TYPE' => 'application/json',
+                'HTTP_Paymongo-Signature' => "t={$timestamp},te={$signature}",
+            ],
+            $payload
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+
+        $payment->refresh();
+        $payment->wifiSession->refresh();
+
+        $this->assertSame(Payment::STATUS_PAID, $payment->payment_status);
+        $this->assertSame('pay_test_paid_123', $payment->paymongo_payment_id);
+        $this->assertSame('QRREF123', $payment->external_reference);
+        $this->assertNotNull($payment->paid_at);
+        $this->assertSame(WifiSession::PAYMENT_STATUS_PAID, $payment->wifiSession->payment_status);
+        $this->assertSame(WifiSession::SESSION_STATUS_PAID, $payment->wifiSession->session_status);
+
+        Bus::assertDispatched(ReleaseWifiAccessJob::class, fn (ReleaseWifiAccessJob $job) => $job->paymentId === $payment->id);
+    }
+
+    public function test_duplicate_paid_webhook_is_idempotent(): void
+    {
+        Bus::fake();
+        config()->set('services.paymongo.webhook_secret', 'whsec_test_123');
+
+        $payment = $this->createPendingPayment([
+            'paymongo_payment_intent_id' => 'pi_test_dup_123',
+        ]);
+
+        $payload = json_encode([
+            'data' => [
+                'id' => 'evt_test_dup_123',
+                'type' => 'event',
+                'attributes' => [
+                    'type' => 'payment.paid',
+                    'data' => [
+                        'id' => 'pay_test_dup_123',
+                        'type' => 'payment',
+                        'attributes' => [
+                            'payment_intent_id' => 'pi_test_dup_123',
+                            'paid_at' => now()->timestamp,
+                            'source' => [
+                                'provider' => [
+                                    'code_id' => 'code_dup_123',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR);
+
+        $timestamp = (string) now()->timestamp;
+        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", 'whsec_test_123');
+
+        foreach ([1, 2] as $index) {
+            $response = $this->call(
+                'POST',
+                '/api/paymongo/webhook',
+                [],
+                [],
+                [],
+                [
+                    'CONTENT_TYPE' => 'application/json',
+                    'HTTP_Paymongo-Signature' => "t={$timestamp},te={$signature}",
+                ],
+                $payload
+            );
+
+            $response->assertOk();
+        }
+
+        $payment->refresh();
+
+        $this->assertSame(Payment::STATUS_PAID, $payment->payment_status);
+        Bus::assertDispatchedTimes(ReleaseWifiAccessJob::class, 1);
+    }
+
+    public function test_expired_qr_becomes_expired_on_status_check(): void
+    {
+        $payment = $this->createPendingPayment([
+            'qr_expires_at' => now()->subMinute(),
+        ]);
+
+        $response = $this->getJson("/payments/{$payment->id}/status");
+
+        $response->assertOk()
+            ->assertJsonPath('data.payment_status', Payment::STATUS_EXPIRED)
+            ->assertJsonPath('data.should_continue_polling', false)
+            ->assertJsonPath('data.next_step', 'regenerate_qr');
+
+        $payment->refresh();
+        $payment->wifiSession->refresh();
+
+        $this->assertSame(Payment::STATUS_EXPIRED, $payment->payment_status);
+        $this->assertSame(WifiSession::PAYMENT_STATUS_EXPIRED, $payment->wifiSession->payment_status);
+    }
+
+    public function test_manual_recheck_reconciles_successful_payment_intent(): void
+    {
+        Bus::fake();
+
+        config()->set('services.paymongo.secret_key', 'sk_test_123');
+        config()->set('services.paymongo.base_url', 'https://api.paymongo.com/v1');
+
+        $payment = $this->createPendingPayment([
+            'paymongo_payment_intent_id' => 'pi_test_recheck_123',
+        ]);
+
+        Http::fake([
+            'https://api.paymongo.com/v1/payment_intents/pi_test_recheck_123' => Http::response([
+                'data' => [
+                    'id' => 'pi_test_recheck_123',
+                    'attributes' => [
+                        'status' => 'succeeded',
+                        'payments' => [[
+                            'id' => 'pay_test_recheck_123',
+                            'type' => 'payment',
+                            'attributes' => [
+                                'payment_intent_id' => 'pi_test_recheck_123',
+                                'external_reference_number' => 'RECHECK123',
+                                'paid_at' => now()->timestamp,
+                                'source' => [
+                                    'provider' => [
+                                        'code_id' => 'code_recheck_123',
+                                    ],
+                                ],
+                            ],
+                        ]],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $response = $this
+            ->withSession(['_token' => 'test-token'])
+            ->withHeader('X-CSRF-TOKEN', 'test-token')
+            ->postJson("/payments/{$payment->id}/recheck");
+
+        $response->assertOk()
+            ->assertJsonPath('data.payment_status', Payment::STATUS_PAID)
+            ->assertJsonPath('data.wifi_session_status', WifiSession::SESSION_STATUS_PAID);
+
+        $payment->refresh();
+
+        $this->assertSame(Payment::STATUS_PAID, $payment->payment_status);
+        Bus::assertDispatched(ReleaseWifiAccessJob::class, fn (ReleaseWifiAccessJob $job) => $job->paymentId === $payment->id);
+    }
+
+    public function test_refreshing_payment_page_does_not_create_duplicate_payment_attempts(): void
+    {
+        $payment = $this->createPendingPayment();
+
+        $this->assertSame(1, Payment::query()->count());
+
+        $this->get("/payments/{$payment->id}")
+            ->assertOk();
+
+        $this->assertSame(1, Payment::query()->count());
+    }
+
+    public function test_release_job_marks_session_active_when_omada_authorization_succeeds(): void
+    {
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'hotspot_operator_username' => 'operator',
+            'hotspot_operator_password' => 'secret',
+        ]);
+
+        $payment = $this->createPaidPayment();
+
+        $omadaService = Mockery::mock(OmadaService::class);
+        $omadaService->shouldReceive('authorizeClient')
+            ->once()
+            ->andReturn([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+            ]);
+
+        $this->app->instance(OmadaService::class, $omadaService);
+
+        $job = new ReleaseWifiAccessJob($payment->id);
+        $job->handle($this->app->make(WifiSessionService::class));
+
+        $payment->wifiSession->refresh();
+
+        $this->assertTrue($payment->wifiSession->is_active);
+        $this->assertSame(WifiSession::SESSION_STATUS_ACTIVE, $payment->wifiSession->session_status);
+        $this->assertNotNull($payment->wifiSession->start_time);
+        $this->assertNotNull($payment->wifiSession->end_time);
+    }
+
+    public function test_failed_release_updates_session_status(): void
+    {
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'hotspot_operator_username' => 'operator',
+            'hotspot_operator_password' => 'secret',
+        ]);
+
+        $payment = $this->createPaidPayment();
+
+        $omadaService = Mockery::mock(OmadaService::class);
+        $omadaService->shouldReceive('authorizeClient')
+            ->once()
+            ->andThrow(new \RuntimeException('Omada authorization failed.'));
+
+        $this->app->instance(OmadaService::class, $omadaService);
+
+        $job = new ReleaseWifiAccessJob($payment->id);
+        $job->handle($this->app->make(WifiSessionService::class));
+
+        $payment->wifiSession->refresh();
+
+        $this->assertFalse($payment->wifiSession->is_active);
+        $this->assertSame(WifiSession::SESSION_STATUS_RELEASE_FAILED, $payment->wifiSession->session_status);
+        $this->assertSame('Omada authorization failed.', $payment->wifiSession->release_failure_reason);
+    }
+
+    private function createPendingPayment(array $overrides = []): Payment
+    {
+        $session = $this->createWifiSession([
+            'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
+            'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+            'paymongo_payment_intent_id' => $overrides['paymongo_payment_intent_id'] ?? 'pi_test_pending_123',
+        ]);
+
+        return Payment::query()->create(array_merge([
+            'wifi_session_id' => $session->id,
+            'provider' => Payment::PROVIDER_PAYMONGO,
+            'payment_flow' => Payment::FLOW_QRPH,
+            'reference_id' => 'LOCALREF123',
+            'status' => Payment::STATUS_AWAITING_PAYMENT,
+            'paymongo_payment_intent_id' => $session->paymongo_payment_intent_id,
+            'paymongo_payment_method_id' => 'pm_test_pending_123',
+            'qr_reference' => 'code_test_pending_123',
+            'qr_image_url' => 'data:image/png;base64,pendingqr',
+            'qr_expires_at' => now()->addMinutes(30),
+            'amount' => $session->amount_paid,
+            'currency' => 'PHP',
+            'raw_response' => [
+                'seed' => true,
+            ],
+        ], $overrides));
+    }
+
+    private function createPaidPayment(): Payment
+    {
+        $payment = $this->createPendingPayment([
+            'status' => Payment::STATUS_PAID,
+            'paymongo_payment_id' => 'pay_test_paid_job_123',
+            'paid_at' => now(),
+        ]);
+
+        $payment->wifiSession->forceFill([
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_PAID,
+        ])->save();
+
+        return $payment->fresh(['wifiSession.plan', 'wifiSession.client', 'wifiSession.site']);
+    }
+
+    private function createWifiSession(array $overrides = []): WifiSession
     {
         $site = Site::query()->create([
             'name' => 'Main Branch',
@@ -39,7 +437,7 @@ class PaymentControllerTest extends TestCase
             'duration_minutes' => 60,
         ]);
 
-        $session = WifiSession::query()->create([
+        return WifiSession::query()->create(array_merge([
             'client_id' => $client->id,
             'plan_id' => $plan->id,
             'site_id' => $site->id,
@@ -50,160 +448,9 @@ class PaymentControllerTest extends TestCase
             'radio_id' => 1,
             'client_ip' => '192.168.20.10',
             'amount_paid' => $plan->price,
-            'payment_status' => WifiSession::STATUS_PENDING,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PENDING,
+            'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
             'is_active' => false,
-        ]);
-
-        config()->set('services.paymongo.secret_key', 'sk_test_123');
-        config()->set('services.paymongo.base_url', 'https://api.paymongo.com/v1');
-
-        Http::fake([
-            'https://api.paymongo.com/v1/checkout_sessions' => Http::response([
-                'errorCode' => 0,
-                'data' => [
-                    'id' => 'cs_test_checkout_123',
-                    'attributes' => [
-                        'checkout_url' => 'https://checkout.paymongo.com/cs_test_checkout_123',
-                    ],
-                ],
-            ]),
-        ]);
-
-        $response = $this->postJson('/api/create-payment', [
-            'session_id' => $session->id,
-        ]);
-
-        $response->assertCreated()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.checkout_url', 'https://checkout.paymongo.com/cs_test_checkout_123')
-            ->assertJsonPath('data.payment_intent_id', 'cs_test_checkout_123');
-
-        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/checkout_sessions')
-            && data_get($request->data(), 'data.attributes.payment_method_types') === ['qrph']
-            && data_get($request->data(), 'data.attributes.metadata.wifi_session_id') === $session->id
-            && data_get($request->data(), 'data.attributes.line_items.0.name') === $plan->name);
-
-        $session->refresh();
-        $payment = Payment::query()->where('wifi_session_id', $session->id)->firstOrFail();
-
-        $this->assertSame(WifiSession::STATUS_PENDING, $session->payment_status);
-        $this->assertFalse($session->is_active);
-        $this->assertNull($session->start_time);
-        $this->assertNull($session->end_time);
-        $this->assertSame('paymongo', $payment->provider);
-        $this->assertSame(WifiSession::STATUS_PENDING, $payment->status);
-        $this->assertSame('cs_test_checkout_123', $payment->reference_id);
-    }
-
-    public function test_paymongo_webhook_marks_session_paid_logs_payment_and_authorizes_client_on_omada(): void
-    {
-        config()->set('services.paymongo.webhook_secret', 'whsec_test_123');
-
-        ControllerSetting::query()->create([
-            'controller_name' => 'Pilot Controller',
-            'base_url' => 'https://localhost:8043',
-            'hotspot_operator_username' => 'operator',
-            'hotspot_operator_password' => 'secret',
-        ]);
-
-        $site = Site::query()->create([
-            'name' => 'Main Branch',
-            'slug' => 'main-branch',
-        ]);
-
-        $client = Client::query()->create([
-            'name' => 'Juan Dela Cruz',
-            'phone_number' => '09171234567',
-            'pin' => bcrypt('1234'),
-            'mac_address' => 'AA:BB:CC:DD:EE:FF',
-            'last_connected_at' => now(),
-        ]);
-
-        $plan = Plan::query()->create([
-            'name' => '3 Minutes',
-            'price' => 20,
-            'duration_minutes' => 3,
-        ]);
-
-        $session = WifiSession::query()->create([
-            'client_id' => $client->id,
-            'plan_id' => $plan->id,
-            'site_id' => $site->id,
-            'mac_address' => $client->mac_address,
-            'ap_mac' => '11:22:33:44:55:66',
-            'ap_name' => 'North Pole AP',
-            'ssid_name' => 'Guest WiFi',
-            'radio_id' => 1,
-            'client_ip' => '192.168.20.10',
-            'amount_paid' => $plan->price,
-            'payment_status' => WifiSession::STATUS_PENDING,
-            'paymongo_payment_intent_id' => 'cs_test_checkout_123',
-            'is_active' => false,
-        ]);
-
-        Payment::query()->create([
-            'wifi_session_id' => $session->id,
-            'provider' => 'paymongo',
-            'reference_id' => 'cs_test_checkout_123',
-            'status' => WifiSession::STATUS_PENDING,
-            'raw_response' => [
-                'seed' => true,
-            ],
-        ]);
-
-        $omadaService = Mockery::mock(OmadaService::class);
-        $omadaService->shouldReceive('authorizeClient')
-            ->once()
-            ->withArgs(function (ControllerSetting $settings, WifiSession $authorizedSession) use ($session): bool {
-                return $settings->hotspot_operator_username === 'operator'
-                    && $authorizedSession->id === $session->id
-                    && $authorizedSession->radio_id === 1
-                    && $authorizedSession->ssid_name === 'Guest WiFi';
-            })
-            ->andReturn([
-                'errorCode' => 0,
-                'msg' => 'Success.',
-            ]);
-
-        $this->app->instance(OmadaService::class, $omadaService);
-
-        $payload = json_encode([
-            'data' => [
-                'id' => 'evt_test_123',
-                'type' => 'event',
-                'attributes' => [
-                    'type' => 'checkout_session.payment.paid',
-                    'data' => [
-                        'id' => 'cs_test_checkout_123',
-                        'type' => 'checkout_session',
-                        'attributes' => [
-                            'metadata' => [
-                                'wifi_session_id' => $session->id,
-                            ],
-                        ],
-                    ],
-                ],
-            ],
-        ], JSON_THROW_ON_ERROR);
-
-        $timestamp = (string) now()->timestamp;
-        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", 'whsec_test_123');
-
-        $response = $this->withHeaders([
-            'Paymongo-Signature' => "t={$timestamp},v1={$signature}",
-        ])->postJson('/api/paymongo/webhook', json_decode($payload, true, 512, JSON_THROW_ON_ERROR));
-
-        $response->assertOk()
-            ->assertJsonPath('success', true);
-
-        $session->refresh();
-        $payment = Payment::query()->where('wifi_session_id', $session->id)->where('reference_id', 'cs_test_checkout_123')->firstOrFail();
-
-        $this->assertSame(WifiSession::STATUS_PAID, $session->payment_status);
-        $this->assertTrue($session->is_active);
-        $this->assertNotNull($session->start_time);
-        $this->assertNotNull($session->end_time);
-        $this->assertSame(WifiSession::STATUS_PAID, $payment->status);
-        $this->assertSame('checkout_session.payment.paid', data_get($payment->raw_response, 'data.attributes.type'));
+        ], $overrides));
     }
 }

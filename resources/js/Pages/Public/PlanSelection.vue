@@ -72,13 +72,13 @@ const payWithGCash = async (planId) => {
 			session_id: sessionId,
 		});
 
-		const checkoutUrl = paymentResp?.data?.data?.checkout_url;
+		const paymentUrl = paymentResp?.data?.data?.payment_url;
 
-		if (!checkoutUrl) {
-			throw new Error('Checkout URL not returned.');
+		if (!paymentUrl) {
+			throw new Error('Payment page URL not returned.');
 		}
 
-		window.location.href = checkoutUrl;
+		window.location.href = paymentUrl;
 	} catch (error) {
 		errorMessage.value = error?.response?.data?.message || error?.message || 'Unable to process payment.';
 		loadingPlanId.value = null;
@@ -230,7 +230,7 @@ const proceedToPlans = () => {
 					<button
 						class="mt-4 w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
 						:disabled="loadingPlanId === plan.id || !canProceedToPayment()" @click="payWithGCash(plan.id)">
-						{{ loadingPlanId === plan.id ? 'Redirecting...' : 'Pay with GCash' }}
+						{{ loadingPlanId === plan.id ? 'Preparing QR...' : 'Pay via QRPh' }}
 					</button>
 				</article>
 			</div>
