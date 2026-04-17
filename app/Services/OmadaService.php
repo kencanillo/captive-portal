@@ -346,7 +346,7 @@ class OmadaService
 
     private function client(array $settings): PendingRequest
     {
-        return Http::baseUrl($settings['base_url'])
+        $client = Http::baseUrl($settings['base_url'])
             ->acceptJson()
             ->asJson()
             ->timeout(20)
@@ -358,8 +358,11 @@ class OmadaService
             ])
             ->withOptions([
                 'cookies' => new CookieJar,
-                'verify' => $this->shouldVerifySsl($settings['base_url']),
             ]);
+
+        return $this->shouldVerifySsl()
+            ? $client
+            : $client->withoutVerifying();
     }
 
     private function request(PendingRequest $client, string $method, string $uri, array $payload = []): array
@@ -632,23 +635,9 @@ class OmadaService
         ];
     }
 
-    private function shouldVerifySsl(string $baseUrl): bool
+    private function shouldVerifySsl(): bool
     {
-        $host = parse_url($baseUrl, PHP_URL_HOST);
-
-        if (! is_string($host) || $host === '') {
-            return true;
-        }
-
-        if (in_array($host, ['localhost', 'host.docker.internal', '127.0.0.1', '::1'], true)) {
-            return false;
-        }
-
-        if (filter_var($host, FILTER_VALIDATE_IP) === false) {
-            return true;
-        }
-
-        return filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+        return (bool) config('services.omada.verify_ssl', true);
     }
 
     private function normalizeMac(mixed $value): ?string
