@@ -44,4 +44,8 @@ return [
         'webhook_tolerance_seconds' => env('PAYMONGO_WEBHOOK_TOLERANCE_SECONDS', 300),
     ],
 
+    'omada' => [
+        'verify_ssl' => env('OMADA_VERIFY_SSL', true),
+    ],
+
 ];

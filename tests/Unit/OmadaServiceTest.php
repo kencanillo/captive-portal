@@ -6,12 +6,36 @@ use App\Models\ControllerSetting;
 use App\Models\Site;
 use App\Models\WifiSession;
 use App\Services\OmadaService;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use ReflectionMethod;
+use ReflectionProperty;
 use Tests\TestCase;
 
 class OmadaServiceTest extends TestCase
 {
+    public function test_client_respects_ssl_verification_config_flag(): void
+    {
+        $service = app(OmadaService::class);
+
+        config()->set('services.omada.verify_ssl', true);
+        $verifiedClient = $this->invokeClient($service, [
+            'base_url' => 'https://76.13.187.98:8043',
+        ]);
+
+        config()->set('services.omada.verify_ssl', false);
+        $unverifiedClient = $this->invokeClient($service, [
+            'base_url' => 'https://76.13.187.98:8043',
+        ]);
+
+        $verifiedOptions = $this->pendingRequestOptions($verifiedClient);
+        $unverifiedOptions = $this->pendingRequestOptions($unverifiedClient);
+
+        $this->assertArrayNotHasKey('verify', $verifiedOptions);
+        $this->assertFalse($unverifiedOptions['verify']);
+    }
+
     public function test_test_connection_prefers_openapi_client_credentials_when_present(): void
     {
         Http::fake([
@@ -214,5 +238,29 @@ class OmadaServiceTest extends TestCase
 
         Http::assertSent(fn ($request) => str_contains($request->url(), '/openapi/v1/controller-id/sites/main-branch/clients/AA-BB-CC-DD-EE-FF/disconnect')
             && $request->hasHeader('Authorization', 'AccessToken=access-token'));
+    }
+
+    private function invokeClient(OmadaService $service, array $settings): PendingRequest
+    {
+        $method = new ReflectionMethod($service, 'client');
+        $method->setAccessible(true);
+
+        /** @var PendingRequest $client */
+        $client = $method->invoke($service, array_merge([
+            'base_url' => 'https://localhost:8043',
+        ], $settings));
+
+        return $client;
+    }
+
+    private function pendingRequestOptions(PendingRequest $client): array
+    {
+        $property = new ReflectionProperty($client, 'options');
+        $property->setAccessible(true);
+
+        /** @var array $options */
+        $options = $property->getValue($client);
+
+        return $options;
     }
 }
