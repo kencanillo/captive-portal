@@ -40,6 +40,8 @@ return [
         'secret_key' => env('PAYMONGO_SECRET_KEY'),
         'webhook_secret' => env('PAYMONGO_WEBHOOK_SECRET'),
         'base_url' => env('PAYMONGO_BASE_URL', 'https://api.paymongo.com/v1'),
+        'qrph_expiry_seconds' => env('PAYMONGO_QRPH_EXPIRY_SECONDS', 1800),
+        'webhook_tolerance_seconds' => env('PAYMONGO_WEBHOOK_TOLERANCE_SECONDS', 300),
     ],
 
 ];

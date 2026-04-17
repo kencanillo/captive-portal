@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
-use App\Services\PayMongoService;
+use App\Services\PayMongoQrPhService;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -13,13 +13,13 @@ class PayMongoWebhookController extends Controller
 {
     use ApiResponse;
 
-    public function __invoke(Request $request, PayMongoService $payMongoService)
+    public function __invoke(Request $request, PayMongoQrPhService $payMongoQrPhService)
     {
         $payload = $request->getContent();
         $signature = $request->header('Paymongo-Signature');
 
         try {
-            $payMongoService->handleWebhook($payload, $signature);
+            $payMongoQrPhService->handleWebhook($payload, $signature);
             return $this->success([], 'Webhook processed.');
         } catch (Throwable $e) {
             Log::error('PayMongo webhook processing failed', [

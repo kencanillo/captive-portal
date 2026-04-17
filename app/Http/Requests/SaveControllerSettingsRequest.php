@@ -21,6 +21,8 @@ class SaveControllerSettingsRequest extends FormRequest
             'portal_base_url' => ['nullable', 'url', 'max:255'],
             'username' => ['nullable', 'string', 'max:255'],
             'password' => ['nullable', 'string', 'max:255'],
+            'hotspot_operator_username' => ['nullable', 'string', 'max:255'],
+            'hotspot_operator_password' => ['nullable', 'string', 'max:255'],
             'api_client_id' => ['nullable', 'string', 'max:255'],
             'api_client_secret' => ['nullable', 'string', 'max:255'],
             'default_session_minutes' => ['required', 'integer', 'min:1', 'max:43200'],

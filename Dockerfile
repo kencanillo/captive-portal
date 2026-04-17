@@ -5,7 +5,6 @@ WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install \
     --no-dev \
-    --no-scripts \
     --prefer-dist \
     --no-interaction \
     --no-progress \
@@ -42,7 +41,7 @@ RUN apt-get update \
         libzip-dev \
         unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j"$(nproc)" bcmath gd intl opcache pdo_mysql zip \
+    && docker-php-ext-install -j"$(nproc)" bcmath gd intl opcache pcntl pdo_mysql zip \
     && a2enmod headers rewrite \
     && rm -rf /var/lib/apt/lists/*
 
@@ -65,10 +64,12 @@ RUN chmod +x /usr/local/bin/portal-entrypoint \
         storage/framework/views \
         storage/logs \
     && rm -f bootstrap/cache/*.php \
-    && php artisan package:discover --ansi \
     && chown -R www-data:www-data bootstrap/cache storage
 
 EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1/up || exit 1
 
 ENTRYPOINT ["portal-entrypoint"]
 CMD ["apache2-foreground"]

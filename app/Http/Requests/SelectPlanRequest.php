@@ -21,6 +21,7 @@ class SelectPlanRequest extends FormRequest
             'ap_name' => ['nullable', 'string', 'max:120'],
             'site_name' => ['nullable', 'string', 'max:120'],
             'ssid_name' => ['nullable', 'string', 'max:120'],
+            'radio_id' => ['nullable', 'integer', 'min:0', 'max:8'],
             'client_ip' => ['nullable', 'ip'],
             'client_registration' => ['nullable', 'array'],
             'client_registration.name' => ['required_with:client_registration', 'string', 'max:255'],

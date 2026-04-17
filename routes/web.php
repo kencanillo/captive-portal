@@ -17,6 +17,8 @@ use App\Http\Controllers\Auth\VerifyEmailController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Public\CaptivePortalController;
 use App\Http\Controllers\Public\PaymentController;
+use App\Http\Controllers\Public\PaymentRecheckController;
+use App\Http\Controllers\Public\PaymentStatusController;
 use Illuminate\Support\Facades\Route;
 
 // Client Captive Portal Routes (Public Access)
@@ -33,6 +35,9 @@ Route::get('/admin', function () {
         ? redirect()->route('admin.dashboard')
         : redirect()->route('portal.index');
 })->name('admin.index');
+Route::get('/payments/{payment}', [PaymentController::class, 'show'])->name('payments.show');
+Route::get('/payments/{payment}/status', PaymentStatusController::class)->name('payments.status.show');
+Route::post('/payments/{payment}/recheck', PaymentRecheckController::class)->name('payments.recheck.store');
 Route::get('/payment/success', [PaymentController::class, 'success'])->name('payment.success');
 Route::get('/payment/failed', [PaymentController::class, 'failed'])->name('payment.failed');
 

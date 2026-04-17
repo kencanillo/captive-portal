@@ -28,7 +28,13 @@ class PlanSelectionApiTest extends TestCase
             'ap_name' => 'North Pole AP',
             'site_name' => 'Main Site',
             'ssid_name' => 'Guest WiFi',
+            'radio_id' => 1,
             'client_ip' => '192.168.20.10',
+            'client_registration' => [
+                'name' => 'Juan Dela Cruz',
+                'phone_number' => '09171234567',
+                'pin' => '1234',
+            ],
         ]);
 
         $response->assertCreated();
@@ -44,6 +50,7 @@ class PlanSelectionApiTest extends TestCase
         $this->assertSame($site->id, $session->site_id);
         $this->assertSame($accessPoint->id, $session->access_point_id);
         $this->assertSame('Guest WiFi', $session->ssid_name);
+        $this->assertSame(1, $session->radio_id);
         $this->assertSame('192.168.20.10', $session->client_ip);
     }
 }

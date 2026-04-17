@@ -5,7 +5,7 @@ import { Link, usePage } from '@inertiajs/vue3';
 defineProps({
   title: {
     type: String,
-    default: 'KapitWiFi',
+    default: 'KennFi Lab',
   },
 });
 
