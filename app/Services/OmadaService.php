@@ -55,20 +55,20 @@ class OmadaService
         try {
             $normalized = $this->normalizeSettings($settings);
             $client = $this->authenticatedClient($normalized, 'client MAC lookup');
-            
+
             // Try to get connected clients from the controller
             $payload = $this->request($client, 'get', '/api/v2/controller/clients');
-            
+
             // Look for client by IP address
             $clients = $this->extractClientsFromPayload($payload);
-            
+
             foreach ($clients as $clientData) {
                 $clientIpFromApi = $this->firstFilled($clientData, [
                     'ip',
                     'ipAddress',
                     'clientIp',
                 ]);
-                
+
                 if ($clientIpFromApi && $clientIpFromApi === $clientIp) {
                     return $this->normalizeMac($this->firstFilled($clientData, [
                         'mac',
@@ -77,7 +77,7 @@ class OmadaService
                     ]));
                 }
             }
-            
+
             return null;
         } catch (\Throwable $e) {
             // Log error but don't throw - we'll fallback to manual input
