@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\Plan;
+use App\Models\Operator;
 use App\Models\User;
 use App\Models\WifiSession;
 use App\Policies\PlanPolicy;
@@ -27,6 +28,8 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::define('access-admin', fn (User $user) => (bool) $user->is_admin);
+        Gate::define('access-operator-panel', fn (User $user) => ! $user->is_admin
+            && $user->operator()->where('status', Operator::STATUS_APPROVED)->exists());
         Gate::policy(Plan::class, PlanPolicy::class);
         Gate::policy(WifiSession::class, WifiSessionPolicy::class);
 

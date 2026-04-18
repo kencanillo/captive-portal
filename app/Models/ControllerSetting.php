@@ -68,6 +68,11 @@ class ControllerSetting extends Model
         return filled($this->base_url) && $this->hasLegacyCredentials();
     }
 
+    public function canSyncSites(): bool
+    {
+        return $this->canTestConnection();
+    }
+
     public function hasHotspotOperatorCredentials(): bool
     {
         return filled($this->hotspot_operator_username) && filled($this->hotspot_operator_password);

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -89,5 +90,10 @@ class WifiSession extends Model
     public function latestPayment(): HasOne
     {
         return $this->payments()->latestOfMany();
+    }
+
+    public function scopeForOperator(Builder $query, Operator $operator): Builder
+    {
+        return $query->whereIn('site_id', $operator->sites()->select('id'));
     }
 }

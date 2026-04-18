@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -58,5 +59,10 @@ class AccessPoint extends Model
     public function wifiSessions(): HasMany
     {
         return $this->hasMany(WifiSession::class);
+    }
+
+    public function scopeForOperator(Builder $query, Operator $operator): Builder
+    {
+        return $query->whereIn('site_id', $operator->sites()->select('id'));
     }
 }

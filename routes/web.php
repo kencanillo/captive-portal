@@ -3,7 +3,9 @@
 use App\Http\Controllers\Admin\AccessPointController;
 use App\Http\Controllers\Admin\ControllerSettingsController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\OperatorController as AdminOperatorController;
 use App\Http\Controllers\Admin\PaymentController as AdminPaymentController;
+use App\Http\Controllers\Admin\PayoutRequestController as AdminPayoutRequestController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\SessionController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
@@ -11,37 +13,55 @@ use App\Http\Controllers\Auth\ConfirmablePasswordController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
 use App\Http\Controllers\Auth\NewPasswordController;
+use App\Http\Controllers\Auth\OperatorRegistrationController;
 use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\VerifyEmailController;
+use App\Http\Controllers\Operator\DashboardController as OperatorDashboardController;
+use App\Http\Controllers\Operator\DeviceController as DeviceController;
+use App\Http\Controllers\Operator\PayoutController as OperatorPayoutController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Public\CaptivePortalController;
 use App\Http\Controllers\Public\PaymentController;
 use App\Http\Controllers\Public\PaymentRecheckController;
 use App\Http\Controllers\Public\PaymentStatusController;
 use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
-// Client Captive Portal Routes (Public Access)
 Route::get('/', CaptivePortalController::class)->name('portal.index');
 Route::redirect('/login', '/admin/login')->name('login');
+
 Route::get('/admin', function () {
-    $user = request()->user();
+    $user = request()->user()?->loadMissing('operator');
 
     if (! $user) {
         return redirect()->route('admin.login');
     }
 
-    return $user->can('access-admin')
-        ? redirect()->route('admin.dashboard')
-        : redirect()->route('portal.index');
+    if ($user->can('access-admin')) {
+        return redirect()->route('admin.dashboard');
+    }
+
+    if ($user->can('access-operator-panel')) {
+        return redirect()->route('operator.dashboard');
+    }
+
+    if ($user->operator) {
+        return redirect()->route('operator.pending');
+    }
+
+    return redirect()->route('portal.index');
 })->name('admin.index');
+
+Route::get('/operator/register', [OperatorRegistrationController::class, 'create'])->middleware('guest')->name('operator.register');
+Route::post('/operator/register', [OperatorRegistrationController::class, 'store'])->middleware('guest')->name('operator.register.store');
+
 Route::get('/payments/{payment}', [PaymentController::class, 'show'])->name('payments.show');
 Route::get('/payments/{payment}/status', PaymentStatusController::class)->name('payments.status.show');
 Route::post('/payments/{payment}/recheck', PaymentRecheckController::class)->name('payments.recheck.store');
 Route::get('/payment/success', [PaymentController::class, 'success'])->name('payment.success');
 Route::get('/payment/failed', [PaymentController::class, 'failed'])->name('payment.failed');
 
-// Admin Authentication Routes (Separate from Client Portal)
 Route::prefix('admin')->middleware('guest')->name('admin.')->group(function () {
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
     Route::post('/login', [AuthenticatedSessionController::class, 'store']);
@@ -61,33 +81,88 @@ Route::prefix('admin')->middleware('auth')->name('admin.')->group(function () {
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 });
 
-// Admin Dashboard (Protected)
-Route::get('/dashboard', function () {
-    return redirect()->route('admin.dashboard');
-})->middleware(['auth', 'can:access-admin'])->name('dashboard');
+Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
+    ->middleware('auth')
+    ->name('logout');
 
-// Admin Profile Management
+Route::get('/dashboard', function () {
+    $user = request()->user()?->loadMissing('operator');
+
+    if (! $user) {
+        return redirect()->route('admin.login');
+    }
+
+    if ($user->can('access-admin')) {
+        return redirect()->route('admin.dashboard');
+    }
+
+    if ($user->can('access-operator-panel')) {
+        return redirect()->route('operator.dashboard');
+    }
+
+    if ($user->operator) {
+        return redirect()->route('operator.pending');
+    }
+
+    return redirect()->route('portal.index');
+})->middleware('auth')->name('dashboard');
+
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    Route::get('/operator/pending', function () {
+        $operator = request()->user()?->loadMissing('operator')->operator;
+
+        if (! $operator) {
+            abort(403);
+        }
+
+        if (request()->user()->can('access-operator-panel')) {
+            return redirect()->route('operator.dashboard');
+        }
+
+        return Inertia::render('Operator/PendingApproval', [
+            'operator' => [
+                'business_name' => $operator->business_name,
+                'status' => $operator->status,
+                'approval_notes' => $operator->approval_notes,
+            ],
+        ]);
+    })->name('operator.pending');
 });
 
-// Admin Panel Routes (Protected)
 Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
     Route::get('/controller', [ControllerSettingsController::class, 'edit'])->name('controller.edit');
     Route::put('/controller', [ControllerSettingsController::class, 'update'])->name('controller.update');
     Route::post('/controller/test-connection', [ControllerSettingsController::class, 'testConnection'])->name('controller.test');
+    Route::post('/controller/sync-sites', [ControllerSettingsController::class, 'syncSites'])->name('controller.sync-sites');
     Route::get('/access-points', [AccessPointController::class, 'index'])->name('access-points.index');
-    Route::post('/access-points', [AccessPointController::class, 'store'])->name('access-points.store');
     Route::post('/access-points/sync', [AccessPointController::class, 'sync'])->name('access-points.sync');
-    Route::put('/access-points/{accessPoint}', [AccessPointController::class, 'update'])->name('access-points.update');
-    Route::delete('/access-points/{accessPoint}', [AccessPointController::class, 'destroy'])->name('access-points.destroy');
     Route::get('/plans', [PlanController::class, 'index'])->name('plans.index');
     Route::post('/plans', [PlanController::class, 'store'])->name('plans.store');
     Route::put('/plans/{plan}', [PlanController::class, 'update'])->name('plans.update');
     Route::delete('/plans/{plan}', [PlanController::class, 'destroy'])->name('plans.destroy');
     Route::get('/sessions', [SessionController::class, 'index'])->name('sessions.index');
     Route::get('/payments', [AdminPaymentController::class, 'index'])->name('payments.index');
+    Route::get('/operators', [AdminOperatorController::class, 'index'])->name('operators.index');
+    Route::get('/operators/{operator}', [AdminOperatorController::class, 'show'])->name('operators.show');
+    Route::put('/operators/{operator}/status', [AdminOperatorController::class, 'updateStatus'])->name('operators.status.update');
+    Route::put('/operators/{operator}/sites', [AdminOperatorController::class, 'updateSites'])->name('operators.sites.update');
+    Route::get('/payout-requests', [AdminPayoutRequestController::class, 'index'])->name('payout-requests.index');
+    Route::post('/payout-requests/{payoutRequest}/approve', [AdminPayoutRequestController::class, 'approve'])->name('payout-requests.approve');
+    Route::post('/payout-requests/{payoutRequest}/reject', [AdminPayoutRequestController::class, 'reject'])->name('payout-requests.reject');
+    Route::post('/payout-requests/{payoutRequest}/processing', [AdminPayoutRequestController::class, 'markProcessing'])->name('payout-requests.processing');
+    Route::post('/payout-requests/{payoutRequest}/paid', [AdminPayoutRequestController::class, 'markPaid'])->name('payout-requests.paid');
+    Route::post('/payout-requests/{payoutRequest}/failed', [AdminPayoutRequestController::class, 'markFailed'])->name('payout-requests.failed');
+});
+
+Route::middleware(['auth', 'can:access-operator-panel'])->prefix('operator')->name('operator.')->group(function (): void {
+    Route::get('/dashboard', OperatorDashboardController::class)->name('dashboard');
+    Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
+    Route::post('/devices/adopt', [DeviceController::class, 'adopt'])->name('devices.adopt');
+    Route::get('/payouts', [OperatorPayoutController::class, 'index'])->name('payouts.index');
+    Route::post('/payouts', [OperatorPayoutController::class, 'store'])->name('payouts.store');
 });

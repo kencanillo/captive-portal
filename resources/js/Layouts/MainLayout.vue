@@ -14,6 +14,7 @@ const user = computed(() => page.props.auth?.user || null);
 const flashSuccess = computed(() => page.props.flash?.success);
 const flashError = computed(() => page.props.flash?.error);
 const isAdmin = computed(() => Boolean(user.value?.is_admin));
+const isOperator = computed(() => Boolean(user.value?.can_access_operator_panel));
 
 const logout = () => {
   window.axios.post('/admin/logout')
@@ -40,9 +41,15 @@ const logout = () => {
               <Link href="/admin/plans" class="rounded-md px-3 py-1.5 transition hover:bg-slate-800">Promos</Link>
               <Link href="/admin/sessions" class="rounded-md px-3 py-1.5 transition hover:bg-slate-800">Sessions</Link>
               <Link href="/admin/payments" class="rounded-md px-3 py-1.5 transition hover:bg-slate-800">Payments</Link>
+              <Link href="/admin/operators" class="rounded-md px-3 py-1.5 transition hover:bg-slate-800">Operators</Link>
+              <Link href="/admin/payout-requests" class="rounded-md px-3 py-1.5 transition hover:bg-slate-800">Payouts</Link>
+            </nav>
+            <nav v-else-if="isOperator" class="flex flex-wrap gap-2 text-sm">
+              <Link href="/operator/dashboard" class="rounded-md px-3 py-1.5 transition hover:bg-slate-800">Dashboard</Link>
+              <Link href="/operator/payouts" class="rounded-md px-3 py-1.5 transition hover:bg-slate-800">Payouts</Link>
             </nav>
             <div v-if="user" class="flex items-center gap-3 text-sm">
-              <span class="text-slate-300">{{ user.name }}</span>
+              <span class="text-slate-300">{{ user.operator_business_name || user.name }}</span>
               <button 
                 @click="logout"
                 class="rounded-md px-3 py-1.5 bg-red-600 hover:bg-red-700 transition font-medium"

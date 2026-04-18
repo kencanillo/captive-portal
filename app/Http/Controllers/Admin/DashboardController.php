@@ -5,15 +5,18 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
+use App\Models\Operator;
+use App\Models\PayoutRequest;
 use App\Models\Plan;
 use App\Models\Site;
 use App\Models\WifiSession;
+use App\Services\OperatorPayoutService;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(): Response
+    public function __invoke(OperatorPayoutService $payoutService): Response
     {
         $activeSessions = WifiSession::query()->where('is_active', true)->count();
         $totalRevenue = WifiSession::query()->where('payment_status', WifiSession::STATUS_PAID)->sum('amount_paid');
@@ -33,6 +36,13 @@ class DashboardController extends Controller
             'claimed_access_points' => AccessPoint::query()->where('claim_status', AccessPoint::CLAIM_STATUS_CLAIMED)->count(),
             'pending_access_points' => AccessPoint::query()->where('claim_status', AccessPoint::CLAIM_STATUS_PENDING)->count(),
             'sites_count' => Site::query()->count(),
+            'operators_count' => Operator::query()->count(),
+            'operators_pending' => Operator::query()->where('status', Operator::STATUS_PENDING)->count(),
+            'pending_payout_requests' => PayoutRequest::query()->whereIn('status', [
+                PayoutRequest::STATUS_PENDING,
+                PayoutRequest::STATUS_APPROVED,
+                PayoutRequest::STATUS_PROCESSING,
+            ])->count(),
             'unassigned_sessions' => WifiSession::query()->whereNull('access_point_id')->count(),
             'pause_ready_promos' => Plan::query()->where('supports_pause', true)->where('is_active', true)->count(),
             'anti_tethering_promos' => Plan::query()->where('enforce_no_tethering', true)->where('is_active', true)->count(),
@@ -90,6 +100,26 @@ class DashboardController extends Controller
                 'revenue_total' => number_format((float) ($site->revenue_total ?? 0), 2, '.', ''),
             ]);
 
+        $operators = Operator::query()
+            ->with(['user:id,email', 'sites:id,operator_id,name'])
+            ->latest()
+            ->limit(6)
+            ->get()
+            ->map(function (Operator $operator) use ($payoutService) {
+                $balance = $payoutService->summary($operator);
+
+                return [
+                    'id' => $operator->id,
+                    'business_name' => $operator->business_name,
+                    'contact_name' => $operator->contact_name,
+                    'email' => $operator->user?->email,
+                    'status' => $operator->status,
+                    'sites' => $operator->sites->pluck('name')->values()->all(),
+                    'available_balance' => number_format((float) $balance['available_balance'], 2, '.', ''),
+                    'revenue_total' => number_format((float) $balance['earnings'], 2, '.', ''),
+                ];
+            });
+
         return Inertia::render('Admin/Dashboard', [
             'activeSessionsCount' => $activeSessions,
             'totalRevenue' => number_format((float) $totalRevenue, 2, '.', ''),
@@ -104,6 +134,7 @@ class DashboardController extends Controller
             ]),
             'accessPoints' => $accessPoints,
             'siteSummary' => $siteSummary,
+            'operators' => $operators,
         ]);
     }
 }

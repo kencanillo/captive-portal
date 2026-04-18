@@ -3,12 +3,9 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\SaveAccessPointRequest;
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
-use App\Models\Site;
 use App\Services\OmadaService;
-use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 use Throwable;
@@ -21,8 +18,14 @@ class AccessPointController extends Controller
 
         return Inertia::render('Admin/AccessPoints', [
             'syncConfigured' => $settings->canSyncAccessPoints(),
+            'statusSummary' => [
+                'connected' => AccessPoint::query()->where('is_online', true)->count(),
+                'pending' => AccessPoint::query()->where('claim_status', AccessPoint::CLAIM_STATUS_PENDING)->count(),
+                'failed' => AccessPoint::query()->where('claim_status', AccessPoint::CLAIM_STATUS_ERROR)->count(),
+            ],
             'accessPoints' => AccessPoint::query()
                 ->with('site:id,name')
+                ->orderByDesc('is_online')
                 ->orderByRaw("claim_status = 'claimed' desc")
                 ->orderBy('name')
                 ->get()
@@ -40,43 +43,10 @@ class AccessPointController extends Controller
                     'claimed_at' => optional($accessPoint->claimed_at)?->toDateTimeString(),
                     'last_seen_at' => optional($accessPoint->last_seen_at)?->toDateTimeString(),
                     'last_synced_at' => optional($accessPoint->last_synced_at)?->toDateTimeString(),
-                    'custom_ssid' => $accessPoint->custom_ssid,
-                    'voucher_ssid_name' => $accessPoint->voucher_ssid_name,
-                    'allow_client_pause' => $accessPoint->allow_client_pause,
-                    'block_tethering' => $accessPoint->block_tethering,
-                    'is_portal_enabled' => $accessPoint->is_portal_enabled,
                     'is_online' => $accessPoint->is_online,
+                    'status_label' => $this->statusLabel($accessPoint),
                 ]),
         ]);
-    }
-
-    public function store(SaveAccessPointRequest $request)
-    {
-        $validated = $request->validated();
-
-        AccessPoint::query()->create($this->payload($validated));
-
-        return redirect()
-            ->route('admin.access-points.index')
-            ->with('success', 'Access point saved.');
-    }
-
-    public function update(SaveAccessPointRequest $request, AccessPoint $accessPoint)
-    {
-        $accessPoint->update($this->payload($request->validated(), $accessPoint));
-
-        return redirect()
-            ->route('admin.access-points.index')
-            ->with('success', 'Access point updated.');
-    }
-
-    public function destroy(AccessPoint $accessPoint)
-    {
-        $accessPoint->delete();
-
-        return redirect()
-            ->route('admin.access-points.index')
-            ->with('success', 'Access point deleted.');
     }
 
     public function sync(OmadaService $omadaService)
@@ -114,51 +84,20 @@ class AccessPointController extends Controller
         }
     }
 
-    private function payload(array $validated, ?AccessPoint $accessPoint = null): array
+    private function statusLabel(AccessPoint $accessPoint): string
     {
-        $siteName = trim((string) ($validated['site_name'] ?? ''));
-        $site = $siteName !== '' ? $this->firstOrCreateSite($siteName) : null;
-        $claimStatus = $validated['claim_status'];
-        $claimedAt = $accessPoint?->claimed_at;
-
-        if ($claimStatus === AccessPoint::CLAIM_STATUS_CLAIMED && ! $claimedAt) {
-            $claimedAt = now();
+        if ($accessPoint->claim_status === AccessPoint::CLAIM_STATUS_ERROR) {
+            return 'Failed';
         }
 
-        if ($claimStatus !== AccessPoint::CLAIM_STATUS_CLAIMED) {
-            $claimedAt = null;
+        if ($accessPoint->claim_status === AccessPoint::CLAIM_STATUS_PENDING) {
+            return 'Pending';
         }
 
-        unset($validated['site_name']);
-
-        return [
-            ...$validated,
-            'site_id' => $site?->id,
-            'claimed_at' => $claimedAt,
-            'last_synced_at' => $accessPoint?->last_synced_at,
-        ];
-    }
-
-    private function firstOrCreateSite(string $siteName): Site
-    {
-        $site = Site::query()->firstWhere('name', $siteName);
-
-        if ($site) {
-            return $site;
+        if ($accessPoint->is_online) {
+            return 'Connected';
         }
 
-        $baseSlug = Str::slug($siteName) ?: 'location';
-        $slug = $baseSlug;
-        $suffix = 2;
-
-        while (Site::query()->where('slug', $slug)->exists()) {
-            $slug = "{$baseSlug}-{$suffix}";
-            $suffix++;
-        }
-
-        return Site::query()->create([
-            'name' => $siteName,
-            'slug' => $slug,
-        ]);
+        return 'Offline';
     }
 }

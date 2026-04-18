@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\SaveControllerSettingsRequest;
 use App\Models\ControllerSetting;
+use App\Models\Site;
 use App\Services\OmadaService;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 use Throwable;
@@ -32,6 +34,17 @@ class ControllerSettingsController extends Controller
                 'has_hotspot_operator_password' => filled($settings->getRawOriginal('hotspot_operator_password')),
                 'has_api_client_secret' => filled($settings->getRawOriginal('api_client_secret')),
             ],
+            'canSyncSites' => $settings->canSyncSites(),
+            'syncedSites' => Site::query()
+                ->whereNotNull('omada_site_id')
+                ->orderBy('name')
+                ->get(['id', 'name', 'slug', 'omada_site_id'])
+                ->map(fn (Site $site) => [
+                    'id' => $site->id,
+                    'name' => $site->name,
+                    'slug' => $site->slug,
+                    'omada_site_id' => $site->omada_site_id,
+                ]),
         ]);
     }
 
@@ -70,6 +83,24 @@ class ControllerSettingsController extends Controller
             return redirect()
                 ->route('admin.controller.edit')
                 ->with('error', $exception->getMessage().' Settings were saved. Fix the credentials and test again.');
+        }
+    }
+
+    public function syncSites(SaveControllerSettingsRequest $request, OmadaService $omadaService): RedirectResponse
+    {
+        $settings = ControllerSetting::query()->first() ?? new ControllerSetting;
+        $this->applyValidatedSettings($settings, $request->validated())->save();
+
+        try {
+            $result = $omadaService->syncSites($settings);
+
+            return redirect()
+                ->route('admin.controller.edit')
+                ->with('success', "Omada site sync finished. {$result['total']} sites scanned, {$result['created']} created, {$result['updated']} updated.");
+        } catch (Throwable $exception) {
+            return redirect()
+                ->route('admin.controller.edit')
+                ->with('error', $exception->getMessage());
         }
     }
 

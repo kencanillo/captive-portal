@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
-use App\Models\Site;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -14,7 +13,7 @@ class AdminAccessPointTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_admin_can_claim_an_access_point_and_assign_a_location(): void
+    public function test_manual_access_point_creation_endpoint_is_not_available_anymore(): void
     {
         $admin = User::factory()->create(['is_admin' => true]);
 
@@ -35,18 +34,7 @@ class AdminAccessPointTest extends TestCase
                 'block_tethering' => true,
                 'is_portal_enabled' => true,
             ])
-            ->assertRedirect('/admin/access-points');
-
-        $site = Site::query()->firstOrFail();
-        $accessPoint = AccessPoint::query()->firstOrFail();
-
-        $this->assertSame('Main Branch', $site->name);
-        $this->assertSame($site->id, $accessPoint->site_id);
-        $this->assertSame('claimed', $accessPoint->claim_status);
-        $this->assertNotNull($accessPoint->claimed_at);
-        $this->assertTrue($accessPoint->allow_client_pause);
-        $this->assertTrue($accessPoint->block_tethering);
-        $this->assertTrue($accessPoint->is_portal_enabled);
+            ->assertStatus(405);
     }
 
     public function test_admin_can_sync_access_points_from_omada(): void

@@ -8,6 +8,14 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  canSyncSites: {
+    type: Boolean,
+    required: true,
+  },
+  syncedSites: {
+    type: Array,
+    required: true,
+  },
 });
 
 const settingsForm = ref(null);
@@ -26,6 +34,10 @@ const form = reactive({
   api_client_secret: '',
   default_session_minutes: props.controllerSettings.default_session_minutes || 60,
 });
+
+const selectedSyncedSiteId = ref(
+  props.syncedSites.find(site => site.omada_site_id === props.controllerSettings.site_identifier)?.id || ''
+);
 
 const buildPayload = () => {
   if (!settingsForm.value) {
@@ -61,6 +73,19 @@ const testConnection = () => {
     preserveScroll: true,
   });
 };
+
+const syncSites = () => {
+  router.post('/admin/controller/sync-sites', buildPayload(), {
+    preserveScroll: true,
+  });
+};
+
+const applySyncedSite = () => {
+  const selectedSite = props.syncedSites.find(site => String(site.id) === String(selectedSyncedSiteId.value));
+
+  form.site_identifier = selectedSite?.omada_site_id || '';
+  form.site_name = selectedSite?.name || '';
+};
 </script>
 
 <template>
@@ -85,12 +110,24 @@ const testConnection = () => {
             <input v-model="form.base_url" name="base_url" class="mt-1 w-full rounded-md border-slate-300" placeholder="https://controller.example.com" autocomplete="url" />
           </div>
           <div>
-            <label class="text-sm font-medium text-slate-700">Site identifier</label>
-            <input v-model="form.site_identifier" name="site_identifier" class="mt-1 w-full rounded-md border-slate-300" placeholder="Default or Omada site id" autocomplete="off" />
+            <label class="text-sm font-medium text-slate-700">Synced Omada site</label>
+            <select v-model="selectedSyncedSiteId" class="mt-1 w-full rounded-md border-slate-300" @change="applySyncedSite">
+              <option value="">No default site selected</option>
+              <option v-for="site in props.syncedSites" :key="site.id" :value="site.id">
+                {{ site.name }} ({{ site.omada_site_id }})
+              </option>
+            </select>
+            <p class="mt-1 text-xs text-slate-500">
+              Sync controller sites first, then pick the default site from the controller-backed list.
+            </p>
           </div>
           <div>
             <label class="text-sm font-medium text-slate-700">Site name</label>
             <input v-model="form.site_name" name="site_name" class="mt-1 w-full rounded-md border-slate-300" placeholder="Main Branch" autocomplete="organization" />
+          </div>
+          <div>
+            <label class="text-sm font-medium text-slate-700">Site identifier</label>
+            <input v-model="form.site_identifier" name="site_identifier" class="mt-1 w-full rounded-md border-slate-300" placeholder="Default or Omada site id" autocomplete="off" />
           </div>
           <div>
             <label class="text-sm font-medium text-slate-700">Portal base URL</label>
@@ -144,6 +181,14 @@ const testConnection = () => {
         <button type="button" class="mt-5 ml-3 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700" @click="testConnection">
           Save and test connection
         </button>
+        <button
+          type="button"
+          class="mt-5 ml-3 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+          :disabled="!props.canSyncSites"
+          @click="syncSites"
+        >
+          Sync sites from Omada
+        </button>
         </form>
       </section>
 
@@ -159,6 +204,7 @@ const testConnection = () => {
         <div class="mt-6 rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
           <p class="font-medium text-slate-900">Current status</p>
           <p class="mt-2">Last tested: {{ props.controllerSettings.last_tested_at || 'Not tested yet' }}</p>
+          <p class="mt-1">Synced sites: {{ props.syncedSites.length }}</p>
         </div>
       </aside>
     </div>

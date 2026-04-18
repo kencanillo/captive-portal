@@ -42,6 +42,9 @@ return [
         'base_url' => env('PAYMONGO_BASE_URL', 'https://api.paymongo.com/v1'),
         'qrph_expiry_seconds' => env('PAYMONGO_QRPH_EXPIRY_SECONDS', 1800),
         'webhook_tolerance_seconds' => env('PAYMONGO_WEBHOOK_TOLERANCE_SECONDS', 300),
+        'payouts_enabled' => env('PAYMONGO_PAYOUTS_ENABLED', false),
+        'payout_wallet_id' => env('PAYMONGO_PAYOUT_WALLET_ID'),
+        'payout_callback_url' => env('PAYMONGO_PAYOUT_CALLBACK_URL'),
     ],
 
     'omada' => [

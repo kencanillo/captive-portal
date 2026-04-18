@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ControllerSetting;
+use App\Models\Site;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -206,6 +207,57 @@ class AdminControllerSettingsTest extends TestCase
         $this->assertSame('pilot-client', $settings->api_client_id);
         $this->assertSame('pilot-secret', $settings->api_client_secret);
         $this->assertNotNull($settings->last_tested_at);
+    }
+
+    public function test_admin_can_sync_sites_from_omada_controller(): void
+    {
+        Http::fake([
+            'https://localhost:8043/api/v2/login' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => ['token' => 'abc123'],
+            ]),
+            'https://localhost:8043/api/v2/controller/sites' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [
+                        ['id' => 'site-001', 'name' => 'Main Branch'],
+                        ['id' => 'site-002', 'name' => 'North Branch'],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $admin = User::factory()->create(['is_admin' => true]);
+
+        $this->actingAs($admin)
+            ->post('/admin/controller/sync-sites', [
+                'controller_name' => 'Pilot Controller',
+                'base_url' => 'https://localhost:8043',
+                'site_identifier' => null,
+                'site_name' => null,
+                'portal_base_url' => 'https://portal.example.com',
+                'username' => 'admin',
+                'password' => 'super-secret',
+                'api_client_id' => null,
+                'api_client_secret' => null,
+                'default_session_minutes' => 60,
+            ])
+            ->assertRedirect('/admin/controller')
+            ->assertSessionHas('success', 'Omada site sync finished. 2 sites scanned, 2 created, 0 updated.');
+
+        $this->assertDatabaseHas('sites', [
+            'name' => 'Main Branch',
+            'omada_site_id' => 'site-001',
+        ]);
+
+        $this->assertDatabaseHas('sites', [
+            'name' => 'North Branch',
+            'omada_site_id' => 'site-002',
+        ]);
+
+        $this->assertSame(2, Site::query()->whereNotNull('omada_site_id')->count());
     }
 
     public function test_logout_does_not_delete_controller_settings(): void

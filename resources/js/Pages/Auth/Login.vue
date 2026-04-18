@@ -37,6 +37,17 @@ const submit = () => {
             {{ status }}
         </div>
 
+        <div class="mb-6 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <p class="font-semibold text-slate-900">Management Portal Login</p>
+            <p class="mt-1">Admins and approved operators use the same sign-in page.</p>
+            <p class="mt-2">
+                New operator?
+                <Link :href="route('operator.register')" class="font-semibold text-slate-900 underline">
+                    Register here
+                </Link>
+            </p>
+        </div>
+
         <form @submit.prevent="submit">
             <div>
                 <InputLabel for="email" value="Email" />
