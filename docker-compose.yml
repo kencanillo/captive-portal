@@ -30,7 +30,6 @@ services:
       - "traefik.http.services.captive-portal.loadbalancer.server.port=80"
     networks:
       - default
-      - traefik-proxy
 
   worker:
     build:
@@ -173,8 +172,3 @@ volumes:
   omada-data:
   omada-logs:
   portal-storage:
-
-networks:
-  traefik-proxy:
-    external: true
-    name: traefik-ot7z_default
