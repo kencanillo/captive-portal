@@ -60,13 +60,18 @@ const syncActiveSessionCountdown = () => {
 };
 
 const fetchBootstrap = async () => {
+  const startTime = performance.now();
   bootstrapLoading.value = true;
   bootstrapError.value = '';
 
   try {
+    console.log('[PlanSelection] Starting bootstrap fetch');
     const response = await window.axios.get(props.bootstrapUrl, {
       timeout: props.bootstrapTimeoutMs,
     });
+    const fetchDuration = performance.now() - startTime;
+    console.log(`[PlanSelection] Bootstrap fetch completed in ${fetchDuration.toFixed(2)}ms`);
+
     const payload = response?.data?.data || {};
 
     portalContext.value = {
@@ -84,7 +89,12 @@ const fetchBootstrap = async () => {
       registrationForm.value.name = existingClient.value.name || '';
       registrationForm.value.phone_number = existingClient.value.phone_number || '';
     }
+
+    console.log(`[PlanSelection] Bootstrap processing completed. MAC detected: ${Boolean(registrationForm.value.mac_address)}`);
   } catch (error) {
+    const errorDuration = performance.now() - startTime;
+    console.error(`[PlanSelection] Bootstrap fetch failed after ${errorDuration.toFixed(2)}ms:`, error);
+
     bootstrapError.value = error?.code === 'ECONNABORTED'
       ? 'Device detection timed out. The page is loaded, but Omada did not answer fast enough. Retry the lookup or enable query MAC fallback in deployment.'
       : error?.response?.data?.message || 'Unable to load device context from Omada. Plan selection stays locked until the MAC address is detected.';
@@ -98,11 +108,19 @@ const fetchBootstrap = async () => {
 };
 
 onMounted(() => {
+  console.log('[PlanSelection] Page mounted, starting bootstrap');
+  const mountStart = performance.now();
   fetchBootstrap();
 
   activeSessionCountdownTimer = window.setInterval(() => {
     syncActiveSessionCountdown();
   }, 1000);
+
+  // Log when the page is fully interactive
+  setTimeout(() => {
+    const interactiveTime = performance.now() - mountStart;
+    console.log(`[PlanSelection] Page became interactive in ${interactiveTime.toFixed(2)}ms`);
+  }, 100);
 });
 
 onBeforeUnmount(() => {

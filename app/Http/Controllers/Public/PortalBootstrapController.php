@@ -25,6 +25,8 @@ class PortalBootstrapController extends Controller
         );
         $existingClient = null;
 
+        // Phase 1: Query parameter MAC resolution
+        $phase1Start = microtime(true);
         if ($queryMacAddress) {
             $existingClient = Client::findByMacAddress($queryMacAddress);
 
@@ -33,7 +35,10 @@ class PortalBootstrapController extends Controller
                 $resolutionSource = 'known_client_db';
             }
         }
+        $phase1Duration = microtime(true) - $phase1Start;
 
+        // Phase 2: Fallback or Omada lookup
+        $phase2Start = microtime(true);
         if (! $macAddress && config('portal.allow_query_mac_fallback', false) && $queryMacAddress) {
             $macAddress = $queryMacAddress;
             $resolutionSource = 'query_fallback';
@@ -41,13 +46,24 @@ class PortalBootstrapController extends Controller
             $controllerSettings = ControllerSetting::singleton();
 
             if ($controllerSettings->canTestConnection()) {
+                $omadaLookupStart = microtime(true);
                 $macAddress = $omadaService->getClientMacAddress($controllerSettings, $resolvedClientIp);
+                $omadaLookupDuration = microtime(true) - $omadaLookupStart;
                 $resolutionSource = $macAddress ? 'omada' : 'omada_miss';
+                Log::info('Portal bootstrap Omada MAC lookup timing', [
+                    'client_ip' => $resolvedClientIp,
+                    'omada_lookup_duration_ms' => (int) round($omadaLookupDuration * 1000),
+                    'total_bootstrap_duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                ]);
             }
         }
+        $phase2Duration = microtime(true) - $phase2Start;
 
+        // Phase 3: Session lookup
+        $phase3Start = microtime(true);
         $existingClient ??= $macAddress ? Client::findByMacAddress($macAddress) : null;
         $activeSession = $macAddress ? $this->findActiveSession($macAddress) : null;
+        $phase3Duration = microtime(true) - $phase3Start;
         $portalContext = [
             'mac_address' => $macAddress,
             'ap_mac' => $this->firstFilled($request, ['apMac', 'ap_mac']),
@@ -64,7 +80,10 @@ class PortalBootstrapController extends Controller
             'has_mac_address' => filled($macAddress),
             'has_existing_client' => $existingClient !== null,
             'has_active_session' => $activeSession !== null,
-            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            'phase1_db_lookup_ms' => (int) round($phase1Duration * 1000),
+            'phase2_omada_lookup_ms' => (int) round($phase2Duration * 1000),
+            'phase3_session_lookup_ms' => (int) round($phase3Duration * 1000),
+            'total_duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
         ]);
 
         return response()->json([
