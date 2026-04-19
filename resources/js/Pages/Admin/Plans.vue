@@ -56,7 +56,7 @@ const toAmount = (value) => {
 };
 
 const calculateFeeAmount = (value) => Number((toAmount(value) * props.processingFeeRate).toFixed(2));
-const calculateCustomerPrice = (value) => Number((toAmount(value) + calculateFeeAmount(value)).toFixed(2));
+const calculateNetAmount = (value) => Number((Math.max(0, toAmount(value) - calculateFeeAmount(value))).toFixed(2));
 
 const createPlan = () => {
   router.post('/admin/plans', form, {
@@ -162,7 +162,7 @@ const saveEdit = () => {
             <label class="app-label">Price</label>
             <input v-model="form.price" type="number" min="1" step="0.01" class="app-field" placeholder="49.00" />
             <p class="mt-2 text-sm text-slate-500">
-              Base amount {{ formatCurrency(toAmount(form.price)) }} + {{ feeRatePercentLabel }} e-wallet fee {{ formatCurrency(calculateFeeAmount(form.price)) }} = customer charge {{ formatCurrency(calculateCustomerPrice(form.price)) }}.
+              Customer pays {{ formatCurrency(toAmount(form.price)) }}. {{ feeRatePercentLabel }} e-wallet fee deducts {{ formatCurrency(calculateFeeAmount(form.price)) }}, leaving {{ formatCurrency(calculateNetAmount(form.price)) }} net after payment.
             </p>
           </div>
           <div>
@@ -226,10 +226,10 @@ const saveEdit = () => {
                   </span>
                 </div>
                 <p class="mt-2 text-sm text-slate-500">
-                  Base {{ formatCurrency(plan.price) }} • Customer charge {{ formatCurrency(plan.customer_price ?? plan.price) }} • {{ formatNumber(plan.duration_minutes) }} minutes • Order {{ plan.sort_order ?? 0 }}
+                  Customer pays {{ formatCurrency(plan.customer_price ?? plan.price) }} • Net after fee {{ formatCurrency(plan.net_amount ?? plan.price) }} • {{ formatNumber(plan.duration_minutes) }} minutes • Order {{ plan.sort_order ?? 0 }}
                 </p>
                 <p class="mt-2 text-sm text-slate-500">
-                  E-wallet fee {{ feeRatePercentLabel }}: {{ formatCurrency(plan.processing_fee_amount ?? 0) }}
+                  E-wallet fee deduction {{ feeRatePercentLabel }}: {{ formatCurrency(plan.processing_fee_amount ?? 0) }}
                 </p>
                 <p v-if="plan.description" class="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{{ plan.description }}</p>
                 <div class="mt-4 flex flex-wrap gap-2">
@@ -269,7 +269,7 @@ const saveEdit = () => {
                   <label class="app-label">Price</label>
                   <input v-model="editForm.price" type="number" min="1" step="0.01" class="app-field" />
                   <p class="mt-2 text-sm text-slate-500">
-                    Base amount {{ formatCurrency(toAmount(editForm.price)) }} + {{ feeRatePercentLabel }} e-wallet fee {{ formatCurrency(calculateFeeAmount(editForm.price)) }} = customer charge {{ formatCurrency(calculateCustomerPrice(editForm.price)) }}.
+                    Customer pays {{ formatCurrency(toAmount(editForm.price)) }}. {{ feeRatePercentLabel }} e-wallet fee deducts {{ formatCurrency(calculateFeeAmount(editForm.price)) }}, leaving {{ formatCurrency(calculateNetAmount(editForm.price)) }} net after payment.
                   </p>
                 </div>
                 <div>

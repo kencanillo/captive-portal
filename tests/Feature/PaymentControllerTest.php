@@ -94,7 +94,7 @@ class PaymentControllerTest extends TestCase
         $this->assertSame('pm_test_qrph_123', $payment->paymongo_payment_method_id);
         $this->assertSame('code_test_qrph_123', $payment->qr_reference);
         $this->assertNotNull($payment->qr_expires_at);
-        $this->assertSame('25.50', (string) $payment->amount);
+        $this->assertSame('25.00', (string) $payment->amount);
         $this->assertSame(1, Payment::query()->count());
     }
 
@@ -172,6 +172,7 @@ class PaymentControllerTest extends TestCase
         $this->assertNotNull($payment->paid_at);
         $this->assertSame(WifiSession::PAYMENT_STATUS_PAID, $payment->wifiSession->payment_status);
         $this->assertSame(WifiSession::SESSION_STATUS_PAID, $payment->wifiSession->session_status);
+        $this->assertSame('24.50', (string) $payment->wifiSession->amount_paid);
 
         Bus::assertDispatched(ReleaseWifiAccessJob::class, fn (ReleaseWifiAccessJob $job) => $job->paymentId === $payment->id);
     }
@@ -302,6 +303,7 @@ class PaymentControllerTest extends TestCase
         $payment->refresh();
 
         $this->assertSame(Payment::STATUS_PAID, $payment->payment_status);
+        $this->assertSame('24.50', (string) $payment->wifiSession->fresh()->amount_paid);
         Bus::assertDispatched(ReleaseWifiAccessJob::class, fn (ReleaseWifiAccessJob $job) => $job->paymentId === $payment->id);
     }
 

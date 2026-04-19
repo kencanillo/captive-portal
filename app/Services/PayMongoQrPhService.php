@@ -238,7 +238,7 @@ class PayMongoQrPhService
         }
 
         $session->loadMissing(['plan', 'client']);
-        $chargeAmount = $session->plan?->customer_price ?? (float) $session->amount_paid;
+        $chargeAmount = (float) ($session->plan?->price ?? $session->amount_paid);
         $paymentCreationStartedAt = microtime(true);
 
         $localReference = Str::upper(Str::random(8));
@@ -516,13 +516,15 @@ class PayMongoQrPhService
             ])->save();
 
             $session = $lockedPayment->wifiSession;
+            $netAmount = (float) ($session->plan?->net_amount ?? $lockedPayment->amount ?? $session->amount_paid);
+
             $session->forceFill([
                 'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
                 'session_status' => $session->is_active
                     ? WifiSession::SESSION_STATUS_ACTIVE
                     : WifiSession::SESSION_STATUS_PAID,
                 'release_failure_reason' => null,
-                'amount_paid' => $lockedPayment->amount ?? $session->amount_paid,
+                'amount_paid' => $netAmount,
                 'paymongo_payment_intent_id' => $lockedPayment->paymongo_payment_intent_id,
             ])->save();
 
@@ -531,6 +533,9 @@ class PayMongoQrPhService
                 'wifi_session_id' => $session->id,
                 'event_id' => $eventId,
                 'paymongo_payment_id' => $lockedPayment->paymongo_payment_id,
+                'gross_amount' => $lockedPayment->amount,
+                'net_amount' => $netAmount,
+                'processing_fee_amount' => round(max(0, (float) $lockedPayment->amount - $netAmount), 2),
             ]);
 
             $dispatch = $dispatchRelease && $session->session_status !== WifiSession::SESSION_STATUS_ACTIVE;
