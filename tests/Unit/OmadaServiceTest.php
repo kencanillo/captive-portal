@@ -36,6 +36,23 @@ class OmadaServiceTest extends TestCase
         $this->assertFalse($unverifiedOptions['verify']);
     }
 
+    public function test_client_accepts_timeout_overrides_for_portal_hot_paths(): void
+    {
+        $service = app(OmadaService::class);
+
+        $client = $this->invokeClient($service, [
+            'base_url' => 'https://76.13.187.98:8043',
+        ], [
+            'connect_timeout' => 1,
+            'timeout' => 4,
+        ]);
+
+        $options = $this->pendingRequestOptions($client);
+
+        $this->assertSame(1, $options['connect_timeout']);
+        $this->assertSame(4, $options['timeout']);
+    }
+
     public function test_test_connection_prefers_openapi_client_credentials_when_present(): void
     {
         Http::fake([
@@ -289,7 +306,7 @@ class OmadaServiceTest extends TestCase
             && $request->hasHeader('Authorization', 'AccessToken=access-token'));
     }
 
-    private function invokeClient(OmadaService $service, array $settings): PendingRequest
+    private function invokeClient(OmadaService $service, array $settings, ?array $timeoutProfile = null): PendingRequest
     {
         $method = new ReflectionMethod($service, 'client');
         $method->setAccessible(true);
@@ -297,7 +314,7 @@ class OmadaServiceTest extends TestCase
         /** @var PendingRequest $client */
         $client = $method->invoke($service, array_merge([
             'base_url' => 'https://localhost:8043',
-        ], $settings));
+        ], $settings), $timeoutProfile);
 
         return $client;
     }

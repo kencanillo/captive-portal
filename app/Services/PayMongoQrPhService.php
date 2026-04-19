@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class PayMongoQrPhService
 {
@@ -26,6 +27,10 @@ class PayMongoQrPhService
 
     private int $webhookToleranceSeconds;
 
+    private int $connectTimeoutSeconds;
+
+    private int $timeoutSeconds;
+
     public function __construct()
     {
         $this->secretKey = (string) config('services.paymongo.secret_key');
@@ -33,6 +38,8 @@ class PayMongoQrPhService
         $this->baseUrl = rtrim((string) config('services.paymongo.base_url', 'https://api.paymongo.com/v1'), '/');
         $this->qrExpirySeconds = (int) config('services.paymongo.qrph_expiry_seconds', 1800);
         $this->webhookToleranceSeconds = (int) config('services.paymongo.webhook_tolerance_seconds', 300);
+        $this->connectTimeoutSeconds = max(1, (int) config('services.paymongo.connect_timeout_seconds', 2));
+        $this->timeoutSeconds = max(1, (int) config('services.paymongo.timeout_seconds', 4));
     }
 
     public function createOrReusePayment(WifiSession $session): Payment
@@ -232,8 +239,10 @@ class PayMongoQrPhService
 
         $session->loadMissing(['plan', 'client']);
         $chargeAmount = $session->plan?->customer_price ?? (float) $session->amount_paid;
+        $paymentCreationStartedAt = microtime(true);
 
         $localReference = Str::upper(Str::random(8));
+        $paymentIntentStartedAt = microtime(true);
         $paymentIntentResponse = $this->request('post', '/payment_intents', [
             'data' => [
                 'attributes' => [
@@ -250,6 +259,7 @@ class PayMongoQrPhService
                 ],
             ],
         ]);
+        $paymentIntentDurationMs = $this->elapsedMilliseconds($paymentIntentStartedAt);
 
         $paymentIntentId = Arr::get($paymentIntentResponse, 'data.id');
 
@@ -257,6 +267,7 @@ class PayMongoQrPhService
             throw new RuntimeException('PayMongo payment intent response is missing the id.');
         }
 
+        $paymentMethodStartedAt = microtime(true);
         $paymentMethodResponse = $this->request('post', '/payment_methods', [
             'data' => [
                 'attributes' => [
@@ -274,6 +285,7 @@ class PayMongoQrPhService
                 ],
             ],
         ]);
+        $paymentMethodDurationMs = $this->elapsedMilliseconds($paymentMethodStartedAt);
 
         $paymentMethodId = Arr::get($paymentMethodResponse, 'data.id');
 
@@ -281,6 +293,7 @@ class PayMongoQrPhService
             throw new RuntimeException('PayMongo payment method response is missing the id.');
         }
 
+        $attachStartedAt = microtime(true);
         $attachResponse = $this->request('post', "/payment_intents/{$paymentIntentId}/attach", [
             'data' => [
                 'attributes' => [
@@ -288,6 +301,7 @@ class PayMongoQrPhService
                 ],
             ],
         ]);
+        $attachDurationMs = $this->elapsedMilliseconds($attachStartedAt);
 
         $qrImageUrl = Arr::get($attachResponse, 'data.attributes.next_action.code.image_url');
         $qrReference = Arr::get($attachResponse, 'data.attributes.next_action.code.id');
@@ -350,6 +364,10 @@ class PayMongoQrPhService
             'paymongo_payment_method_id' => $paymentMethodId,
             'qr_reference' => $qrReference,
             'qr_expires_at' => $payment->qr_expires_at?->toIso8601String(),
+            'payment_intent_ms' => $paymentIntentDurationMs,
+            'payment_method_ms' => $paymentMethodDurationMs,
+            'attach_ms' => $attachDurationMs,
+            'total_ms' => $this->elapsedMilliseconds($paymentCreationStartedAt),
         ]);
 
         return $payment->load(['wifiSession.plan', 'wifiSession.client']);
@@ -634,10 +652,34 @@ class PayMongoQrPhService
 
     private function request(string $method, string $uri, array $payload = []): array
     {
-        $response = Http::withBasicAuth($this->secretKey, '')
-            ->acceptJson()
-            ->asJson()
-            ->send($method, "{$this->baseUrl}{$uri}", $payload === [] ? [] : ['json' => $payload]);
+        $startedAt = microtime(true);
+
+        try {
+            $response = Http::withBasicAuth($this->secretKey, '')
+                ->acceptJson()
+                ->asJson()
+                ->connectTimeout($this->connectTimeoutSeconds)
+                ->timeout($this->timeoutSeconds)
+                ->send($method, "{$this->baseUrl}{$uri}", $payload === [] ? [] : ['json' => $payload]);
+        } catch (Throwable $exception) {
+            Log::warning('PayMongo API request failed before a valid response was returned.', [
+                'method' => strtoupper($method),
+                'uri' => $uri,
+                'duration_ms' => $this->elapsedMilliseconds($startedAt),
+                'connect_timeout_seconds' => $this->connectTimeoutSeconds,
+                'timeout_seconds' => $this->timeoutSeconds,
+                'error' => $exception->getMessage(),
+            ]);
+
+            throw $exception;
+        }
+
+        Log::info('PayMongo API request completed.', [
+            'method' => strtoupper($method),
+            'uri' => $uri,
+            'duration_ms' => $this->elapsedMilliseconds($startedAt),
+            'status' => $response->status(),
+        ]);
 
         return $this->decodeResponse($response);
     }
@@ -722,5 +764,10 @@ class PayMongoQrPhService
     private function toCentavos(string|float|int $amount): int
     {
         return (int) round(((float) $amount) * 100);
+    }
+
+    private function elapsedMilliseconds(float $startedAt): int
+    {
+        return (int) round((microtime(true) - $startedAt) * 1000);
     }
 }
