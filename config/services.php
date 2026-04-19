@@ -50,7 +50,8 @@ return [
     ],
 
     'omada' => [
-        'verify_ssl' => env('OMADA_VERIFY_SSL', true),
+        'verify_ssl' => filter_var(env('OMADA_VERIFY_SSL', true), FILTER_VALIDATE_BOOLEAN),
+        'internal_base_url' => env('OMADA_INTERNAL_BASE_URL'),
     ],
 
 ];

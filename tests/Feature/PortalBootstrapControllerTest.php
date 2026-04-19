@@ -32,17 +32,25 @@ class PortalBootstrapControllerTest extends TestCase
         ]);
 
         $omadaService = Mockery::mock(OmadaService::class);
-        $omadaService->shouldReceive('getClientMacAddress')
+        $omadaService->shouldReceive('lookupPortalClientContext')
             ->once()
-            ->withArgs(function (ControllerSetting $settings, string $clientIp): bool {
+            ->withArgs(function (ControllerSetting $settings, string $clientIp, ?string $requestId = null): bool {
                 return $settings->base_url === 'https://controller.example.com'
-                    && $clientIp === '10.10.10.25';
+                    && $clientIp === '10.10.10.25'
+                    && filled($requestId);
             })
-            ->andReturn('aa:bb:cc:dd:ee:ff');
+            ->andReturn([
+                'status' => 'resolved',
+                'resolution_source' => 'omada',
+                'mac_address' => 'aa:bb:cc:dd:ee:ff',
+                'error_code' => null,
+                'retry_after_ms' => 0,
+            ]);
         $this->app->instance(OmadaService::class, $omadaService);
 
         $this->getJson('/api/portal/bootstrap?clientMac=11:22:33:44:55:66&clientIp=10.10.10.25&siteName=North%20Site')
             ->assertOk()
+            ->assertJsonPath('data.status', 'resolved')
             ->assertJsonPath('data.portal_context.mac_address', 'aa:bb:cc:dd:ee:ff')
             ->assertJsonPath('data.portal_context.client_ip', '10.10.10.25')
             ->assertJsonPath('data.portal_context.site_name', 'North Site')
@@ -67,6 +75,7 @@ class PortalBootstrapControllerTest extends TestCase
 
         $this->getJson('/api/portal/bootstrap?clientMac=aa-bb-cc-dd-ee-ff&clientIp=10.10.10.26')
             ->assertOk()
+            ->assertJsonPath('data.status', 'resolved')
             ->assertJsonPath('data.portal_context.mac_address', 'AA:BB:CC:DD:EE:FF')
             ->assertJsonPath('data.portal_context.client_ip', '10.10.10.26')
             ->assertJsonPath('data.existing_client.name', 'Fallback Client');
@@ -94,6 +103,7 @@ class PortalBootstrapControllerTest extends TestCase
 
         $this->getJson('/api/portal/bootstrap?clientMac=aa-bb-cc-dd-ee-ff&clientIp=10.10.10.27')
             ->assertOk()
+            ->assertJsonPath('data.status', 'resolved')
             ->assertJsonPath('data.portal_context.mac_address', 'AA:BB:CC:DD:EE:FF')
             ->assertJsonPath('data.existing_client.name', 'Known Client');
     }
@@ -130,8 +140,40 @@ class PortalBootstrapControllerTest extends TestCase
         $response = $this->getJson('/api/portal/bootstrap?clientMac=AA:BB:CC:DD:EE:FF');
 
         $response->assertOk()
+            ->assertJsonPath('data.status', 'resolved')
             ->assertJsonPath('data.active_session.client_name', 'Connected Client')
             ->assertJsonPath('data.active_session.plan.name', 'Quick Surf 1 Hour')
             ->assertJsonPath('data.active_session.session_status', WifiSession::SESSION_STATUS_ACTIVE);
+    }
+
+    public function test_portal_device_context_endpoint_returns_retryable_status_when_omada_has_not_seen_client_yet(): void
+    {
+        ControllerSetting::query()->create([
+            'controller_name' => 'Primary Controller',
+            'base_url' => 'https://controller.example.com',
+            'api_client_id' => 'client-id',
+            'api_client_secret' => 'client-secret',
+        ]);
+
+        $omadaService = Mockery::mock(OmadaService::class);
+        $omadaService->shouldReceive('lookupPortalClientContext')
+            ->once()
+            ->andReturn([
+                'status' => 'retryable',
+                'resolution_source' => 'omada_not_found',
+                'mac_address' => null,
+                'error_code' => 'not_found',
+                'retry_after_ms' => 1500,
+            ]);
+        $this->app->instance(OmadaService::class, $omadaService);
+
+        $this->getJson('/api/portal/device-context?clientIp=10.10.10.99&siteName=North%20Site')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'retryable')
+            ->assertJsonPath('data.error_code', 'not_found')
+            ->assertJsonPath('data.portal_context.client_ip', '10.10.10.99')
+            ->assertJsonPath('data.portal_context.site_name', 'North Site')
+            ->assertJsonPath('data.portal_context.mac_address', null)
+            ->assertJsonPath('data.portal_token', null);
     }
 }

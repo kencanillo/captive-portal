@@ -19,6 +19,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Cache Store For Rate Limiting
+    |--------------------------------------------------------------------------
+    |
+    | Portal availability should not depend on Redis DNS behaving perfectly.
+    | Keep throttling on a stable store when production Redis is flaky.
+    |
+    */
+
+    'limiter' => env('CACHE_LIMITER', env('CACHE_STORE', 'database')),
+
+    /*
+    |--------------------------------------------------------------------------
     | Cache Stores
     |--------------------------------------------------------------------------
     |

@@ -3,50 +3,34 @@
 namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
+use App\Services\PortalDeviceContextService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class CaptivePortalController extends Controller
 {
-    public function __invoke(Request $request): Response
+    public function __invoke(Request $request, PortalDeviceContextService $portalDeviceContextService): Response
     {
-        return Inertia::render('Public/PlanSelection', [
-            'bootstrapUrl' => url('/api/portal/bootstrap').($request->getQueryString() ? "?{$request->getQueryString()}" : ''),
-            'plansUrl' => url('/api/portal/plans').($request->getQueryString() ? "?{$request->getQueryString()}" : ''),
-            'bootstrapTimeoutMs' => (int) config('portal.bootstrap_timeout_seconds', 8) * 1000,
-            'initialPortalContext' => [
-                'ap_mac' => $this->firstFilled($request, ['apMac', 'ap_mac']),
-                'ap_name' => $this->firstFilled($request, ['apName', 'ap_name']),
-                'site_name' => $this->firstFilled($request, ['siteName', 'site_name', 'site']),
-                'ssid_name' => $this->firstFilled($request, ['ssidName', 'ssid_name', 'ssid']),
-                'radio_id' => $this->firstFilled($request, ['radioId', 'radio_id']),
-                'client_ip' => $this->firstFilled($request, ['clientIp', 'client_ip']) ?: $request->ip(),
-            ],
+        $startedAt = microtime(true);
+        $requestId = (string) Str::uuid();
+        $initialPortalContext = $portalDeviceContextService->buildInitialContext($request);
+
+        Log::info('Portal page shell prepared.', [
+            'request_id' => $requestId,
+            'client_ip' => $initialPortalContext['client_ip'],
+            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            'has_query_mac' => filled($request->query('clientMac') ?: $request->query('client_mac')),
         ]);
-    }
 
-    private function firstFilled(Request $request, array $keys): ?string
-    {
-        foreach ($keys as $key) {
-            $value = $request->query($key);
-
-            if ($value === null) {
-                foreach ($request->query() as $queryKey => $queryValue) {
-                    if (strtolower((string) $queryKey) === strtolower($key)) {
-                        $value = $queryValue;
-                        break;
-                    }
-                }
-            }
-
-            $value = trim((string) ($value ?? ''));
-
-            if ($value !== '') {
-                return $value;
-            }
-        }
-
-        return null;
+        return Inertia::render('Public/PlanSelection', [
+            'portalRequestId' => $requestId,
+            'deviceContextUrl' => url('/api/portal/device-context').($request->getQueryString() ? "?{$request->getQueryString()}" : ''),
+            'plansUrl' => url('/api/portal/plans').($request->getQueryString() ? "?{$request->getQueryString()}" : ''),
+            'deviceContextTimeoutMs' => (int) config('portal.bootstrap_timeout_seconds', 8) * 1000,
+            'initialPortalContext' => $initialPortalContext,
+        ]);
     }
 }
