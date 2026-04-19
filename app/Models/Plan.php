@@ -15,6 +15,7 @@ class Plan extends Model
         'processing_fee_rate',
         'processing_fee_amount',
         'customer_price',
+        'net_amount',
     ];
 
     protected $fillable = [
@@ -63,7 +64,14 @@ class Plan extends Model
     public function customerPrice(): Attribute
     {
         return Attribute::make(
-            get: fn (): float => round((float) $this->price + $this->processing_fee_amount, 2),
+            get: fn (): float => round((float) $this->price, 2),
+        );
+    }
+
+    public function netAmount(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): float => round(max(0, (float) $this->price - $this->processing_fee_amount), 2),
         );
     }
 }

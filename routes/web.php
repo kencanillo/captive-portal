@@ -63,8 +63,8 @@ Route::post('/payments/{paymentToken}/recheck', PaymentRecheckController::class)
 Route::get('/payment/success', [PaymentController::class, 'success'])->name('payment.success');
 Route::get('/payment/failed', [PaymentController::class, 'failed'])->name('payment.failed');
 
-Route::prefix('admin')->middleware('guest')->name('admin.')->group(function () {
-    Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
+Route::prefix('admin')->middleware('guest')->group(function () {
+    Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('admin.login');
     Route::post('/login', [AuthenticatedSessionController::class, 'store']);
     Route::get('/forgot-password', [PasswordResetLinkController::class, 'create'])->name('password.request');
     Route::post('/forgot-password', [PasswordResetLinkController::class, 'store'])->name('password.email');
@@ -72,14 +72,14 @@ Route::prefix('admin')->middleware('guest')->name('admin.')->group(function () {
     Route::post('/reset-password', [NewPasswordController::class, 'store'])->name('password.store');
 });
 
-Route::prefix('admin')->middleware('auth')->name('admin.')->group(function () {
+Route::prefix('admin')->middleware('auth')->group(function () {
     Route::get('/verify-email', EmailVerificationPromptController::class)->name('verification.notice');
     Route::get('/verify-email/{id}/{hash}', VerifyEmailController::class)->middleware(['signed', 'throttle:6,1'])->name('verification.verify');
     Route::post('/email/verification-notification', [EmailVerificationNotificationController::class, 'store'])->middleware('throttle:6,1')->name('verification.send');
     Route::get('/confirm-password', [ConfirmablePasswordController::class, 'show'])->name('password.confirm');
     Route::post('/confirm-password', [ConfirmablePasswordController::class, 'store']);
     Route::put('/password', [PasswordController::class, 'update'])->name('password.update');
-    Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+    Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('admin.logout');
 });
 
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])

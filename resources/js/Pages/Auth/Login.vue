@@ -101,7 +101,7 @@ const submit = () => {
                 <label class="app-label mb-0" for="password">Password</label>
                 <Link
                   v-if="canResetPassword"
-                  :href="route('admin.password.request')"
+                  :href="route('password.request')"
                   class="text-xs font-bold uppercase tracking-[0.16em] text-sky-700 transition hover:text-sky-900"
                 >
                   Forgot?
