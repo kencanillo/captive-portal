@@ -72,6 +72,32 @@ class PortalBootstrapControllerTest extends TestCase
             ->assertJsonPath('data.existing_client.name', 'Fallback Client');
     }
 
+    public function test_portal_bootstrap_uses_known_client_mac_from_database_before_calling_omada(): void
+    {
+        ControllerSetting::query()->create([
+            'controller_name' => 'Primary Controller',
+            'base_url' => 'https://controller.example.com',
+            'api_client_id' => 'client-id',
+            'api_client_secret' => 'client-secret',
+        ]);
+
+        Client::query()->create([
+            'name' => 'Known Client',
+            'phone_number' => '09171111111',
+            'pin' => bcrypt('1234'),
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+        ]);
+
+        $omadaService = Mockery::mock(OmadaService::class);
+        $omadaService->shouldNotReceive('getClientMacAddress');
+        $this->app->instance(OmadaService::class, $omadaService);
+
+        $this->getJson('/api/portal/bootstrap?clientMac=aa-bb-cc-dd-ee-ff&clientIp=10.10.10.27')
+            ->assertOk()
+            ->assertJsonPath('data.portal_context.mac_address', 'AA:BB:CC:DD:EE:FF')
+            ->assertJsonPath('data.existing_client.name', 'Known Client');
+    }
+
     public function test_portal_bootstrap_returns_active_session_details_for_connected_clients(): void
     {
         config()->set('portal.allow_query_mac_fallback', true);

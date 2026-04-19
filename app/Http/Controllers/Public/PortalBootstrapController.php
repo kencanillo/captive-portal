@@ -10,28 +10,43 @@ use App\Services\OmadaService;
 use App\Support\PortalTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class PortalBootstrapController extends Controller
 {
     public function __invoke(Request $request, OmadaService $omadaService, PortalTokenService $portalTokenService): JsonResponse
     {
+        $startedAt = microtime(true);
         $resolvedClientIp = $this->firstFilled($request, ['clientIp', 'client_ip']) ?: $request->ip();
         $macAddress = null;
+        $resolutionSource = 'none';
         $queryMacAddress = $this->normalizeMac(
             $this->firstFilled($request, ['clientMac', 'client_mac', 'mac_address', 'mac'])
         );
+        $existingClient = null;
 
-        if (config('portal.allow_query_mac_fallback', false) && $queryMacAddress) {
+        if ($queryMacAddress) {
+            $existingClient = Client::findByMacAddress($queryMacAddress);
+
+            if ($existingClient) {
+                $macAddress = $existingClient->mac_address;
+                $resolutionSource = 'known_client_db';
+            }
+        }
+
+        if (! $macAddress && config('portal.allow_query_mac_fallback', false) && $queryMacAddress) {
             $macAddress = $queryMacAddress;
-        } else {
+            $resolutionSource = 'query_fallback';
+        } elseif (! $macAddress) {
             $controllerSettings = ControllerSetting::singleton();
 
             if ($controllerSettings->canTestConnection()) {
                 $macAddress = $omadaService->getClientMacAddress($controllerSettings, $resolvedClientIp);
+                $resolutionSource = $macAddress ? 'omada' : 'omada_miss';
             }
         }
 
-        $existingClient = $macAddress ? Client::findByMacAddress($macAddress) : null;
+        $existingClient ??= $macAddress ? Client::findByMacAddress($macAddress) : null;
         $activeSession = $macAddress ? $this->findActiveSession($macAddress) : null;
         $portalContext = [
             'mac_address' => $macAddress,
@@ -42,6 +57,15 @@ class PortalBootstrapController extends Controller
             'radio_id' => $this->firstFilled($request, ['radioId', 'radio_id']),
             'client_ip' => $resolvedClientIp,
         ];
+
+        Log::info('Portal bootstrap resolved device context.', [
+            'client_ip' => $resolvedClientIp,
+            'resolution_source' => $resolutionSource,
+            'has_mac_address' => filled($macAddress),
+            'has_existing_client' => $existingClient !== null,
+            'has_active_session' => $activeSession !== null,
+            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ]);
 
         return response()->json([
             'data' => [

@@ -10,9 +10,12 @@ use GuzzleHttp\Cookie\CookieJar;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class OmadaService
 {
@@ -52,15 +55,36 @@ class OmadaService
 
     public function getClientMacAddress(ControllerSetting $settings, string $clientIp): ?string
     {
+        $lookupStartedAt = microtime(true);
+        $normalized = $this->normalizeSettings($settings);
+        $cacheSeconds = max(0, (int) config('portal.omada_mac_lookup_cache_seconds', 45));
+        $cacheKey = $this->portalMacLookupCacheKey($normalized['base_url'], $clientIp);
+        $cachedLookup = $cacheSeconds > 0 ? Cache::get($cacheKey) : null;
+
+        if (is_array($cachedLookup) && array_key_exists('mac', $cachedLookup)) {
+            Log::info('Portal Omada MAC lookup cache hit.', [
+                'client_ip' => $clientIp,
+                'matched' => filled($cachedLookup['mac']),
+                'duration_ms' => $this->elapsedMilliseconds($lookupStartedAt),
+            ]);
+
+            return $cachedLookup['mac'] ?: null;
+        }
+
+        $loginDurationMs = null;
+        $clientsFetchDurationMs = null;
+
         try {
-            $normalized = $this->normalizeSettings($settings);
-            $client = $this->authenticatedClient($normalized, 'client MAC lookup');
+            $loginStartedAt = microtime(true);
+            $client = $this->authenticatedClient($normalized, 'client MAC lookup', $this->portalMacLookupTimeoutProfile());
+            $loginDurationMs = $this->elapsedMilliseconds($loginStartedAt);
 
-            // Try to get connected clients from the controller
+            $clientsFetchStartedAt = microtime(true);
             $payload = $this->request($client, 'get', '/api/v2/controller/clients');
+            $clientsFetchDurationMs = $this->elapsedMilliseconds($clientsFetchStartedAt);
 
-            // Look for client by IP address
             $clients = $this->extractClientsFromPayload($payload);
+            $resolvedMacAddress = null;
 
             foreach ($clients as $clientData) {
                 $clientIpFromApi = $this->firstFilled($clientData, [
@@ -70,17 +94,37 @@ class OmadaService
                 ]);
 
                 if ($clientIpFromApi && $clientIpFromApi === $clientIp) {
-                    return $this->normalizeMac($this->firstFilled($clientData, [
+                    $resolvedMacAddress = $this->normalizeMac($this->firstFilled($clientData, [
                         'mac',
                         'macAddress',
                         'clientMac',
                     ]));
+                    break;
                 }
             }
 
-            return null;
-        } catch (\Throwable $e) {
-            // Log error but don't throw - we'll fallback to manual input
+            if ($cacheSeconds > 0) {
+                Cache::put($cacheKey, ['mac' => $resolvedMacAddress], now()->addSeconds($cacheSeconds));
+            }
+
+            Log::info('Portal Omada MAC lookup completed.', [
+                'client_ip' => $clientIp,
+                'matched' => filled($resolvedMacAddress),
+                'login_ms' => $loginDurationMs,
+                'clients_fetch_ms' => $clientsFetchDurationMs,
+                'total_ms' => $this->elapsedMilliseconds($lookupStartedAt),
+            ]);
+
+            return $resolvedMacAddress;
+        } catch (Throwable $exception) {
+            Log::warning('Portal Omada MAC lookup failed.', [
+                'client_ip' => $clientIp,
+                'login_ms' => $loginDurationMs,
+                'clients_fetch_ms' => $clientsFetchDurationMs,
+                'total_ms' => $this->elapsedMilliseconds($lookupStartedAt),
+                'error' => $exception->getMessage(),
+            ]);
+
             return null;
         }
     }
@@ -246,7 +290,7 @@ class OmadaService
                 ]);
                 return $this->extractSitesFromPayload($payload);
             } catch (Throwable $e) {
-                \Log::warning('Omada getSites OpenAPI failed, trying legacy', ['error' => $e->getMessage()]);
+                Log::warning('Omada getSites OpenAPI failed, trying legacy', ['error' => $e->getMessage()]);
             }
         }
 
@@ -262,7 +306,7 @@ class OmadaService
                 $payload = $this->request($client, 'get', '/api/v2/sites');
                 return $this->extractSitesFromPayload($payload);
             } catch (Throwable $e2) {
-                \Log::error('Omada getSites failed on both legacy endpoints', [
+                Log::error('Omada getSites failed on both legacy endpoints', [
                     'error1' => $e->getMessage(),
                     'error2' => $e2->getMessage(),
                     'controller_url' => $normalized['base_url'],
@@ -333,13 +377,13 @@ class OmadaService
         return $unauthResponse;
     }
 
-    private function authenticatedClient(array $settings, string $purpose): PendingRequest
+    private function authenticatedClient(array $settings, string $purpose, ?array $timeoutProfile = null): PendingRequest
     {
         if (! $this->hasLegacyCredentials($settings)) {
             throw new RuntimeException("{$purpose} currently requires a local controller username/password. OpenAPI client credentials are only wired for connection testing right now.");
         }
 
-        $client = $this->client($settings);
+        $client = $this->client($settings, $timeoutProfile);
         $loginResponse = $client->post('/api/v2/login', [
             'name' => $settings['username'],
             'password' => $settings['password'],
@@ -476,13 +520,16 @@ class OmadaService
         return $token;
     }
 
-    private function client(array $settings): PendingRequest
+    private function client(array $settings, ?array $timeoutProfile = null): PendingRequest
     {
+        $timeout = $timeoutProfile['timeout'] ?? 20;
+        $connectTimeout = $timeoutProfile['connect_timeout'] ?? 10;
+
         $client = Http::baseUrl($settings['base_url'])
             ->acceptJson()
             ->asJson()
-            ->timeout(20)
-            ->connectTimeout(10)
+            ->timeout($timeout)
+            ->connectTimeout($connectTimeout)
             ->withHeaders([
                 'Referer' => $settings['base_url'],
                 'Origin' => $settings['base_url'],
@@ -865,6 +912,24 @@ class OmadaService
         return $this->stringOrNull($session->site?->slug)
             ?? $this->stringOrNull($session->site?->name)
             ?? $this->stringOrNull($settings->site_identifier);
+    }
+
+    private function portalMacLookupTimeoutProfile(): array
+    {
+        return [
+            'connect_timeout' => max(1, (int) config('portal.omada_connect_timeout_seconds', 1)),
+            'timeout' => max(1, (int) config('portal.omada_timeout_seconds', 4)),
+        ];
+    }
+
+    private function portalMacLookupCacheKey(string $baseUrl, string $clientIp): string
+    {
+        return 'portal:omada:mac_lookup:' . sha1($baseUrl . '|' . $clientIp);
+    }
+
+    private function elapsedMilliseconds(float $startedAt): int
+    {
+        return (int) round((microtime(true) - $startedAt) * 1000);
     }
 
     private function normalizeMacForPath(?string $macAddress): string
