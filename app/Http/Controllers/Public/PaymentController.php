@@ -97,6 +97,8 @@ class PaymentController extends Controller
                 'payment_status' => $payment->wifiSession->payment_status,
                 'session_status' => $payment->wifiSession->session_status,
                 'release_failure_reason' => $payment->wifiSession->release_failure_reason,
+                'start_time' => $payment->wifiSession->start_time?->toIso8601String(),
+                'end_time' => $payment->wifiSession->end_time?->toIso8601String(),
             ],
             'plan' => [
                 'id' => $payment->wifiSession->plan->id,

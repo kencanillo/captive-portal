@@ -94,6 +94,7 @@ class PaymentControllerTest extends TestCase
         $this->assertSame('pm_test_qrph_123', $payment->paymongo_payment_method_id);
         $this->assertSame('code_test_qrph_123', $payment->qr_reference);
         $this->assertNotNull($payment->qr_expires_at);
+        $this->assertSame('25.50', (string) $payment->amount);
         $this->assertSame(1, Payment::query()->count());
     }
 

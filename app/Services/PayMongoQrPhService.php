@@ -231,16 +231,17 @@ class PayMongoQrPhService
         }
 
         $session->loadMissing(['plan', 'client']);
+        $chargeAmount = $session->plan?->customer_price ?? (float) $session->amount_paid;
 
         $localReference = Str::upper(Str::random(8));
         $paymentIntentResponse = $this->request('post', '/payment_intents', [
             'data' => [
                 'attributes' => [
-                    'amount' => $this->toCentavos($session->amount_paid),
+                    'amount' => $this->toCentavos($chargeAmount),
                     'currency' => 'PHP',
                     'capture_type' => 'automatic',
                     'payment_method_allowed' => ['qrph'],
-                    'description' => "KennFi Lab {$session->plan->name}",
+                    'description' => "Captive Portal {$session->plan->name}",
                     'metadata' => [
                         'wifi_session_id' => (string) $session->id,
                         'mac_address' => $session->mac_address,
@@ -301,6 +302,7 @@ class PayMongoQrPhService
 
         $payment = DB::transaction(function () use (
             $session,
+            $chargeAmount,
             $localReference,
             $paymentIntentId,
             $paymentMethodId,
@@ -327,7 +329,7 @@ class PayMongoQrPhService
                 'qr_reference' => $qrReference,
                 'qr_image_url' => $qrImageUrl,
                 'qr_expires_at' => now()->addSeconds($this->qrExpirySeconds),
-                'amount' => $session->amount_paid,
+                'amount' => $chargeAmount,
                 'currency' => 'PHP',
             ]);
 

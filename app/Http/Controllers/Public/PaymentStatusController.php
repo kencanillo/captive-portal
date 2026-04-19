@@ -41,6 +41,8 @@ class PaymentStatusController extends Controller
             'currency' => $payment->currency,
             'qr_expires_at' => $payment->qr_expires_at?->toIso8601String(),
             'paid_at' => $payment->paid_at?->toIso8601String(),
+            'session_start_time' => $session->start_time?->toIso8601String(),
+            'session_end_time' => $session->end_time?->toIso8601String(),
             'should_continue_polling' => $shouldContinuePolling,
             'next_step' => $nextStep,
             'human_message' => $humanMessage,

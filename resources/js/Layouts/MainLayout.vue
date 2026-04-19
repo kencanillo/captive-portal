@@ -13,8 +13,6 @@ const page = usePage();
 const navOpen = ref(false);
 
 const user = computed(() => page.props.auth?.user || null);
-const flashSuccess = computed(() => page.props.flash?.success);
-const flashError = computed(() => page.props.flash?.error);
 const currentPath = computed(() => page.url || '');
 const isAdmin = computed(() => Boolean(user.value?.is_admin));
 const isOperator = computed(() => Boolean(user.value?.can_access_operator_panel));
@@ -169,13 +167,6 @@ const logout = () => {
       </header>
 
       <main class="mx-auto max-w-[1600px] px-4 pb-10 pt-28 sm:px-6 lg:px-8">
-        <div v-if="flashSuccess" class="app-card mb-6 border-emerald-200/60 bg-emerald-50/85 px-5 py-4 text-sm text-emerald-700">
-          {{ flashSuccess }}
-        </div>
-        <div v-if="flashError" class="app-card mb-6 border-rose-200/60 bg-rose-50/85 px-5 py-4 text-sm text-rose-700">
-          {{ flashError }}
-        </div>
-
         <slot />
       </main>
     </div>

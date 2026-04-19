@@ -43,15 +43,19 @@ const currentSessionStatus = ref(props.session.session_status);
 const currentReleaseFailureReason = ref(props.session.release_failure_reason);
 const paidAt = ref(props.payment.paid_at);
 const qrExpiresAt = ref(props.payment.qr_expires_at);
+const sessionEndTime = ref(props.session.end_time);
 const humanMessage = ref('You may leave this page to complete payment. This page will update once payment is confirmed.');
 const uiState = ref('loading');
 const requestInFlight = ref(false);
 const generatingNewQr = ref(false);
 const errorMessage = ref('');
 const remainingSeconds = ref(0);
+const sessionRemainingSeconds = ref(0);
+const closeAttempted = ref(false);
 
 let pollTimer = null;
 let countdownTimer = null;
+let autoCloseTimer = null;
 
 const pollIntervalMs = 7000;
 
@@ -71,6 +75,19 @@ const expiresInLabel = computed(() => {
 
   const minutes = Math.floor(remainingSeconds.value / 60);
   const seconds = remainingSeconds.value % 60;
+
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+});
+
+const sessionRemainingLabel = computed(() => {
+  const totalSeconds = Math.max(0, sessionRemainingSeconds.value);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
 
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 });
@@ -135,6 +152,7 @@ function applyStatusPayload(payload) {
   currentReleaseFailureReason.value = payload.release_failure_reason || null;
   paidAt.value = payload.paid_at;
   qrExpiresAt.value = payload.qr_expires_at;
+  sessionEndTime.value = payload.session_end_time;
   humanMessage.value = payload.human_message;
   uiState.value = resolveUiState(payload.payment_status, payload.wifi_session_status);
 
@@ -149,6 +167,11 @@ function applyStatusPayload(payload) {
   }
 
   syncCountdown();
+  syncSessionCountdown();
+
+  if (uiState.value === 'access_enabled') {
+    scheduleAutoClose();
+  }
 }
 
 function syncCountdown() {
@@ -160,6 +183,39 @@ function syncCountdown() {
   const expiresAtMs = new Date(qrExpiresAt.value).getTime();
   const seconds = Math.max(0, Math.floor((expiresAtMs - Date.now()) / 1000));
   remainingSeconds.value = seconds;
+}
+
+function syncSessionCountdown() {
+  if (!sessionEndTime.value) {
+    sessionRemainingSeconds.value = 0;
+    return;
+  }
+
+  const endTimeMs = new Date(sessionEndTime.value).getTime();
+  sessionRemainingSeconds.value = Math.max(0, Math.floor((endTimeMs - Date.now()) / 1000));
+}
+
+function attemptWindowClose() {
+  closeAttempted.value = true;
+
+  try {
+    window.close();
+    window.open('', '_self');
+    window.close();
+  } catch (error) {
+    // Browsers can block scripted window closes. The fallback message stays visible.
+  }
+}
+
+function scheduleAutoClose() {
+  if (autoCloseTimer || closeAttempted.value) {
+    return;
+  }
+
+  humanMessage.value = 'Payment confirmed. This page will try to close automatically so you can reopen WiFi settings and verify the connected session.';
+  autoCloseTimer = window.setTimeout(() => {
+    attemptWindowClose();
+  }, 2500);
 }
 
 async function refreshStatus(useCheckingState = true) {
@@ -253,9 +309,11 @@ function stopPolling() {
 
 function startCountdown() {
   syncCountdown();
+  syncSessionCountdown();
 
   countdownTimer = window.setInterval(() => {
     syncCountdown();
+    syncSessionCountdown();
 
     if (remainingSeconds.value === 0 && ['awaiting_payment', 'checking_status'].includes(uiState.value)) {
       refreshStatus(false);
@@ -266,7 +324,13 @@ function startCountdown() {
 onMounted(async () => {
   uiState.value = resolveUiState(currentPaymentStatus.value, currentSessionStatus.value);
   syncCountdown();
+  syncSessionCountdown();
   startCountdown();
+
+  if (uiState.value === 'access_enabled') {
+    scheduleAutoClose();
+  }
+
   await refreshStatus(false);
 });
 
@@ -277,13 +341,18 @@ onBeforeUnmount(() => {
     window.clearInterval(countdownTimer);
     countdownTimer = null;
   }
+
+  if (autoCloseTimer) {
+    window.clearTimeout(autoCloseTimer);
+    autoCloseTimer = null;
+  }
 });
 </script>
 
 <template>
   <Head title="QR Payment" />
 
-  <MainLayout title="KennFi Lab Payment">
+  <MainLayout title="Captive Portal Payment">
     <section class="mx-auto max-w-xl space-y-4">
       <div class="rounded-xl bg-white p-6 shadow">
         <div class="flex items-start justify-between gap-4">
@@ -311,6 +380,18 @@ onBeforeUnmount(() => {
           <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Current status</p>
           <p class="mt-2 text-lg font-semibold text-slate-900">{{ statusLabel }}</p>
           <p class="mt-2 text-sm text-slate-600">{{ humanMessage }}</p>
+
+          <div
+            v-if="uiState === 'access_enabled'"
+            class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3"
+          >
+            <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700">Connected session</p>
+            <p class="mt-2 text-lg font-semibold text-emerald-950">{{ sessionRemainingLabel }}</p>
+            <p class="mt-1 text-sm text-emerald-700">Time remaining updates live without reloading.</p>
+            <p v-if="closeAttempted" class="mt-2 text-sm text-emerald-700">
+              If this page did not close itself, close it manually and reopen WiFi settings to verify the connected device info.
+            </p>
+          </div>
 
           <p
             v-if="currentReleaseFailureReason && uiState === 'access_failed'"
