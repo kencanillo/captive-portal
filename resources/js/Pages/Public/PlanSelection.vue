@@ -536,12 +536,6 @@ const isPaymentDisabled = (planId) => {
                   <p v-if="plan.speed_limit" class="mt-1 text-xs text-slate-500">{{ plan.speed_limit }}</p>
                   <p class="mt-5 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatCurrency(plan.customer_price ?? plan.price) }}</p>
                   <p class="mt-2 text-sm text-slate-500">Final payable amount</p>
-                  <div class="mt-4 flex items-start gap-3 rounded-[18px] border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm text-amber-900">
-                    <span class="material-symbols-outlined text-[18px] leading-none text-amber-600" aria-hidden="true">error</span>
-                    <p class="leading-6">
-                      A {{ Math.round((plan.processing_fee_rate ?? 0) * 100) }}% transaction fee is deducted after payment. Net recorded amount: {{ formatCurrency(plan.net_amount ?? plan.price) }}.
-                    </p>
-                  </div>
                   <button
                     class="app-button-primary mt-5 w-full rounded-[20px]"
                     :disabled="isPaymentDisabled(plan.id)"
