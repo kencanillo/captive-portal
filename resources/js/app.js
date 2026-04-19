@@ -3,8 +3,9 @@ import './bootstrap';
 
 import { createInertiaApp } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
-import { createApp, h } from 'vue';
+import { createApp, Fragment, h } from 'vue';
 import { ZiggyVue } from '../../vendor/tightenco/ziggy';
+import AppToastStack from '@/Components/AppToastStack.vue';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -16,7 +17,15 @@ createInertiaApp({
             import.meta.glob('./Pages/**/*.vue'),
         ),
     setup({ el, App, props, plugin }) {
-        return createApp({ render: () => h(App, props) })
+        window.appToast = (message, tone = 'info') => {
+            window.dispatchEvent(new CustomEvent('app:toast', {
+                detail: { message, tone },
+            }));
+        };
+
+        return createApp({
+            render: () => h(Fragment, [h(App, props), h(AppToastStack)]),
+        })
             .use(plugin)
             .use(ZiggyVue)
             .mount(el);

@@ -20,6 +20,7 @@ class PlanController extends Controller
                 ->orderBy('sort_order')
                 ->orderBy('price')
                 ->get(),
+            'processingFeeRate' => (float) config('portal.ewallet_fee_rate', 0.02),
         ]);
     }
 

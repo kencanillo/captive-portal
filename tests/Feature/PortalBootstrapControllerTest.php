@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\Client;
 use App\Models\ControllerSetting;
+use App\Models\Plan;
+use App\Models\WifiSession;
 use App\Services\OmadaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
@@ -59,10 +61,51 @@ class PortalBootstrapControllerTest extends TestCase
             'mac_address' => 'AA:BB:CC:DD:EE:FF',
         ]);
 
+        $omadaService = Mockery::mock(OmadaService::class);
+        $omadaService->shouldNotReceive('getClientMacAddress');
+        $this->app->instance(OmadaService::class, $omadaService);
+
         $this->getJson('/api/portal/bootstrap?clientMac=aa-bb-cc-dd-ee-ff&clientIp=10.10.10.26')
             ->assertOk()
             ->assertJsonPath('data.portal_context.mac_address', 'AA:BB:CC:DD:EE:FF')
             ->assertJsonPath('data.portal_context.client_ip', '10.10.10.26')
             ->assertJsonPath('data.existing_client.name', 'Fallback Client');
+    }
+
+    public function test_portal_bootstrap_returns_active_session_details_for_connected_clients(): void
+    {
+        config()->set('portal.allow_query_mac_fallback', true);
+
+        $client = Client::query()->create([
+            'name' => 'Connected Client',
+            'phone_number' => '09175555555',
+            'pin' => bcrypt('1234'),
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+        ]);
+
+        $plan = Plan::query()->create([
+            'name' => 'Quick Surf 1 Hour',
+            'price' => 25,
+            'duration_minutes' => 60,
+        ]);
+
+        WifiSession::query()->create([
+            'client_id' => $client->id,
+            'plan_id' => $plan->id,
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+            'amount_paid' => 25,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
+            'is_active' => true,
+            'start_time' => now()->subMinutes(10),
+            'end_time' => now()->addMinutes(50),
+        ]);
+
+        $response = $this->getJson('/api/portal/bootstrap?clientMac=AA:BB:CC:DD:EE:FF');
+
+        $response->assertOk()
+            ->assertJsonPath('data.active_session.client_name', 'Connected Client')
+            ->assertJsonPath('data.active_session.plan.name', 'Quick Surf 1 Hour')
+            ->assertJsonPath('data.active_session.session_status', WifiSession::SESSION_STATUS_ACTIVE);
     }
 }

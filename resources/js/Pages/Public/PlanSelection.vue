@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import { formatCurrency } from '@/utils/formatters';
 
@@ -11,6 +11,10 @@ const props = defineProps({
   plansUrl: {
     type: String,
     required: true,
+  },
+  bootstrapTimeoutMs: {
+    type: Number,
+    default: 8000,
   },
   initialPortalContext: {
     type: Object,
@@ -29,23 +33,40 @@ const portalContext = ref({
   mac_address: null,
 });
 const existingClient = ref(null);
+const activeSession = ref(null);
 const loadingPlanId = ref(null);
 const errorMessage = ref('');
 const plansRequested = ref(false);
+const activeSessionRemainingSeconds = ref(0);
+
+let activeSessionCountdownTimer = null;
 
 const registrationForm = ref({
   name: '',
   phone_number: '',
   pin: '',
+  pin_confirmation: '',
   mac_address: '',
 });
+
+const syncActiveSessionCountdown = () => {
+  if (!activeSession.value?.end_time) {
+    activeSessionRemainingSeconds.value = 0;
+    return;
+  }
+
+  const endTimeMs = new Date(activeSession.value.end_time).getTime();
+  activeSessionRemainingSeconds.value = Math.max(0, Math.floor((endTimeMs - Date.now()) / 1000));
+};
 
 const fetchBootstrap = async () => {
   bootstrapLoading.value = true;
   bootstrapError.value = '';
 
   try {
-    const response = await window.axios.get(props.bootstrapUrl);
+    const response = await window.axios.get(props.bootstrapUrl, {
+      timeout: props.bootstrapTimeoutMs,
+    });
     const payload = response?.data?.data || {};
 
     portalContext.value = {
@@ -56,14 +77,19 @@ const fetchBootstrap = async () => {
     portalToken.value = payload.portal_token || null;
     registrationForm.value.mac_address = payload?.portal_context?.mac_address || '';
     existingClient.value = payload.existing_client || null;
+    activeSession.value = payload.active_session || null;
+    syncActiveSessionCountdown();
 
     if (existingClient.value) {
       registrationForm.value.name = existingClient.value.name || '';
       registrationForm.value.phone_number = existingClient.value.phone_number || '';
     }
   } catch (error) {
-    bootstrapError.value = error?.response?.data?.message || 'Unable to load device context from Omada. Plan selection stays locked until the MAC address is detected.';
+    bootstrapError.value = error?.code === 'ECONNABORTED'
+      ? 'Device detection timed out. The page is loaded, but Omada did not answer fast enough. Retry the lookup or enable query MAC fallback in deployment.'
+      : error?.response?.data?.message || 'Unable to load device context from Omada. Plan selection stays locked until the MAC address is detected.';
     existingClient.value = null;
+    activeSession.value = null;
     portalToken.value = null;
     registrationForm.value.mac_address = '';
   } finally {
@@ -73,15 +99,43 @@ const fetchBootstrap = async () => {
 
 onMounted(() => {
   fetchBootstrap();
+
+  activeSessionCountdownTimer = window.setInterval(() => {
+    syncActiveSessionCountdown();
+  }, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (activeSessionCountdownTimer) {
+    window.clearInterval(activeSessionCountdownTimer);
+  }
 });
 
 const activeMacAddress = computed(() => registrationForm.value.mac_address || portalContext.value?.mac_address || '');
 const hasDetectedMacAddress = computed(() => Boolean(activeMacAddress.value.trim()));
+const hasActiveSession = computed(() => Boolean(activeSession.value));
 const hasValidRegistrationInput = computed(() => (
   Boolean(registrationForm.value.name.trim())
   && Boolean(registrationForm.value.phone_number.trim())
   && registrationForm.value.pin.trim().length >= 4
+  && registrationForm.value.pin === registrationForm.value.pin_confirmation
 ));
+const activeSessionRemainingLabel = computed(() => {
+  if (!hasActiveSession.value) {
+    return '';
+  }
+
+  const totalSeconds = Math.max(0, activeSessionRemainingSeconds.value);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+});
 
 const validateRegistrationForm = () => {
   if (!hasDetectedMacAddress.value) return 'MAC address was not detected from Omada yet.';
@@ -90,6 +144,8 @@ const validateRegistrationForm = () => {
   if (!registrationForm.value.phone_number.trim()) return 'Phone number is required.';
   if (!registrationForm.value.pin.trim()) return 'PIN is required.';
   if (registrationForm.value.pin.length < 4) return 'PIN must be at least 4 characters.';
+  if (!registrationForm.value.pin_confirmation.trim()) return 'Confirm PIN is required.';
+  if (registrationForm.value.pin !== registrationForm.value.pin_confirmation) return 'PIN confirmation does not match.';
 
   return null;
 };
@@ -110,6 +166,11 @@ const loadPlans = async () => {
 };
 
 const continueToPlans = async () => {
+  if (hasActiveSession.value) {
+    errorMessage.value = 'This device already has active internet access. Disconnect from WiFi and reconnect if you need the captive portal again.';
+    return;
+  }
+
   if (!existingClient.value) {
     const validationError = validateRegistrationForm();
 
@@ -138,6 +199,7 @@ const payWithGCash = async (planId) => {
         name: registrationForm.value.name,
         phone_number: registrationForm.value.phone_number,
         pin: registrationForm.value.pin,
+        pin_confirmation: registrationForm.value.pin_confirmation,
       };
     }
 
@@ -208,12 +270,36 @@ const payWithGCash = async (planId) => {
               <button type="button" class="ml-2 font-semibold underline" @click="fetchBootstrap">Retry</button>
             </div>
 
-            <div v-if="existingClient" class="mb-6 rounded-[22px] border border-emerald-200/70 bg-emerald-50/90 px-5 py-4">
+            <div v-if="hasActiveSession" class="mb-6 rounded-[22px] border border-sky-200/70 bg-sky-50/90 px-5 py-5">
+              <p class="text-sm font-semibold text-sky-950">This device already has active internet access.</p>
+              <p class="mt-1 text-sm text-sky-700">
+                The captive sign-in form is blocked while the session is active. Open WiFi settings again after disconnecting if you need to reconnect.
+              </p>
+
+              <div class="mt-4 grid gap-3 md:grid-cols-2">
+                <div class="rounded-[18px] bg-white/80 px-4 py-4">
+                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Plan</p>
+                  <p class="mt-2 text-lg font-semibold text-slate-950">{{ activeSession?.plan?.name || 'Active session' }}</p>
+                </div>
+                <div class="rounded-[18px] bg-white/80 px-4 py-4">
+                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Time Remaining</p>
+                  <p class="mt-2 text-lg font-semibold text-slate-950">{{ activeSessionRemainingLabel || '0:00' }}</p>
+                </div>
+              </div>
+
+              <div class="mt-4 space-y-2 text-sm text-sky-800">
+                <p><span class="font-semibold">Name:</span> {{ activeSession?.client_name || existingClient?.name || 'Unknown client' }}</p>
+                <p><span class="font-semibold">Phone:</span> {{ activeSession?.phone_number || existingClient?.phone_number || 'Unknown phone' }}</p>
+                <p><span class="font-semibold">MAC:</span> {{ activeMacAddress }}</p>
+              </div>
+            </div>
+
+            <div v-else-if="existingClient" class="mb-6 rounded-[22px] border border-emerald-200/70 bg-emerald-50/90 px-5 py-4">
               <p class="text-sm font-semibold text-emerald-900">Welcome back, {{ existingClient.name }}.</p>
               <p class="mt-1 text-sm text-emerald-700">Your device is already registered. Plans will load only after you continue.</p>
             </div>
 
-            <div v-if="!existingClient" class="space-y-6">
+            <div v-if="!existingClient && !hasActiveSession" class="space-y-6">
               <div>
                 <label class="app-label" for="mac_address">MAC Address</label>
                 <div
@@ -242,14 +328,27 @@ const payWithGCash = async (planId) => {
 
               <div>
                 <label class="app-label" for="pin">PIN</label>
-                <input
-                  id="pin"
-                  v-model="registrationForm.pin"
-                  type="password"
-                  maxlength="20"
-                  class="app-field h-14 text-center text-xl tracking-[0.45em]"
-                  placeholder="••••"
-                />
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <input
+                    id="pin"
+                    v-model="registrationForm.pin"
+                    type="password"
+                    maxlength="20"
+                    class="app-field h-14 text-center text-xl tracking-[0.45em]"
+                    placeholder="PIN"
+                  />
+                  <input
+                    id="pin_confirmation"
+                    v-model="registrationForm.pin_confirmation"
+                    type="password"
+                    maxlength="20"
+                    class="app-field h-14 text-center text-xl tracking-[0.45em]"
+                    placeholder="Confirm PIN"
+                  />
+                </div>
+                <p class="mt-2 text-sm text-slate-500">
+                  Plan selection stays separate. Confirm your PIN first, then continue to load plans.
+                </p>
               </div>
 
               <button class="app-button-primary h-14 w-full rounded-[22px]" :disabled="!hasDetectedMacAddress || plansLoading" @click="continueToPlans">
@@ -258,7 +357,7 @@ const payWithGCash = async (planId) => {
               </button>
             </div>
 
-            <div v-else class="space-y-6">
+            <div v-else-if="!hasActiveSession" class="space-y-6">
               <div class="rounded-[22px] bg-slate-50/90 px-5 py-4">
                 <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Registration Summary</p>
                 <div class="mt-3 space-y-2 text-sm text-slate-600">
@@ -274,7 +373,7 @@ const payWithGCash = async (planId) => {
               </button>
             </div>
 
-            <div v-if="plansRequested || plansLoading" class="mt-8 space-y-6">
+            <div v-if="(plansRequested || plansLoading) && !hasActiveSession" class="mt-8 space-y-6">
               <div>
                 <p class="app-kicker">Plan Selection</p>
                 <h3 class="mt-2 text-2xl font-bold tracking-[-0.04em] text-slate-950">Choose a plan</h3>
@@ -295,7 +394,8 @@ const payWithGCash = async (planId) => {
                   <p class="text-lg font-semibold text-slate-950">{{ plan.name }}</p>
                   <p class="mt-1 text-sm text-slate-500">{{ plan.duration_minutes }} minutes</p>
                   <p v-if="plan.speed_limit" class="mt-1 text-xs text-slate-500">{{ plan.speed_limit }}</p>
-                  <p class="mt-5 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatCurrency(plan.price) }}</p>
+                  <p class="mt-5 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatCurrency(plan.customer_price ?? plan.price) }}</p>
+                  <p class="mt-2 text-sm text-slate-500">Final payable amount</p>
                   <button
                     class="app-button-primary mt-5 w-full rounded-[20px]"
                     :disabled="loadingPlanId === plan.id"

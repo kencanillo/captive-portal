@@ -14,6 +14,7 @@ class CaptivePortalController extends Controller
         return Inertia::render('Public/PlanSelection', [
             'bootstrapUrl' => url('/api/portal/bootstrap').($request->getQueryString() ? "?{$request->getQueryString()}" : ''),
             'plansUrl' => url('/api/portal/plans').($request->getQueryString() ? "?{$request->getQueryString()}" : ''),
+            'bootstrapTimeoutMs' => (int) config('portal.bootstrap_timeout_seconds', 8) * 1000,
             'initialPortalContext' => [
                 'ap_mac' => $this->firstFilled($request, ['apMac', 'ap_mac']),
                 'ap_name' => $this->firstFilled($request, ['apName', 'ap_name']),

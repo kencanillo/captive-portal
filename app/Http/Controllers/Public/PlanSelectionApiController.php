@@ -10,6 +10,7 @@ use App\Services\WifiSessionService;
 use App\Support\ApiResponse;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use RuntimeException;
 
 class PlanSelectionApiController extends Controller
 {
@@ -30,19 +31,25 @@ class PlanSelectionApiController extends Controller
         }
 
         $plan = Plan::query()->findOrFail($request->integer('plan_id'));
-        $session = $wifiSessionService->createSession(
-            (string) $portalContext['mac_address'],
-            $plan,
-            collect($portalContext)->only([
-                'ap_mac',
-                'ap_name',
-                'site_name',
-                'ssid_name',
-                'radio_id',
-                'client_ip',
-            ])->all(),
-            $request->getClientRegistrationData()
-        );
+        try {
+            $session = $wifiSessionService->createSession(
+                (string) $portalContext['mac_address'],
+                $plan,
+                collect($portalContext)->only([
+                    'ap_mac',
+                    'ap_name',
+                    'site_name',
+                    'ssid_name',
+                    'radio_id',
+                    'client_ip',
+                ])->all(),
+                $request->getClientRegistrationData()
+            );
+        } catch (RuntimeException $exception) {
+            throw ValidationException::withMessages([
+                'client_registration.pin' => [$exception->getMessage()],
+            ]);
+        }
 
         return $this->success([
             'session_token' => $portalTokenService->issueSessionToken($session),

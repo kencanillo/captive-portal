@@ -2,7 +2,6 @@
 
 namespace App\Http\Requests;
 
-use App\Rules\MacAddress;
 use Illuminate\Foundation\Http\FormRequest;
 
 class SelectPlanRequest extends FormRequest
@@ -21,11 +20,20 @@ class SelectPlanRequest extends FormRequest
             'client_registration.name' => ['required_with:client_registration', 'string', 'max:255'],
             'client_registration.phone_number' => ['required_with:client_registration', 'string', 'max:20'],
             'client_registration.pin' => ['required_with:client_registration', 'string', 'min:4', 'max:20'],
+            'client_registration.pin_confirmation' => ['required_with:client_registration', 'same:client_registration.pin'],
         ];
     }
 
     public function getClientRegistrationData(): ?array
     {
-        return $this->validated()['client_registration'] ?? null;
+        $registrationData = $this->validated()['client_registration'] ?? null;
+
+        if (! $registrationData) {
+            return null;
+        }
+
+        unset($registrationData['pin_confirmation']);
+
+        return $registrationData;
     }
 }

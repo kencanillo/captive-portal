@@ -67,10 +67,6 @@ const submit = () => {
             </p>
           </div>
 
-          <div v-if="status" class="mb-6 rounded-[22px] border border-emerald-200/70 bg-emerald-50/90 px-5 py-4 text-sm text-emerald-700">
-            {{ status }}
-          </div>
-
           <div class="mb-8 rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-5">
             <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Operator onboarding</p>
             <p class="mt-2 text-sm text-slate-600">

@@ -40,6 +40,7 @@ class PlanSelectionApiTest extends TestCase
                 'name' => 'Juan Dela Cruz',
                 'phone_number' => '09171234567',
                 'pin' => '1234',
+                'pin_confirmation' => '1234',
             ],
         ]);
 
@@ -94,6 +95,7 @@ class PlanSelectionApiTest extends TestCase
                 'name' => 'Juan Dela Cruz',
                 'phone_number' => '09171234567',
                 'pin' => '1234',
+                'pin_confirmation' => '1234',
             ],
         ]);
 
@@ -139,10 +141,47 @@ class PlanSelectionApiTest extends TestCase
                 'name' => 'Juan Dela Cruz',
                 'phone_number' => '09171234567',
                 'pin' => '9999',
+                'pin_confirmation' => '9999',
             ],
         ]);
 
-        $response->assertStatus(500)
-            ->assertSeeText('The PIN does not match the existing client record for this phone number.');
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('client_registration.pin')
+            ->assertJsonFragment([
+                'The PIN does not match the existing client record for this phone number.',
+            ]);
+    }
+
+    public function test_it_rejects_client_registration_when_pin_confirmation_does_not_match(): void
+    {
+        $plan = Plan::query()->create([
+            'name' => '1 Hour',
+            'price' => 25,
+            'duration_minutes' => 60,
+        ]);
+
+        $portalToken = app(PortalTokenService::class)->issuePortalContextToken([
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+            'ap_mac' => '11:22:33:44:55:66',
+            'ap_name' => 'North Pole AP',
+            'site_name' => 'Main Site',
+            'ssid_name' => 'Guest WiFi',
+            'radio_id' => 1,
+            'client_ip' => '192.168.20.10',
+        ]);
+
+        $response = $this->postJson('/api/select-plan', [
+            'plan_id' => $plan->id,
+            'portal_token' => $portalToken,
+            'client_registration' => [
+                'name' => 'Juan Dela Cruz',
+                'phone_number' => '09171234567',
+                'pin' => '1234',
+                'pin_confirmation' => '4321',
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('client_registration.pin_confirmation');
     }
 }

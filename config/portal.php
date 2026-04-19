@@ -5,4 +5,6 @@ return [
     'session_token_lifetime_minutes' => env('PORTAL_SESSION_TOKEN_LIFETIME_MINUTES', 120),
     'payment_token_lifetime_minutes' => env('PORTAL_PAYMENT_TOKEN_LIFETIME_MINUTES', 180),
     'allow_query_mac_fallback' => env('PORTAL_ALLOW_QUERY_MAC_FALLBACK', false),
+    'bootstrap_timeout_seconds' => env('PORTAL_BOOTSTRAP_TIMEOUT_SECONDS', 8),
+    'ewallet_fee_rate' => env('PORTAL_EWALLET_FEE_RATE', 0.02),
 ];
