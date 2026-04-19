@@ -4,7 +4,11 @@ import { Head } from '@inertiajs/vue3';
 import { formatCurrency } from '@/utils/formatters';
 
 const props = defineProps({
-  bootstrapUrl: {
+  portalRequestId: {
+    type: String,
+    required: true,
+  },
+  deviceContextUrl: {
     type: String,
     required: true,
   },
@@ -12,7 +16,7 @@ const props = defineProps({
     type: String,
     required: true,
   },
-  bootstrapTimeoutMs: {
+  deviceContextTimeoutMs: {
     type: Number,
     default: 8000,
   },
@@ -22,9 +26,8 @@ const props = defineProps({
   },
 });
 
-const bootstrapLoading = ref(true);
+const deviceContextLoading = ref(false);
 const plansLoading = ref(false);
-const bootstrapError = ref('');
 const plansError = ref('');
 const plans = ref([]);
 const portalToken = ref(null);
@@ -36,10 +39,18 @@ const existingClient = ref(null);
 const activeSession = ref(null);
 const loadingPlanId = ref(null);
 const errorMessage = ref('');
-const plansRequested = ref(false);
 const activeSessionRemainingSeconds = ref(0);
+const deviceContextStatus = ref('pending');
+const deviceContextErrorCode = ref(null);
+const deviceContextMessage = ref('Detecting device...');
+const deviceContextStalled = ref(false);
+const deviceContextAttempts = ref(0);
+
+const maxAutomaticDeviceContextAttempts = 3;
 
 let activeSessionCountdownTimer = null;
+let deviceContextRetryTimer = null;
+let deviceContextStallTimer = null;
 
 const registrationForm = ref({
   name: '',
@@ -48,6 +59,18 @@ const registrationForm = ref({
   pin_confirmation: '',
   mac_address: '',
 });
+
+const clearDeviceContextTimers = () => {
+  if (deviceContextRetryTimer) {
+    window.clearTimeout(deviceContextRetryTimer);
+    deviceContextRetryTimer = null;
+  }
+
+  if (deviceContextStallTimer) {
+    window.clearTimeout(deviceContextStallTimer);
+    deviceContextStallTimer = null;
+  }
+};
 
 const syncActiveSessionCountdown = () => {
   if (!activeSession.value?.end_time) {
@@ -59,64 +82,144 @@ const syncActiveSessionCountdown = () => {
   activeSessionRemainingSeconds.value = Math.max(0, Math.floor((endTimeMs - Date.now()) / 1000));
 };
 
-const fetchBootstrap = async () => {
+const syncResolvedContext = (payload) => {
+  portalContext.value = {
+    ...portalContext.value,
+    ...(payload.portal_context || {}),
+  };
+
+  portalToken.value = payload.portal_token || portalToken.value;
+  registrationForm.value.mac_address = payload?.portal_context?.mac_address || registrationForm.value.mac_address;
+  existingClient.value = payload.existing_client || existingClient.value;
+  activeSession.value = payload.active_session || null;
+  syncActiveSessionCountdown();
+
+  if (existingClient.value) {
+    registrationForm.value.name = registrationForm.value.name || existingClient.value.name || '';
+    registrationForm.value.phone_number = registrationForm.value.phone_number || existingClient.value.phone_number || '';
+  }
+};
+
+const describeDeviceContextFailure = (errorCode) => {
+  switch (errorCode) {
+    case 'omada_ssl':
+      return 'Device detection failed because the Omada controller certificate was rejected. Fix SSL trust or the internal controller URL, then retry.';
+    case 'auth':
+      return 'Device detection failed because Omada authentication did not succeed.';
+    case 'controller_unavailable':
+      return 'Device detection is unavailable because controller settings are incomplete.';
+    case 'not_found':
+      return 'The device is not visible in Omada yet. You can continue filling out the form while detection retries.';
+    case 'timeout':
+      return 'Omada did not answer in time. You can continue filling out the form and retry device detection.';
+    default:
+      return 'Device detection is unavailable right now. Retry when the controller path is healthy.';
+  }
+};
+
+const scheduleDeviceContextStallNotice = () => {
+  if (deviceContextStatus.value === 'resolved') return;
+
+  deviceContextStallTimer = window.setTimeout(() => {
+    if (deviceContextStatus.value !== 'resolved') {
+      deviceContextStalled.value = true;
+      deviceContextMessage.value = 'Still detecting. You can continue filling out the form while device resolution runs in the background.';
+    }
+  }, 2000);
+};
+
+const scheduleDeviceContextRetry = (delayMs) => {
+  if (deviceContextAttempts.value >= maxAutomaticDeviceContextAttempts) return;
+
+  deviceContextRetryTimer = window.setTimeout(() => {
+    fetchDeviceContext(false);
+  }, delayMs);
+};
+
+const fetchDeviceContext = async (isManualRetry = false) => {
   const startTime = performance.now();
-  bootstrapLoading.value = true;
-  bootstrapError.value = '';
+  clearDeviceContextTimers();
+  deviceContextLoading.value = true;
+  deviceContextStalled.value = false;
+
+  if (isManualRetry) {
+    deviceContextAttempts.value = 0;
+  }
+
+  deviceContextAttempts.value += 1;
+  deviceContextMessage.value = 'Detecting device...';
 
   try {
-    console.log('[PlanSelection] Starting bootstrap fetch');
-    const response = await window.axios.get(props.bootstrapUrl, {
-      timeout: props.bootstrapTimeoutMs,
+    scheduleDeviceContextStallNotice();
+    console.log('[PlanSelection] Starting async device context fetch');
+    const response = await window.axios.get(props.deviceContextUrl, {
+      timeout: props.deviceContextTimeoutMs,
+      headers: {
+        'X-Portal-Request-Id': props.portalRequestId,
+      },
     });
     const fetchDuration = performance.now() - startTime;
-    console.log(`[PlanSelection] Bootstrap fetch completed in ${fetchDuration.toFixed(2)}ms`);
+    console.log(`[PlanSelection] Device context fetch completed in ${fetchDuration.toFixed(2)}ms`);
 
     const payload = response?.data?.data || {};
+    deviceContextStatus.value = payload.status || 'pending';
+    deviceContextErrorCode.value = payload.error_code || null;
+    syncResolvedContext(payload);
 
-    portalContext.value = {
-      ...portalContext.value,
-      ...(payload.portal_context || {}),
-    };
+    if (deviceContextStatus.value === 'resolved') {
+      deviceContextMessage.value = `Device detected${registrationForm.value.mac_address ? `: ${registrationForm.value.mac_address}` : '.'}`;
+    } else {
+      deviceContextMessage.value = describeDeviceContextFailure(deviceContextErrorCode.value);
 
-    portalToken.value = payload.portal_token || null;
-    registrationForm.value.mac_address = payload?.portal_context?.mac_address || '';
-    existingClient.value = payload.existing_client || null;
-    activeSession.value = payload.active_session || null;
-    syncActiveSessionCountdown();
-
-    if (existingClient.value) {
-      registrationForm.value.name = existingClient.value.name || '';
-      registrationForm.value.phone_number = existingClient.value.phone_number || '';
+      if (['pending', 'retryable'].includes(deviceContextStatus.value) && deviceContextAttempts.value < maxAutomaticDeviceContextAttempts) {
+        scheduleDeviceContextRetry(payload.retry_after_ms || 1500);
+      }
     }
 
-    console.log(`[PlanSelection] Bootstrap processing completed. MAC detected: ${Boolean(registrationForm.value.mac_address)}`);
+    console.log(`[PlanSelection] Device context status: ${deviceContextStatus.value}; MAC detected: ${Boolean(registrationForm.value.mac_address)}`);
   } catch (error) {
     const errorDuration = performance.now() - startTime;
-    console.error(`[PlanSelection] Bootstrap fetch failed after ${errorDuration.toFixed(2)}ms:`, error);
+    console.error(`[PlanSelection] Device context fetch failed after ${errorDuration.toFixed(2)}ms:`, error);
 
-    bootstrapError.value = error?.code === 'ECONNABORTED'
-      ? 'Device detection timed out. The page is loaded, but Omada did not answer fast enough. Retry the lookup or enable query MAC fallback in deployment.'
-      : error?.response?.data?.message || 'Unable to load device context from Omada. Plan selection stays locked until the MAC address is detected.';
-    existingClient.value = null;
-    activeSession.value = null;
-    portalToken.value = null;
-    registrationForm.value.mac_address = '';
+    deviceContextStatus.value = 'retryable';
+    deviceContextErrorCode.value = error?.code === 'ECONNABORTED' ? 'timeout' : 'request_failed';
+    deviceContextMessage.value = error?.code === 'ECONNABORTED'
+      ? 'Device detection timed out. You can keep filling out the form and retry.'
+      : error?.response?.data?.message || 'Unable to refresh device context right now.';
+
+    if (deviceContextAttempts.value < maxAutomaticDeviceContextAttempts) {
+      scheduleDeviceContextRetry(1500);
+    }
   } finally {
-    bootstrapLoading.value = false;
+    deviceContextLoading.value = false;
+  }
+};
+
+const loadPlans = async () => {
+  plansLoading.value = true;
+  plansError.value = '';
+
+  try {
+    const response = await window.axios.get(props.plansUrl);
+    plans.value = response?.data?.data?.plans || [];
+  } catch (error) {
+    plansError.value = error?.response?.data?.message || 'Unable to load plans right now.';
+  } finally {
+    plansLoading.value = false;
   }
 };
 
 onMounted(() => {
-  console.log('[PlanSelection] Page mounted, starting bootstrap');
+  console.log('[PlanSelection] Page mounted, loading plans and device context');
   const mountStart = performance.now();
-  fetchBootstrap();
+
+  loadPlans();
+  fetchDeviceContext(false);
 
   activeSessionCountdownTimer = window.setInterval(() => {
     syncActiveSessionCountdown();
   }, 1000);
 
-  // Log when the page is fully interactive
   setTimeout(() => {
     const interactiveTime = performance.now() - mountStart;
     console.log(`[PlanSelection] Page became interactive in ${interactiveTime.toFixed(2)}ms`);
@@ -124,6 +227,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  clearDeviceContextTimers();
+
   if (activeSessionCountdownTimer) {
     window.clearInterval(activeSessionCountdownTimer);
   }
@@ -132,6 +237,7 @@ onBeforeUnmount(() => {
 const activeMacAddress = computed(() => registrationForm.value.mac_address || portalContext.value?.mac_address || '');
 const hasDetectedMacAddress = computed(() => Boolean(activeMacAddress.value.trim()));
 const hasActiveSession = computed(() => Boolean(activeSession.value));
+const deviceContextResolved = computed(() => deviceContextStatus.value === 'resolved' && Boolean(portalToken.value) && hasDetectedMacAddress.value);
 const hasValidRegistrationInput = computed(() => (
   Boolean(registrationForm.value.name.trim())
   && Boolean(registrationForm.value.phone_number.trim())
@@ -155,9 +261,9 @@ const activeSessionRemainingLabel = computed(() => {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 });
 
-const validateRegistrationForm = () => {
-  if (!hasDetectedMacAddress.value) return 'MAC address was not detected from Omada yet.';
-  if (!portalToken.value) return 'Portal context is unavailable. Refresh the page and try again.';
+const validateRegistrationForm = (requireDeviceContext = true) => {
+  if (requireDeviceContext && !hasDetectedMacAddress.value) return 'Device detection is still in progress.';
+  if (requireDeviceContext && !portalToken.value) return 'Portal context is unavailable. Retry device detection before starting payment.';
   if (!registrationForm.value.name.trim()) return 'Name is required.';
   if (!registrationForm.value.phone_number.trim()) return 'Phone number is required.';
   if (!registrationForm.value.pin.trim()) return 'PIN is required.';
@@ -168,45 +274,47 @@ const validateRegistrationForm = () => {
   return null;
 };
 
-const loadPlans = async () => {
-  plansLoading.value = true;
-  plansError.value = '';
-
-  try {
-    const response = await window.axios.get(props.plansUrl);
-    plans.value = response?.data?.data?.plans || [];
-    plansRequested.value = true;
-  } catch (error) {
-    plansError.value = error?.response?.data?.message || 'Unable to load plans right now.';
-  } finally {
-    plansLoading.value = false;
-  }
-};
-
-const continueToPlans = async () => {
+const paymentActionLockedReason = computed(() => {
   if (hasActiveSession.value) {
-    errorMessage.value = 'This device already has active internet access. Disconnect from WiFi and reconnect if you need the captive portal again.';
-    return;
+    return 'This device already has active internet access.';
   }
 
   if (!existingClient.value) {
-    const validationError = validateRegistrationForm();
+    const validationError = validateRegistrationForm(false);
 
     if (validationError) {
-      errorMessage.value = validationError;
-      return;
+      return validationError;
     }
   }
 
-  errorMessage.value = '';
-  await loadPlans();
-};
+  if (!deviceContextResolved.value) {
+    return deviceContextMessage.value || 'Device detection is still in progress.';
+  }
+
+  return '';
+});
 
 const payWithGCash = async (planId) => {
   errorMessage.value = '';
   loadingPlanId.value = planId;
 
   try {
+    if (hasActiveSession.value) {
+      throw new Error('This device already has active internet access. Disconnect from WiFi and reconnect if you need the captive portal again.');
+    }
+
+    if (!existingClient.value) {
+      const validationError = validateRegistrationForm(true);
+
+      if (validationError) {
+        throw new Error(validationError);
+      }
+    }
+
+    if (!deviceContextResolved.value) {
+      throw new Error(paymentActionLockedReason.value || 'Device detection is still in progress.');
+    }
+
     const payload = {
       plan_id: planId,
       portal_token: portalToken.value,
@@ -236,6 +344,14 @@ const payWithGCash = async (planId) => {
     loadingPlanId.value = null;
   }
 };
+
+const isPaymentDisabled = (planId) => {
+  if (loadingPlanId.value === planId) {
+    return true;
+  }
+
+  return Boolean(paymentActionLockedReason.value);
+};
 </script>
 
 <template>
@@ -254,7 +370,7 @@ const payWithGCash = async (planId) => {
             <span class="font-light">device.</span>
           </h1>
           <p class="mt-6 text-lg leading-8 text-slate-300">
-            Register the client first, then continue to plan selection. No navigation clutter, no dashboard chrome, just the captive portal flow.
+            The page is live immediately. Device detection runs in the background so the captive portal does not feel hung.
           </p>
 
           <div v-if="portalContext?.site_name || portalContext?.ap_name || portalContext?.ssid_name" class="mt-10 rounded-[24px] border border-white/10 bg-white/8 px-5 py-5 backdrop-blur-sm">
@@ -275,17 +391,33 @@ const payWithGCash = async (planId) => {
               <p class="app-kicker">Client Registration</p>
               <h2 class="mt-3 text-4xl font-black tracking-[-0.05em] text-slate-950">Register your device</h2>
               <p class="mt-3 text-sm leading-7 text-slate-500">
-                Enter the device details below. Plans are loaded only after you continue.
+                Fill out the form while the portal resolves the device context in the background.
               </p>
             </div>
 
-            <div v-if="bootstrapLoading" class="mb-6 rounded-[22px] border border-slate-200/70 bg-slate-50/80 px-5 py-4 text-sm text-slate-500">
-              Detecting MAC address from Omada and loading portal context...
-            </div>
-
-            <div v-if="bootstrapError" class="mb-6 rounded-[22px] border border-amber-200/70 bg-amber-50/90 px-5 py-4 text-sm text-amber-700">
-              {{ bootstrapError }}
-              <button type="button" class="ml-2 font-semibold underline" @click="fetchBootstrap">Retry</button>
+            <div
+              class="mb-6 rounded-[22px] border px-5 py-4 text-sm"
+              :class="deviceContextResolved ? 'border-emerald-200/70 bg-emerald-50/90 text-emerald-800' : 'border-slate-200/70 bg-slate-50/80 text-slate-600'"
+            >
+              <p class="font-semibold">
+                {{ deviceContextResolved ? 'Device detected.' : 'Detecting device...' }}
+              </p>
+              <p class="mt-1">
+                {{ deviceContextMessage }}
+              </p>
+              <div class="mt-3 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-slate-500">
+                <span>Status: {{ deviceContextStatus }}</span>
+                <span v-if="deviceContextErrorCode">Error: {{ deviceContextErrorCode }}</span>
+                <span v-if="deviceContextStalled && !deviceContextResolved">You can keep filling out the form.</span>
+              </div>
+              <button
+                v-if="['retryable', 'failed'].includes(deviceContextStatus) && !deviceContextLoading"
+                type="button"
+                class="mt-3 font-semibold underline"
+                @click="fetchDeviceContext(true)"
+              >
+                Retry device detection
+              </button>
             </div>
 
             <div v-if="hasActiveSession" class="mb-6 rounded-[22px] border border-sky-200/70 bg-sky-50/90 px-5 py-5">
@@ -308,13 +440,13 @@ const payWithGCash = async (planId) => {
               <div class="mt-4 space-y-2 text-sm text-sky-800">
                 <p><span class="font-semibold">Name:</span> {{ activeSession?.client_name || existingClient?.name || 'Unknown client' }}</p>
                 <p><span class="font-semibold">Phone:</span> {{ activeSession?.phone_number || existingClient?.phone_number || 'Unknown phone' }}</p>
-                <p><span class="font-semibold">MAC:</span> {{ activeMacAddress }}</p>
+                <p><span class="font-semibold">MAC:</span> {{ activeMacAddress || 'Pending detection' }}</p>
               </div>
             </div>
 
             <div v-else-if="existingClient" class="mb-6 rounded-[22px] border border-emerald-200/70 bg-emerald-50/90 px-5 py-4">
               <p class="text-sm font-semibold text-emerald-900">Welcome back, {{ existingClient.name }}.</p>
-              <p class="mt-1 text-sm text-emerald-700">Your device is already registered. Plans will load only after you continue.</p>
+              <p class="mt-1 text-sm text-emerald-700">Your device is already registered. Payment unlocks once device detection is ready.</p>
             </div>
 
             <div v-if="!existingClient && !hasActiveSession" class="space-y-6">
@@ -325,7 +457,7 @@ const payWithGCash = async (planId) => {
                   class="app-field flex h-14 items-center font-mono"
                   :class="hasDetectedMacAddress ? 'text-slate-950' : 'text-slate-400'"
                 >
-                  {{ hasDetectedMacAddress ? activeMacAddress : 'Waiting for Omada MAC detection' }}
+                  {{ hasDetectedMacAddress ? activeMacAddress : 'Waiting for device detection' }}
                 </div>
                 <p class="mt-2 text-sm text-slate-500">
                   This field is controller-driven and cannot be edited by the client.
@@ -365,37 +497,27 @@ const payWithGCash = async (planId) => {
                   />
                 </div>
                 <p class="mt-2 text-sm text-slate-500">
-                  Plan selection stays separate. Confirm your PIN first, then continue to load plans.
+                  Registration stays usable while the controller resolves the device identity.
                 </p>
               </div>
-
-              <button class="app-button-primary h-14 w-full rounded-[22px]" :disabled="!hasDetectedMacAddress || plansLoading" @click="continueToPlans">
-                {{ plansLoading ? 'Loading plans...' : 'Continue to plan selection' }}
-                <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
-              </button>
             </div>
 
             <div v-else-if="!hasActiveSession" class="space-y-6">
               <div class="rounded-[22px] bg-slate-50/90 px-5 py-4">
                 <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Registration Summary</p>
                 <div class="mt-3 space-y-2 text-sm text-slate-600">
-                  <p><span class="font-semibold text-slate-950">MAC:</span> {{ activeMacAddress }}</p>
+                  <p><span class="font-semibold text-slate-950">MAC:</span> {{ activeMacAddress || 'Pending detection' }}</p>
                   <p><span class="font-semibold text-slate-950">Name:</span> {{ existingClient?.name }}</p>
                   <p><span class="font-semibold text-slate-950">Phone:</span> {{ existingClient?.phone_number }}</p>
                 </div>
               </div>
-
-              <button class="app-button-primary h-14 w-full rounded-[22px]" :disabled="!hasDetectedMacAddress || plansLoading" @click="continueToPlans">
-                {{ plansLoading ? 'Loading plans...' : 'Continue to plan selection' }}
-                <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
-              </button>
             </div>
 
-            <div v-if="(plansRequested || plansLoading) && !hasActiveSession" class="mt-8 space-y-6">
+            <div v-if="!hasActiveSession" class="mt-8 space-y-6">
               <div>
                 <p class="app-kicker">Plan Selection</p>
                 <h3 class="mt-2 text-2xl font-bold tracking-[-0.04em] text-slate-950">Choose a plan</h3>
-                <p class="mt-2 text-sm text-slate-500">Pay using QRPh or GCash to activate WiFi access immediately.</p>
+                <p class="mt-2 text-sm text-slate-500">Plans load immediately. Payment unlocks when registration and device detection are both ready.</p>
               </div>
 
               <div v-if="plansLoading" class="grid gap-4 md:grid-cols-2">
@@ -416,10 +538,10 @@ const payWithGCash = async (planId) => {
                   <p class="mt-2 text-sm text-slate-500">Final payable amount</p>
                   <button
                     class="app-button-primary mt-5 w-full rounded-[20px]"
-                    :disabled="loadingPlanId === plan.id"
+                    :disabled="isPaymentDisabled(plan.id)"
                     @click="payWithGCash(plan.id)"
                   >
-                    {{ loadingPlanId === plan.id ? 'Preparing payment...' : 'Pay via QRPh' }}
+                    {{ loadingPlanId === plan.id ? 'Preparing payment...' : (deviceContextResolved ? 'Pay via QRPh' : 'Waiting for device detection') }}
                   </button>
                 </article>
               </div>
@@ -427,6 +549,10 @@ const payWithGCash = async (planId) => {
               <div v-else class="app-empty">
                 No plans are available right now.
               </div>
+
+              <p class="text-sm text-slate-500">
+                {{ paymentActionLockedReason || 'Device context is ready. Choose a plan to continue.' }}
+              </p>
             </div>
           </div>
 

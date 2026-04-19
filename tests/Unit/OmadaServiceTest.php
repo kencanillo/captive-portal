@@ -53,6 +53,43 @@ class OmadaServiceTest extends TestCase
         $this->assertSame(4, $options['timeout']);
     }
 
+    public function test_client_uses_internal_base_url_override_for_container_network_requests(): void
+    {
+        config()->set('services.omada.internal_base_url', 'https://omada-controller:8043');
+        config()->set('portal.cache_store', 'array');
+
+        Http::fake([
+            'https://omada-controller:8043/api/v2/login' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => ['token' => 'abc123'],
+            ]),
+            'https://omada-controller:8043/api/v2/controller/clients' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [
+                        ['ip' => '10.10.10.25', 'mac' => 'AA-BB-CC-DD-EE-FF'],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $service = app(OmadaService::class);
+
+        $macAddress = $service->getClientMacAddress(new ControllerSetting([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://76.13.187.98:8043',
+            'username' => 'admin',
+            'password' => 'super-secret',
+        ]), '10.10.10.25');
+
+        $this->assertSame('AA:BB:CC:DD:EE:FF', $macAddress);
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://omada-controller:8043/api/v2/login');
+        Http::assertSent(fn ($request) => $request->url() === 'https://omada-controller:8043/api/v2/controller/clients');
+    }
+
     public function test_test_connection_prefers_openapi_client_credentials_when_present(): void
     {
         Http::fake([
