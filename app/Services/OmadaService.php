@@ -546,7 +546,16 @@ class OmadaService
 
     private function request(PendingRequest $client, string $method, string $uri, array $payload = []): array
     {
+        $requestStart = microtime(true);
         $response = $client->{$method}($uri, $payload);
+        $requestDuration = microtime(true) - $requestStart;
+
+        Log::info('Omada API request timing', [
+            'method' => strtoupper($method),
+            'uri' => $uri,
+            'duration_ms' => (int) round($requestDuration * 1000),
+            'status' => $response->status(),
+        ]);
 
         if ($response->failed()) {
             throw new RuntimeException("Omada request failed for [{$uri}] with HTTP {$response->status()}.");
