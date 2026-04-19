@@ -4,29 +4,39 @@ namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
-use App\Models\WifiSession;
 use App\Services\PayMongoQrPhService;
+use App\Support\PortalTokenService;
 use App\Support\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use InvalidArgumentException;
 use Throwable;
 
 class PaymentController extends Controller
 {
     use ApiResponse;
 
-    public function create(Request $request, PayMongoQrPhService $payMongoQrPhService)
+    public function create(
+        Request $request,
+        PayMongoQrPhService $payMongoQrPhService,
+        PortalTokenService $portalTokenService
+    )
     {
         $validated = $request->validate([
-            'session_id' => ['required', 'integer', Rule::exists('wifi_sessions', 'id')],
+            'session_token' => ['required', 'string'],
         ]);
 
-        $session = WifiSession::query()
-            ->with(['plan', 'client'])
-            ->findOrFail($validated['session_id']);
+        try {
+            $session = $portalTokenService->resolveSessionToken($validated['session_token'])
+                ->load(['plan', 'client']);
+        } catch (InvalidArgumentException $exception) {
+            throw ValidationException::withMessages([
+                'session_token' => ['The payment session is invalid or expired. Select your plan again.'],
+            ]);
+        }
 
         try {
             $payment = $payMongoQrPhService->createOrReusePayment($session);
@@ -47,8 +57,9 @@ class PaymentController extends Controller
                 ? 'QRPh payment initialized.'
                 : 'Existing QRPh payment restored.',
             'data' => [
-                'payment_id' => $payment->id,
-                'payment_url' => route('payments.show', $payment),
+                'payment_url' => route('payments.show', [
+                    'paymentToken' => $portalTokenService->issuePaymentToken($payment),
+                ]),
                 'payment_intent_id' => $payment->paymongo_payment_intent_id,
                 'payment_status' => $payment->payment_status,
                 'qr_expires_at' => $payment->qr_expires_at?->toIso8601String(),
@@ -56,15 +67,24 @@ class PaymentController extends Controller
         ], $payment->wasRecentlyCreated ? 201 : 200);
     }
 
-    public function show(Payment $payment, PayMongoQrPhService $payMongoQrPhService): Response
+    public function show(
+        string $paymentToken,
+        PayMongoQrPhService $payMongoQrPhService,
+        PortalTokenService $portalTokenService
+    ): Response
     {
+        try {
+            $payment = $portalTokenService->resolvePaymentToken($paymentToken);
+        } catch (InvalidArgumentException $exception) {
+            abort(404);
+        }
+
         $payment = $payMongoQrPhService->ensurePaymentIsFresh(
             $payment->load(['wifiSession.plan', 'wifiSession.client', 'wifiSession.site', 'wifiSession.accessPoint'])
         );
 
         return Inertia::render('Public/PaymentStatus', [
             'payment' => [
-                'id' => $payment->id,
                 'payment_status' => $payment->payment_status,
                 'amount' => $payment->amount,
                 'currency' => $payment->currency,
@@ -74,7 +94,6 @@ class PaymentController extends Controller
                 'paid_at' => $payment->paid_at?->toIso8601String(),
             ],
             'session' => [
-                'id' => $payment->wifiSession->id,
                 'payment_status' => $payment->wifiSession->payment_status,
                 'session_status' => $payment->wifiSession->session_status,
                 'release_failure_reason' => $payment->wifiSession->release_failure_reason,
@@ -84,32 +103,51 @@ class PaymentController extends Controller
                 'name' => $payment->wifiSession->plan->name,
                 'duration_minutes' => $payment->wifiSession->plan->duration_minutes,
             ],
-            'statusEndpoint' => route('payments.status.show', $payment),
-            'recheckEndpoint' => route('payments.recheck.store', $payment),
+            'statusEndpoint' => route('payments.status.show', [
+                'paymentToken' => $portalTokenService->issuePaymentToken($payment),
+            ]),
+            'recheckEndpoint' => route('payments.recheck.store', [
+                'paymentToken' => $portalTokenService->issuePaymentToken($payment),
+            ]),
+            'sessionToken' => $portalTokenService->issueSessionToken($payment->wifiSession),
             'createPaymentEndpoint' => route('api.create-payment'),
             'backToPlansUrl' => route('portal.index'),
         ]);
     }
 
-    public function success(Request $request)
+    public function success(Request $request, PortalTokenService $portalTokenService)
     {
-        $session = WifiSession::query()->findOrFail($request->integer('session'));
+        try {
+            $session = $portalTokenService->resolveSessionToken($request->string('session_token')->toString());
+        } catch (InvalidArgumentException $exception) {
+            abort(404);
+        }
+
         $payment = $session->payments()->latest('id')->first();
 
         if ($payment) {
-            return Inertia::location(route('payments.show', $payment));
+            return Inertia::location(route('payments.show', [
+                'paymentToken' => $portalTokenService->issuePaymentToken($payment),
+            ]));
         }
 
         return Inertia::location(route('portal.index'));
     }
 
-    public function failed(Request $request)
+    public function failed(Request $request, PortalTokenService $portalTokenService)
     {
-        $session = WifiSession::query()->findOrFail($request->integer('session'));
+        try {
+            $session = $portalTokenService->resolveSessionToken($request->string('session_token')->toString());
+        } catch (InvalidArgumentException $exception) {
+            abort(404);
+        }
+
         $payment = $session->payments()->latest('id')->first();
 
         if ($payment) {
-            return Inertia::location(route('payments.show', $payment));
+            return Inertia::location(route('payments.show', [
+                'paymentToken' => $portalTokenService->issuePaymentToken($payment),
+            ]));
         }
 
         return Inertia::location(route('portal.index'));

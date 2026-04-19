@@ -802,7 +802,7 @@ class OmadaService
 
     private function shouldVerifySsl(): bool
     {
-        return (bool) env('OMADA_VERIFY_SSL', true);
+        return (bool) config('services.omada.verify_ssl', true);
     }
 
     private function normalizeMac(mixed $value): ?string

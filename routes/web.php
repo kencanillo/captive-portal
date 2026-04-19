@@ -21,6 +21,7 @@ use App\Http\Controllers\Operator\DashboardController as OperatorDashboardContro
 use App\Http\Controllers\Operator\DeviceController as DeviceController;
 use App\Http\Controllers\Operator\PayoutController as OperatorPayoutController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Public\CaptivePortalController;
 use App\Http\Controllers\Public\PaymentController;
 use App\Http\Controllers\Public\PaymentRecheckController;
@@ -56,9 +57,9 @@ Route::get('/admin', function () {
 Route::get('/operator/register', [OperatorRegistrationController::class, 'create'])->middleware('guest')->name('operator.register');
 Route::post('/operator/register', [OperatorRegistrationController::class, 'store'])->middleware('guest')->name('operator.register.store');
 
-Route::get('/payments/{payment}', [PaymentController::class, 'show'])->name('payments.show');
-Route::get('/payments/{payment}/status', PaymentStatusController::class)->name('payments.status.show');
-Route::post('/payments/{payment}/recheck', PaymentRecheckController::class)->name('payments.recheck.store');
+Route::get('/payments/{paymentToken}', [PaymentController::class, 'show'])->name('payments.show');
+Route::get('/payments/{paymentToken}/status', PaymentStatusController::class)->name('payments.status.show');
+Route::post('/payments/{paymentToken}/recheck', PaymentRecheckController::class)->name('payments.recheck.store');
 Route::get('/payment/success', [PaymentController::class, 'success'])->name('payment.success');
 Route::get('/payment/failed', [PaymentController::class, 'failed'])->name('payment.failed');
 
@@ -111,6 +112,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::get('/settings', SettingsController::class)->name('settings.index');
 
     Route::get('/operator/pending', function () {
         $operator = request()->user()?->loadMissing('operator')->operator;

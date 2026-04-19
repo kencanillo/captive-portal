@@ -11,6 +11,7 @@ use App\Models\Plan;
 use App\Models\Site;
 use App\Models\WifiSession;
 use App\Services\OperatorPayoutService;
+use Carbon\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -18,12 +19,37 @@ class DashboardController extends Controller
 {
     public function __invoke(OperatorPayoutService $payoutService): Response
     {
+        $trendStart = now()->subDays(6)->startOfDay();
+        $trendEnd = now()->endOfDay();
+
         $activeSessions = WifiSession::query()->where('is_active', true)->count();
         $totalRevenue = WifiSession::query()->where('payment_status', WifiSession::STATUS_PAID)->sum('amount_paid');
         $mostPopularPlan = Plan::query()
             ->withCount('wifiSessions')
             ->orderByDesc('wifi_sessions_count')
             ->first();
+        $revenueTrendSource = WifiSession::query()
+            ->selectRaw('DATE(updated_at) as revenue_date, SUM(amount_paid) as total_amount')
+            ->where('payment_status', WifiSession::STATUS_PAID)
+            ->whereBetween('updated_at', [$trendStart, $trendEnd])
+            ->groupByRaw('DATE(updated_at)')
+            ->orderBy('revenue_date')
+            ->get()
+            ->keyBy('revenue_date');
+
+        $revenueTrend = collect(range(0, 6))
+            ->map(function (int $offset) use ($trendStart, $revenueTrendSource) {
+                $date = $trendStart->copy()->addDays($offset);
+                $key = $date->toDateString();
+                $amount = (float) ($revenueTrendSource->get($key)?->total_amount ?? 0);
+
+                return [
+                    'date' => $key,
+                    'label' => Carbon::parse($key)->format('D'),
+                    'amount' => number_format($amount, 2, '.', ''),
+                ];
+            })
+            ->values();
 
         $analytics = [
             'revenue_today' => WifiSession::query()
@@ -132,6 +158,7 @@ class DashboardController extends Controller
                 'site_name',
                 'portal_base_url',
             ]),
+            'revenueTrend' => $revenueTrend,
             'accessPoints' => $accessPoints,
             'siteSummary' => $siteSummary,
             'operators' => $operators,

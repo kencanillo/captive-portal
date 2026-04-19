@@ -11,6 +11,7 @@ use App\Models\Site;
 use App\Models\WifiSession;
 use App\Services\OmadaService;
 use App\Services\WifiSessionService;
+use App\Support\PortalTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
@@ -60,28 +61,31 @@ class PaymentControllerTest extends TestCase
             ]),
         ]);
 
+        $sessionToken = $this->issueSessionToken($session);
+
         $firstResponse = $this->postJson('/api/create-payment', [
-            'session_id' => $session->id,
+            'session_token' => $sessionToken,
         ]);
 
         $firstResponse->assertCreated()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.payment_intent_id', 'pi_test_qrph_123');
+            ->assertJsonPath('data.payment_intent_id', 'pi_test_qrph_123')
+            ->assertJsonPath('data.payment_status', Payment::STATUS_AWAITING_PAYMENT);
 
-        $paymentId = $firstResponse->json('data.payment_id');
+        $paymentUrl = $firstResponse->json('data.payment_url');
 
         $secondResponse = $this->postJson('/api/create-payment', [
-            'session_id' => $session->id,
+            'session_token' => $sessionToken,
         ]);
 
         $secondResponse->assertOk()
-            ->assertJsonPath('data.payment_id', $paymentId)
+            ->assertJsonPath('data.payment_url', $paymentUrl)
             ->assertJsonPath('data.payment_intent_id', 'pi_test_qrph_123');
 
         Http::assertSentCount(3);
 
         $session->refresh();
-        $payment = Payment::query()->findOrFail($paymentId);
+        $payment = Payment::query()->sole();
 
         $this->assertSame(WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT, $session->payment_status);
         $this->assertSame(WifiSession::SESSION_STATUS_PENDING_PAYMENT, $session->session_status);
@@ -97,10 +101,9 @@ class PaymentControllerTest extends TestCase
     {
         $payment = $this->createPendingPayment();
 
-        $response = $this->getJson("/payments/{$payment->id}/status");
+        $response = $this->getJson("/payments/{$this->issuePaymentToken($payment)}/status");
 
         $response->assertOk()
-            ->assertJsonPath('data.payment_id', $payment->id)
             ->assertJsonPath('data.payment_status', Payment::STATUS_AWAITING_PAYMENT)
             ->assertJsonPath('data.wifi_session_status', WifiSession::SESSION_STATUS_PENDING_PAYMENT)
             ->assertJsonPath('data.should_continue_polling', true)
@@ -236,7 +239,7 @@ class PaymentControllerTest extends TestCase
             'qr_expires_at' => now()->subMinute(),
         ]);
 
-        $response = $this->getJson("/payments/{$payment->id}/status");
+        $response = $this->getJson("/payments/{$this->issuePaymentToken($payment)}/status");
 
         $response->assertOk()
             ->assertJsonPath('data.payment_status', Payment::STATUS_EXPIRED)
@@ -289,7 +292,7 @@ class PaymentControllerTest extends TestCase
         $response = $this
             ->withSession(['_token' => 'test-token'])
             ->withHeader('X-CSRF-TOKEN', 'test-token')
-            ->postJson("/payments/{$payment->id}/recheck");
+            ->postJson("/payments/{$this->issuePaymentToken($payment)}/recheck");
 
         $response->assertOk()
             ->assertJsonPath('data.payment_status', Payment::STATUS_PAID)
@@ -307,10 +310,18 @@ class PaymentControllerTest extends TestCase
 
         $this->assertSame(1, Payment::query()->count());
 
-        $this->get("/payments/{$payment->id}")
+        $this->get("/payments/{$this->issuePaymentToken($payment)}")
             ->assertOk();
 
         $this->assertSame(1, Payment::query()->count());
+    }
+
+    public function test_create_payment_rejects_invalid_session_tokens(): void
+    {
+        $this->postJson('/api/create-payment', [
+            'session_token' => 'bad-token',
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('session_token');
     }
 
     public function test_release_job_marks_session_active_when_omada_authorization_succeeds(): void
@@ -452,5 +463,15 @@ class PaymentControllerTest extends TestCase
             'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
             'is_active' => false,
         ], $overrides));
+    }
+
+    private function issueSessionToken(WifiSession $session): string
+    {
+        return app(PortalTokenService::class)->issueSessionToken($session);
+    }
+
+    private function issuePaymentToken(Payment $payment): string
+    {
+        return app(PortalTokenService::class)->issuePaymentToken($payment);
     }
 }

@@ -1,6 +1,7 @@
 <script setup>
 import { Head, usePage } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
+import { formatNumber } from '@/utils/formatters';
 
 defineProps({
   pendingDevices: Array,
@@ -15,54 +16,93 @@ const csrfToken = usePage().props.csrf_token;
   <Head title="Device Management" />
 
   <MainLayout title="Device Management">
-    <div class="space-y-6">
-      <section class="rounded-lg bg-white p-5 shadow">
-        <h2 class="text-lg font-semibold text-slate-900">Pending Devices</h2>
-        <div class="mt-4">
-          <div v-if="pendingDevices.length" class="space-y-3">
-            <article v-for="device in pendingDevices" :key="device.id" class="flex items-center justify-between rounded-md border border-slate-200 px-4 py-3">
+    <section>
+      <p class="app-kicker">Operator Devices</p>
+      <h1 class="mt-3 app-title">Site device inventory</h1>
+      <p class="mt-4 app-subtitle">
+        Pending, connected, and failed device states need to be obvious. Operators should act from a clean status board, not hunt through noisy lists.
+      </p>
+    </section>
+
+    <section class="mt-8 grid gap-4 md:grid-cols-3">
+      <article class="app-metric-card">
+        <p class="app-metric-label">Pending</p>
+        <p class="app-metric-value">{{ formatNumber(pendingDevices.length) }}</p>
+      </article>
+      <article class="app-metric-card">
+        <p class="app-metric-label">Connected</p>
+        <p class="app-metric-value">{{ formatNumber(connectedDevices.length) }}</p>
+      </article>
+      <article class="app-metric-card">
+        <p class="app-metric-label">Failed</p>
+        <p class="app-metric-value">{{ formatNumber(failedDevices.length) }}</p>
+      </article>
+    </section>
+
+    <section class="mt-8 space-y-6">
+      <section class="app-card-strong p-7">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="app-kicker">Pending Devices</p>
+            <h2 class="mt-2 app-section-title">Ready for action</h2>
+          </div>
+          <span class="app-badge bg-sky-100 text-sky-700">{{ pendingDevices.length }} pending</span>
+        </div>
+        <div class="mt-6 space-y-3">
+          <article v-for="device in pendingDevices" :key="device.id" class="rounded-[22px] border border-slate-200/80 bg-white/80 px-5 py-4">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p class="font-medium text-slate-900">{{ device.name }}</p>
-                <p class="text-sm text-slate-500">{{ device.mac_address }} • {{ device.model }} • {{ device.site_name }}</p>
+                <p class="font-semibold text-slate-950">{{ device.name }}</p>
+                <p class="mt-1 text-sm text-slate-500">{{ device.mac_address }} • {{ device.model }} • {{ device.site_name }}</p>
               </div>
               <form method="POST" :action="route('operator.devices.adopt')" class="inline">
                 <input type="hidden" name="_token" :value="csrfToken" />
                 <input type="hidden" name="access_point_id" :value="device.id" />
-                <button type="submit" class="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700">
+                <button type="submit" class="app-button-primary">
                   Adopt
                 </button>
               </form>
-            </article>
-          </div>
-          <p v-else class="text-sm text-slate-500">No pending devices.</p>
+            </div>
+          </article>
+          <div v-if="!pendingDevices.length" class="app-empty">No pending devices.</div>
         </div>
       </section>
 
-      <section class="rounded-lg bg-white p-5 shadow">
-        <h2 class="text-lg font-semibold text-slate-900">Connected Devices</h2>
-        <div class="mt-4">
-          <div v-if="connectedDevices.length" class="space-y-3">
-            <article v-for="device in connectedDevices" :key="device.id" class="rounded-md border border-slate-200 px-4 py-3">
-              <p class="font-medium text-slate-900">{{ device.name }}</p>
-              <p class="text-sm text-slate-500">{{ device.mac_address }} • {{ device.model }} • {{ device.site_name }}</p>
-            </article>
+      <section class="grid gap-6 xl:grid-cols-2">
+        <div class="app-card p-7">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p class="app-kicker">Connected Devices</p>
+              <h2 class="mt-2 app-section-title">Stable inventory</h2>
+            </div>
+            <span class="app-badge bg-emerald-100 text-emerald-700">{{ connectedDevices.length }} connected</span>
           </div>
-          <p v-else class="text-sm text-slate-500">No connected devices.</p>
+          <div class="mt-6 space-y-3">
+            <article v-for="device in connectedDevices" :key="device.id" class="rounded-[22px] border border-slate-200/80 bg-white/80 px-5 py-4">
+              <p class="font-semibold text-slate-950">{{ device.name }}</p>
+              <p class="mt-1 text-sm text-slate-500">{{ device.mac_address }} • {{ device.model }} • {{ device.site_name }}</p>
+            </article>
+            <div v-if="!connectedDevices.length" class="app-empty">No connected devices.</div>
+          </div>
         </div>
-      </section>
 
-      <section class="rounded-lg bg-white p-5 shadow">
-        <h2 class="text-lg font-semibold text-slate-900">Failed Devices</h2>
-        <div class="mt-4">
-          <div v-if="failedDevices.length" class="space-y-3">
-            <article v-for="device in failedDevices" :key="device.id" class="rounded-md border border-slate-200 px-4 py-3">
-              <p class="font-medium text-slate-900">{{ device.name }}</p>
-              <p class="text-sm text-slate-500">{{ device.mac_address }} • {{ device.model }} • {{ device.site_name }}</p>
-            </article>
+        <div class="app-card p-7">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p class="app-kicker">Failed Devices</p>
+              <h2 class="mt-2 app-section-title">Requires intervention</h2>
+            </div>
+            <span class="app-badge bg-rose-100 text-rose-700">{{ failedDevices.length }} failed</span>
           </div>
-          <p v-else class="text-sm text-slate-500">No failed devices.</p>
+          <div class="mt-6 space-y-3">
+            <article v-for="device in failedDevices" :key="device.id" class="rounded-[22px] border border-slate-200/80 bg-white/80 px-5 py-4">
+              <p class="font-semibold text-slate-950">{{ device.name }}</p>
+              <p class="mt-1 text-sm text-slate-500">{{ device.mac_address }} • {{ device.model }} • {{ device.site_name }}</p>
+            </article>
+            <div v-if="!failedDevices.length" class="app-empty">No failed devices.</div>
+          </div>
         </div>
       </section>
-    </div>
+    </section>
   </MainLayout>
 </template>

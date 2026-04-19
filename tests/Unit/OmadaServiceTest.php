@@ -19,12 +19,12 @@ class OmadaServiceTest extends TestCase
     {
         $service = app(OmadaService::class);
 
-        putenv('OMADA_VERIFY_SSL=true');
+        config()->set('services.omada.verify_ssl', true);
         $verifiedClient = $this->invokeClient($service, [
             'base_url' => 'https://76.13.187.98:8043',
         ]);
 
-        putenv('OMADA_VERIFY_SSL=false');
+        config()->set('services.omada.verify_ssl', false);
         $unverifiedClient = $this->invokeClient($service, [
             'base_url' => 'https://76.13.187.98:8043',
         ]);
@@ -32,7 +32,7 @@ class OmadaServiceTest extends TestCase
         $verifiedOptions = $this->pendingRequestOptions($verifiedClient);
         $unverifiedOptions = $this->pendingRequestOptions($unverifiedClient);
 
-        $this->assertArrayNotHasKey('verify', $verifiedOptions);
+        $this->assertTrue($verifiedOptions['verify'] ?? true);
         $this->assertFalse($unverifiedOptions['verify']);
     }
 

@@ -1,6 +1,7 @@
 <script setup>
 import { useForm, Head } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
+import { formatCurrency } from '@/utils/formatters';
 
 const props = defineProps({
   operator: Object,
@@ -16,7 +17,7 @@ const statusForm = useForm({
 });
 
 const siteForm = useForm({
-  site_ids: props.operator.sites.map(site => site.id),
+  site_ids: props.operator.sites.map((site) => site.id),
 });
 
 const updateStatus = () => {
@@ -32,87 +33,166 @@ const updateSites = () => {
   <Head :title="operator.business_name" />
 
   <MainLayout :title="operator.business_name">
-    <div class="grid gap-6 xl:grid-cols-[0.9fr,1.1fr]">
-      <section class="rounded-lg bg-white p-5 shadow">
-        <h2 class="text-lg font-semibold text-slate-900">Operator profile</h2>
-        <div class="mt-4 space-y-2 text-sm text-slate-700">
-          <p><span class="font-semibold text-slate-900">Contact:</span> {{ operator.contact_name }}</p>
-          <p><span class="font-semibold text-slate-900">Email:</span> {{ operator.email }}</p>
-          <p><span class="font-semibold text-slate-900">Phone:</span> {{ operator.phone_number }}</p>
-          <p><span class="font-semibold text-slate-900">Requested site:</span> {{ operator.requested_site_name || 'None' }}</p>
-          <p><span class="font-semibold text-slate-900">Revenue:</span> ₱{{ operator.summary.revenue_total }}</p>
-          <p><span class="font-semibold text-slate-900">Available balance:</span> ₱{{ operator.summary.available_balance }}</p>
-        </div>
+    <section class="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+      <div>
+        <p class="app-kicker">Operator Profile</p>
+        <h1 class="mt-3 app-title">{{ operator.business_name }}</h1>
+        <p class="mt-4 app-subtitle">
+          Approval, site mapping, payout preference placeholders, and operator performance should be reviewed from one screen. Splitting that context across multiple pages is wasteful.
+        </p>
+      </div>
+      <span
+        class="app-badge"
+        :class="{
+          'bg-emerald-100 text-emerald-700': operator.status === 'approved',
+          'bg-amber-100 text-amber-700': operator.status === 'pending',
+          'bg-rose-100 text-rose-700': operator.status === 'rejected',
+        }"
+      >
+        {{ operator.status }}
+      </span>
+    </section>
 
-        <div class="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <h3 class="text-sm font-semibold text-slate-900">Payout preference placeholder</h3>
-          <div class="mt-3 space-y-2 text-sm text-slate-700">
-            <p><span class="font-semibold text-slate-900">Method:</span> {{ operator.payout_preferences?.method || 'N/A' }}</p>
-            <p><span class="font-semibold text-slate-900">Account name:</span> {{ operator.payout_preferences?.account_name || 'N/A' }}</p>
-            <p><span class="font-semibold text-slate-900">Account reference:</span> {{ operator.payout_preferences?.account_reference || 'N/A' }}</p>
-            <p><span class="font-semibold text-slate-900">Notes:</span> {{ operator.payout_preferences?.notes || 'N/A' }}</p>
+    <section class="mt-8 grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
+      <div class="space-y-6">
+        <div class="app-card-strong p-7">
+          <p class="app-kicker">Profile</p>
+          <h2 class="mt-3 app-section-title">Business and contact information</h2>
+          <div class="mt-6 grid gap-4">
+            <div class="app-panel">
+              <p class="app-metric-label">Contact</p>
+              <p class="mt-3 text-base font-semibold text-slate-950">{{ operator.contact_name }}</p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Email</p>
+              <p class="mt-3 break-all text-base font-semibold text-slate-950">{{ operator.email }}</p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Phone</p>
+              <p class="mt-3 text-base font-semibold text-slate-950">{{ operator.phone_number }}</p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Requested Site</p>
+              <p class="mt-3 text-base font-semibold text-slate-950">{{ operator.requested_site_name || 'None' }}</p>
+            </div>
           </div>
         </div>
-      </section>
 
-      <section class="rounded-lg bg-white p-5 shadow">
-        <h2 class="text-lg font-semibold text-slate-900">Approval and site mapping</h2>
-
-        <form class="mt-4 space-y-4" @submit.prevent="updateStatus">
-          <div>
-            <label class="block text-sm font-medium text-slate-700">Status</label>
-            <select v-model="statusForm.status" class="mt-1 w-full rounded-md border-slate-300">
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-slate-700">Admin notes</label>
-            <textarea v-model="statusForm.approval_notes" class="mt-1 w-full rounded-md border-slate-300"></textarea>
-          </div>
-          <button type="submit" class="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Save status</button>
-        </form>
-
-        <form class="mt-6 space-y-3" @submit.prevent="updateSites">
-          <h3 class="text-sm font-semibold text-slate-900">Assign sites</h3>
-          <p v-if="!sitesSynced || !availableSites.length" class="text-sm text-amber-700">
-            Sync controller sites first from Controller Settings. Site assignment should come from Omada, not ad-hoc database rows.
+        <div class="app-card-dark p-7">
+          <p class="app-top-stat">
+            <span class="material-symbols-outlined text-[16px]">account_balance_wallet</span>
+            Commercial summary
           </p>
-          <label v-for="site in availableSites" :key="site.id" class="flex items-center justify-between rounded-md border border-slate-200 px-4 py-3 text-sm">
-            <span>
-              <span class="font-medium text-slate-900">{{ site.name }}</span>
-              <span class="ml-2 text-slate-500">{{ site.slug }} · {{ site.omada_site_id }}</span>
-            </span>
-            <input v-model="siteForm.site_ids" :value="site.id" type="checkbox" class="rounded border-slate-300" />
-          </label>
-          <button type="submit" class="rounded-md bg-slate-800 px-4 py-2 text-sm font-semibold text-white">Save site mapping</button>
-        </form>
-      </section>
-    </div>
-
-    <div class="mt-6 grid gap-6 xl:grid-cols-2">
-      <section class="rounded-lg bg-white p-5 shadow">
-        <h2 class="text-lg font-semibold text-slate-900">Recent payout requests</h2>
-        <div class="mt-4 space-y-3">
-          <article v-for="item in recentPayoutRequests" :key="item.id" class="rounded-md border border-slate-200 px-4 py-3">
-            <p class="font-medium text-slate-900">₱{{ item.amount }} · {{ item.status }}</p>
-            <p class="text-sm text-slate-500">{{ item.processing_mode || 'manual review' }} · {{ item.provider || 'manual' }}</p>
-          </article>
-          <p v-if="!recentPayoutRequests.length" class="text-sm text-slate-500">No payout requests yet.</p>
+          <div class="mt-6 grid gap-4 sm:grid-cols-2">
+            <div>
+              <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-white/60">Revenue</p>
+              <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(operator.summary.revenue_total) }}</p>
+            </div>
+            <div>
+              <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-white/60">Available Balance</p>
+              <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(operator.summary.available_balance) }}</p>
+            </div>
+          </div>
         </div>
-      </section>
 
-      <section class="rounded-lg bg-white p-5 shadow">
-        <h2 class="text-lg font-semibold text-slate-900">Recent sessions</h2>
-        <div class="mt-4 space-y-3">
-          <article v-for="session in recentSessions" :key="session.id" class="rounded-md border border-slate-200 px-4 py-3">
-            <p class="font-medium text-slate-900">{{ session.site_name || 'Unassigned site' }} · {{ session.plan_name || 'No plan' }}</p>
-            <p class="text-sm text-slate-500">{{ session.payment_status }} · ₱{{ session.amount_paid }}</p>
-          </article>
-          <p v-if="!recentSessions.length" class="text-sm text-slate-500">No sessions yet.</p>
+        <div class="app-card p-7">
+          <p class="app-kicker">Payout Preference Placeholder</p>
+          <h2 class="mt-3 app-section-title">Stored operator payout metadata</h2>
+          <div class="mt-6 space-y-4">
+            <div class="app-panel">
+              <p class="app-metric-label">Method</p>
+              <p class="mt-3 text-base font-semibold text-slate-950">{{ operator.payout_preferences?.method || 'N/A' }}</p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Account Name</p>
+              <p class="mt-3 text-base font-semibold text-slate-950">{{ operator.payout_preferences?.account_name || 'N/A' }}</p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Account Reference</p>
+              <p class="mt-3 text-base font-semibold text-slate-950">{{ operator.payout_preferences?.account_reference || 'N/A' }}</p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Notes</p>
+              <p class="mt-3 text-sm leading-6 text-slate-600">{{ operator.payout_preferences?.notes || 'N/A' }}</p>
+            </div>
+          </div>
         </div>
-      </section>
-    </div>
+      </div>
+
+      <div class="space-y-6">
+        <div class="app-card-strong p-7">
+          <p class="app-kicker">Approval Control</p>
+          <h2 class="mt-3 app-section-title">Status and admin notes</h2>
+
+          <form class="mt-6 space-y-5" @submit.prevent="updateStatus">
+            <div>
+              <label class="app-label">Status</label>
+              <select v-model="statusForm.status" class="app-field">
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="app-label">Admin Notes</label>
+              <textarea v-model="statusForm.approval_notes" class="app-field min-h-[120px]" />
+            </div>
+
+            <button type="submit" class="app-button-primary">Save status</button>
+          </form>
+        </div>
+
+        <div class="app-card p-7">
+          <p class="app-kicker">Site Mapping</p>
+          <h2 class="mt-3 app-section-title">Assign Omada-synced sites</h2>
+          <p v-if="!sitesSynced || !availableSites.length" class="mt-4 rounded-[20px] bg-amber-50 px-4 py-4 text-sm text-amber-700">
+            Sync controller sites first. Site ownership must come from Omada data, not random database inserts.
+          </p>
+
+          <form class="mt-6 space-y-3" @submit.prevent="updateSites">
+            <label
+              v-for="site in availableSites"
+              :key="site.id"
+              class="flex items-center justify-between gap-4 rounded-[22px] border border-slate-200/80 bg-white/80 px-5 py-4"
+            >
+              <span>
+                <span class="block text-sm font-semibold text-slate-950">{{ site.name }}</span>
+                <span class="mt-1 block text-xs text-slate-500">{{ site.slug }} • {{ site.omada_site_id }}</span>
+              </span>
+              <input v-model="siteForm.site_ids" :value="site.id" type="checkbox" class="rounded border-slate-300" />
+            </label>
+
+            <button type="submit" class="app-button-primary">Save site mapping</button>
+          </form>
+        </div>
+
+        <div class="grid gap-6 xl:grid-cols-2">
+          <section class="app-card p-6">
+            <p class="app-kicker">Payout Requests</p>
+            <h2 class="mt-2 app-section-title">Recent payout activity</h2>
+            <div class="mt-5 space-y-3">
+              <article v-for="item in recentPayoutRequests" :key="item.id" class="rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-4">
+                <p class="font-semibold text-slate-950">{{ formatCurrency(item.amount) }} • {{ item.status }}</p>
+                <p class="mt-1 text-sm text-slate-500">{{ item.processing_mode || 'manual review' }} • {{ item.provider || 'manual' }}</p>
+              </article>
+              <div v-if="!recentPayoutRequests.length" class="app-empty">No payout requests yet.</div>
+            </div>
+          </section>
+
+          <section class="app-card p-6">
+            <p class="app-kicker">Session Activity</p>
+            <h2 class="mt-2 app-section-title">Recent sessions</h2>
+            <div class="mt-5 space-y-3">
+              <article v-for="session in recentSessions" :key="session.id" class="rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-4">
+                <p class="font-semibold text-slate-950">{{ session.site_name || 'Unassigned site' }} • {{ session.plan_name || 'No plan' }}</p>
+                <p class="mt-1 text-sm text-slate-500">{{ session.payment_status }} • {{ formatCurrency(session.amount_paid) }}</p>
+              </article>
+              <div v-if="!recentSessions.length" class="app-empty">No sessions yet.</div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
   </MainLayout>
 </template>

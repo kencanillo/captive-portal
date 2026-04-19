@@ -6,6 +6,7 @@ use App\Models\AccessPoint;
 use App\Models\Plan;
 use App\Models\Site;
 use App\Models\WifiSession;
+use App\Support\PortalTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -21,8 +22,7 @@ class PlanSelectionApiTest extends TestCase
             'duration_minutes' => 60,
         ]);
 
-        $response = $this->postJson('/api/select-plan', [
-            'plan_id' => $plan->id,
+        $portalToken = app(PortalTokenService::class)->issuePortalContextToken([
             'mac_address' => 'AA:BB:CC:DD:EE:FF',
             'ap_mac' => '11:22:33:44:55:66',
             'ap_name' => 'North Pole AP',
@@ -30,6 +30,11 @@ class PlanSelectionApiTest extends TestCase
             'ssid_name' => 'Guest WiFi',
             'radio_id' => 1,
             'client_ip' => '192.168.20.10',
+        ]);
+
+        $response = $this->postJson('/api/select-plan', [
+            'plan_id' => $plan->id,
+            'portal_token' => $portalToken,
             'client_registration' => [
                 'name' => 'Juan Dela Cruz',
                 'phone_number' => '09171234567',
@@ -37,7 +42,8 @@ class PlanSelectionApiTest extends TestCase
             ],
         ]);
 
-        $response->assertCreated();
+        $response->assertCreated()
+            ->assertJsonStructure(['data' => ['session_token', 'plan']]);
 
         $site = Site::query()->firstOrFail();
         $accessPoint = AccessPoint::query()->firstOrFail();

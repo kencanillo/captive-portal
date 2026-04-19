@@ -1,9 +1,5 @@
 <script setup>
-import GuestLayout from '@/Layouts/GuestLayout.vue';
 import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 
 const form = useForm({
@@ -29,86 +25,154 @@ const submit = () => {
 </script>
 
 <template>
-  <GuestLayout>
-    <Head title="Operator Registration" />
+  <Head title="Register as Operator" />
 
-    <div class="mb-6">
-      <h1 class="text-xl font-semibold text-slate-900">Register as an operator</h1>
-      <p class="mt-2 text-sm text-slate-600">
-        This creates a pending operator account and linked user login. Admin approval is required before dashboard access.
-      </p>
-    </div>
-
-    <form class="space-y-5" @submit.prevent="submit">
-      <div>
-        <InputLabel for="business_name" value="Business / Operator Name" />
-        <TextInput id="business_name" v-model="form.business_name" class="mt-1 block w-full" required />
-        <InputError class="mt-2" :message="form.errors.business_name" />
-      </div>
-
-      <div>
-        <InputLabel for="contact_name" value="Contact Person Name" />
-        <TextInput id="contact_name" v-model="form.contact_name" class="mt-1 block w-full" required />
-        <InputError class="mt-2" :message="form.errors.contact_name" />
-      </div>
-
-      <div>
-        <InputLabel for="email" value="Email" />
-        <TextInput id="email" v-model="form.email" type="email" class="mt-1 block w-full" required />
-        <InputError class="mt-2" :message="form.errors.email" />
-      </div>
-
-      <div>
-        <InputLabel for="phone_number" value="Phone Number" />
-        <TextInput id="phone_number" v-model="form.phone_number" class="mt-1 block w-full" required />
-        <InputError class="mt-2" :message="form.errors.phone_number" />
-      </div>
-
-      <div class="grid gap-5 md:grid-cols-2">
+  <div class="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(91,184,254,0.16),transparent_24%),linear-gradient(180deg,#f7f9fb_0%,#eef2f7_100%)] px-4 py-6 sm:px-6 lg:px-8">
+    <main class="mx-auto max-w-7xl">
+      <div class="mb-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <InputLabel for="password" value="Password" />
-          <TextInput id="password" v-model="form.password" type="password" class="mt-1 block w-full" required />
-          <InputError class="mt-2" :message="form.errors.password" />
+          <p class="app-kicker">Operator Onboarding</p>
+          <h1 class="mt-3 text-5xl font-extralight tracking-[-0.06em] text-slate-950">Establish your network presence</h1>
+          <p class="mt-4 max-w-2xl text-base leading-8 text-slate-500">
+            This creates a pending operator account and linked user login. Approval happens inside the app before management access is granted.
+          </p>
         </div>
 
-        <div>
-          <InputLabel for="password_confirmation" value="Confirm Password" />
-          <TextInput id="password_confirmation" v-model="form.password_confirmation" type="password" class="mt-1 block w-full" required />
+        <div class="flex items-center gap-4">
+          <Link href="/admin/login" class="app-button-secondary">
+            Already have an account?
+          </Link>
+          <button class="app-button-primary" :disabled="form.processing" @click="submit">
+            <span>Submit Application</span>
+            <span class="material-symbols-outlined text-[18px]">send</span>
+          </button>
         </div>
       </div>
 
-      <div class="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <h2 class="text-sm font-semibold text-slate-900">Payout preference placeholder</h2>
-        <div class="mt-4 grid gap-4 md:grid-cols-2">
-          <div>
-            <InputLabel for="payout_method" value="Preferred payout method" />
-            <TextInput id="payout_method" v-model="form.payout_method" class="mt-1 block w-full" placeholder="Bank transfer, GCash, wallet" />
-          </div>
-          <div>
-            <InputLabel for="payout_account_name" value="Account name" />
-            <TextInput id="payout_account_name" v-model="form.payout_account_name" class="mt-1 block w-full" />
-          </div>
-          <div>
-            <InputLabel for="payout_account_reference" value="Account number / reference" />
-            <TextInput id="payout_account_reference" v-model="form.payout_account_reference" class="mt-1 block w-full" />
-          </div>
-          <div>
-            <InputLabel for="site_name_request" value="Requested site name (optional)" />
-            <TextInput id="site_name_request" v-model="form.site_name_request" class="mt-1 block w-full" />
-          </div>
-        </div>
-        <div class="mt-4">
-          <InputLabel for="payout_notes" value="Notes" />
-          <textarea id="payout_notes" v-model="form.payout_notes" class="mt-1 block w-full rounded-md border-slate-300"></textarea>
-        </div>
-      </div>
+      <div class="grid grid-cols-1 gap-8 lg:grid-cols-12">
+        <section class="space-y-8 lg:col-span-7">
+          <div class="app-card-strong p-8">
+            <div class="mb-8 flex items-center gap-3">
+              <div class="flex h-11 w-11 items-center justify-center rounded-full bg-slate-200 text-slate-800">
+                <span class="material-symbols-outlined text-[20px]">business</span>
+              </div>
+              <h2 class="text-2xl font-bold tracking-[-0.04em] text-slate-950">Business identity</h2>
+            </div>
 
-      <div class="flex items-center justify-between">
-        <Link href="/admin/login" class="text-sm text-slate-600 underline">Already have an account?</Link>
-        <PrimaryButton :class="{ 'opacity-25': form.processing }" :disabled="form.processing">
-          Submit registration
-        </PrimaryButton>
+            <div class="grid grid-cols-1 gap-x-8 gap-y-6 md:grid-cols-2">
+              <div>
+                <label class="app-label">Business / Operator Name</label>
+                <input v-model="form.business_name" class="app-field" placeholder="e.g. BruckeLab Connect Ltd" />
+                <InputError class="mt-2" :message="form.errors.business_name" />
+              </div>
+              <div>
+                <label class="app-label">Contact Person</label>
+                <input v-model="form.contact_name" class="app-field" placeholder="Full legal name" />
+                <InputError class="mt-2" :message="form.errors.contact_name" />
+              </div>
+              <div>
+                <label class="app-label">Phone Number</label>
+                <input v-model="form.phone_number" type="tel" class="app-field" placeholder="+63 9XX XXX XXXX" />
+                <InputError class="mt-2" :message="form.errors.phone_number" />
+              </div>
+              <div>
+                <label class="app-label">Email Address</label>
+                <input v-model="form.email" type="email" class="app-field" placeholder="admin@business.com" />
+                <InputError class="mt-2" :message="form.errors.email" />
+              </div>
+            </div>
+          </div>
+
+          <div class="app-card p-8">
+            <div class="mb-8 flex items-center gap-3">
+              <div class="flex h-11 w-11 items-center justify-center rounded-full bg-sky-100 text-sky-700">
+                <span class="material-symbols-outlined text-[20px]">account_balance_wallet</span>
+              </div>
+              <h2 class="text-2xl font-bold tracking-[-0.04em] text-slate-950">Payout preferences</h2>
+            </div>
+
+            <div class="grid grid-cols-1 gap-x-8 gap-y-6 md:grid-cols-2">
+              <div>
+                <label class="app-label">Preferred Method</label>
+                <input v-model="form.payout_method" class="app-field" placeholder="Bank transfer, GCash, wallet" />
+                <InputError class="mt-2" :message="form.errors.payout_method" />
+              </div>
+              <div>
+                <label class="app-label">Account Name</label>
+                <input v-model="form.payout_account_name" class="app-field" placeholder="As per account records" />
+                <InputError class="mt-2" :message="form.errors.payout_account_name" />
+              </div>
+              <div class="md:col-span-2">
+                <label class="app-label">Account Number / Reference</label>
+                <input v-model="form.payout_account_reference" class="app-field" placeholder="Routing details or wallet reference" />
+                <InputError class="mt-2" :message="form.errors.payout_account_reference" />
+              </div>
+              <div class="md:col-span-2">
+                <label class="app-label">Notes</label>
+                <textarea v-model="form.payout_notes" class="app-field min-h-[120px]" placeholder="Payout instructions or handling notes" />
+                <InputError class="mt-2" :message="form.errors.payout_notes" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="space-y-8 lg:col-span-5">
+          <div class="app-card-strong p-8">
+            <div class="mb-8 flex items-center gap-3">
+              <div class="flex h-11 w-11 items-center justify-center rounded-full bg-sky-500 text-white">
+                <span class="material-symbols-outlined text-[20px]">lock_person</span>
+              </div>
+              <h2 class="text-2xl font-bold tracking-[-0.04em] text-slate-950">Security</h2>
+            </div>
+
+            <div class="space-y-6">
+              <div>
+                <label class="app-label">Access Password</label>
+                <input v-model="form.password" type="password" class="app-field" placeholder="••••••••••••" />
+                <InputError class="mt-2" :message="form.errors.password" />
+              </div>
+              <div>
+                <label class="app-label">Confirm Password</label>
+                <input v-model="form.password_confirmation" type="password" class="app-field" placeholder="••••••••••••" />
+              </div>
+              <div class="rounded-[22px] bg-sky-50 px-4 py-4">
+                <p class="flex items-start gap-2 text-sm leading-6 text-sky-900">
+                  <span class="material-symbols-outlined mt-0.5 text-[18px]">info</span>
+                  Passwords should be long enough to be worth something. Minimum length is enforced server-side.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="app-card p-8">
+            <div class="mb-8 flex items-center gap-3">
+              <div class="flex h-11 w-11 items-center justify-center rounded-full bg-slate-200 text-slate-800">
+                <span class="material-symbols-outlined text-[20px]">lan</span>
+              </div>
+              <h2 class="text-2xl font-bold tracking-[-0.04em] text-slate-950">Site details</h2>
+            </div>
+
+            <div class="space-y-6">
+              <div>
+                <label class="app-label">Requested Site Name</label>
+                <input v-model="form.site_name_request" class="app-field" placeholder="e.g. Midtown Hub Alpha" />
+                <InputError class="mt-2" :message="form.errors.site_name_request" />
+              </div>
+            </div>
+          </div>
+
+          <div class="app-card-dark overflow-hidden p-8">
+            <p class="app-top-stat">
+              <span class="material-symbols-outlined text-[16px]">monitoring</span>
+              Advanced signal management
+            </p>
+            <h3 class="mt-6 text-3xl font-bold tracking-[-0.05em] text-white">Premium operator workflow</h3>
+            <p class="mt-4 text-sm leading-7 text-slate-300">
+              Once approved, operators gain access to site-scoped dashboards, payout requests, and device visibility without leaking other tenants’ data.
+            </p>
+          </div>
+        </section>
       </div>
-    </form>
-  </GuestLayout>
+    </main>
+  </div>
 </template>

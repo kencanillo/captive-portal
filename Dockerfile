@@ -30,6 +30,7 @@ ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        $PHPIZE_DEPS \
         ca-certificates \
         curl \
         default-mysql-client \
@@ -41,6 +42,8 @@ RUN apt-get update \
         libpng-dev \
         libzip-dev \
         unzip \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" bcmath gd intl opcache pcntl pdo_mysql zip \
     && a2enmod headers rewrite \
