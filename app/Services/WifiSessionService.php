@@ -9,6 +9,7 @@ use App\Models\Plan;
 use App\Models\WifiSession;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 
 class WifiSessionService
@@ -48,31 +49,38 @@ class WifiSessionService
 
     private function findOrCreateClient(string $macAddress, ?array $registrationData): Client
     {
-        // First try to find existing client by MAC address
         $client = Client::findByMacAddress($macAddress);
-        
+
         if ($client) {
-            // Update last connected timestamp
             $client->update(['last_connected_at' => now()]);
+
             return $client;
         }
 
-        // If no registration data, we can't create a new client
-        if (!$registrationData) {
+        if (! $registrationData) {
             throw new \RuntimeException('Client registration data is required for new clients.');
         }
 
-        // Check if client already exists by phone number
         $existingByPhone = Client::findByPhoneNumber($registrationData['phone_number']);
+
         if ($existingByPhone) {
-            throw new \RuntimeException('A client with this phone number already exists.');
+            if (! Hash::check($registrationData['pin'], $existingByPhone->pin)) {
+                throw new \RuntimeException('The PIN does not match the existing client record for this phone number.');
+            }
+
+            $existingByPhone->forceFill([
+                'name' => $registrationData['name'] ?: $existingByPhone->name,
+                'mac_address' => $macAddress,
+                'last_connected_at' => now(),
+            ])->save();
+
+            return $existingByPhone->refresh();
         }
 
-        // Create new client
         return Client::create([
             'name' => $registrationData['name'],
             'phone_number' => $registrationData['phone_number'],
-            'pin' => bcrypt($registrationData['pin']), // Hash the PIN
+            'pin' => bcrypt($registrationData['pin']),
             'mac_address' => $macAddress,
             'last_connected_at' => now(),
         ]);
