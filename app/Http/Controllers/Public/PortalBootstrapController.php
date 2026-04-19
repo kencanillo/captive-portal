@@ -14,12 +14,19 @@ class PortalBootstrapController extends Controller
 {
     public function __invoke(Request $request, OmadaService $omadaService, PortalTokenService $portalTokenService): JsonResponse
     {
+        $resolvedClientIp = $this->firstFilled($request, ['clientIp', 'client_ip']) ?: $request->ip();
         $macAddress = null;
 
         $controllerSettings = ControllerSetting::singleton();
 
         if ($controllerSettings->canTestConnection()) {
-            $macAddress = $omadaService->getClientMacAddress($controllerSettings, $request->ip());
+            $macAddress = $omadaService->getClientMacAddress($controllerSettings, $resolvedClientIp);
+        }
+
+        if (! $macAddress && config('portal.allow_query_mac_fallback', false)) {
+            $macAddress = $this->normalizeMac(
+                $this->firstFilled($request, ['clientMac', 'client_mac', 'mac_address', 'mac'])
+            );
         }
 
         $existingClient = $macAddress ? Client::findByMacAddress($macAddress) : null;
@@ -30,7 +37,7 @@ class PortalBootstrapController extends Controller
             'site_name' => $this->firstFilled($request, ['siteName', 'site_name', 'site']),
             'ssid_name' => $this->firstFilled($request, ['ssidName', 'ssid_name', 'ssid']),
             'radio_id' => $this->firstFilled($request, ['radioId', 'radio_id']),
-            'client_ip' => $this->firstFilled($request, ['clientIp', 'client_ip']) ?: $request->ip(),
+            'client_ip' => $resolvedClientIp,
         ];
 
         return response()->json([
@@ -71,5 +78,16 @@ class PortalBootstrapController extends Controller
         }
 
         return null;
+    }
+
+    private function normalizeMac(?string $value): ?string
+    {
+        $mac = strtoupper(preg_replace('/[^A-Fa-f0-9]/', '', (string) $value) ?? '');
+
+        if (strlen($mac) !== 12) {
+            return null;
+        }
+
+        return implode(':', str_split($mac, 2));
     }
 }

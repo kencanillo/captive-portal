@@ -32,14 +32,37 @@ class PortalBootstrapControllerTest extends TestCase
         $omadaService = Mockery::mock(OmadaService::class);
         $omadaService->shouldReceive('getClientMacAddress')
             ->once()
+            ->withArgs(function (ControllerSetting $settings, string $clientIp): bool {
+                return $settings->base_url === 'https://controller.example.com'
+                    && $clientIp === '10.10.10.25';
+            })
             ->andReturn('aa:bb:cc:dd:ee:ff');
         $this->app->instance(OmadaService::class, $omadaService);
 
-        $this->getJson('/api/portal/bootstrap?clientMac=11:22:33:44:55:66&siteName=North%20Site')
+        $this->getJson('/api/portal/bootstrap?clientMac=11:22:33:44:55:66&clientIp=10.10.10.25&siteName=North%20Site')
             ->assertOk()
             ->assertJsonPath('data.portal_context.mac_address', 'aa:bb:cc:dd:ee:ff')
+            ->assertJsonPath('data.portal_context.client_ip', '10.10.10.25')
             ->assertJsonPath('data.portal_context.site_name', 'North Site')
             ->assertJsonPath('data.existing_client.name', 'Returning Client')
             ->assertJsonMissingPath('data.plans');
+    }
+
+    public function test_portal_bootstrap_can_fallback_to_query_mac_when_enabled(): void
+    {
+        config()->set('portal.allow_query_mac_fallback', true);
+
+        Client::query()->create([
+            'name' => 'Fallback Client',
+            'phone_number' => '09179999999',
+            'pin' => bcrypt('1234'),
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+        ]);
+
+        $this->getJson('/api/portal/bootstrap?clientMac=aa-bb-cc-dd-ee-ff&clientIp=10.10.10.26')
+            ->assertOk()
+            ->assertJsonPath('data.portal_context.mac_address', 'AA:BB:CC:DD:EE:FF')
+            ->assertJsonPath('data.portal_context.client_ip', '10.10.10.26')
+            ->assertJsonPath('data.existing_client.name', 'Fallback Client');
     }
 }
