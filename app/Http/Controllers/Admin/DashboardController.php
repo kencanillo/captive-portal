@@ -5,22 +5,51 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
+use App\Models\Operator;
+use App\Models\PayoutRequest;
 use App\Models\Plan;
 use App\Models\Site;
 use App\Models\WifiSession;
+use App\Services\OperatorPayoutService;
+use Carbon\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(): Response
+    public function __invoke(OperatorPayoutService $payoutService): Response
     {
+        $trendStart = now()->subDays(6)->startOfDay();
+        $trendEnd = now()->endOfDay();
+
         $activeSessions = WifiSession::query()->where('is_active', true)->count();
         $totalRevenue = WifiSession::query()->where('payment_status', WifiSession::STATUS_PAID)->sum('amount_paid');
         $mostPopularPlan = Plan::query()
             ->withCount('wifiSessions')
             ->orderByDesc('wifi_sessions_count')
             ->first();
+        $revenueTrendSource = WifiSession::query()
+            ->selectRaw('DATE(updated_at) as revenue_date, SUM(amount_paid) as total_amount')
+            ->where('payment_status', WifiSession::STATUS_PAID)
+            ->whereBetween('updated_at', [$trendStart, $trendEnd])
+            ->groupByRaw('DATE(updated_at)')
+            ->orderBy('revenue_date')
+            ->get()
+            ->keyBy('revenue_date');
+
+        $revenueTrend = collect(range(0, 6))
+            ->map(function (int $offset) use ($trendStart, $revenueTrendSource) {
+                $date = $trendStart->copy()->addDays($offset);
+                $key = $date->toDateString();
+                $amount = (float) ($revenueTrendSource->get($key)?->total_amount ?? 0);
+
+                return [
+                    'date' => $key,
+                    'label' => Carbon::parse($key)->format('D'),
+                    'amount' => number_format($amount, 2, '.', ''),
+                ];
+            })
+            ->values();
 
         $analytics = [
             'revenue_today' => WifiSession::query()
@@ -33,6 +62,13 @@ class DashboardController extends Controller
             'claimed_access_points' => AccessPoint::query()->where('claim_status', AccessPoint::CLAIM_STATUS_CLAIMED)->count(),
             'pending_access_points' => AccessPoint::query()->where('claim_status', AccessPoint::CLAIM_STATUS_PENDING)->count(),
             'sites_count' => Site::query()->count(),
+            'operators_count' => Operator::query()->count(),
+            'operators_pending' => Operator::query()->where('status', Operator::STATUS_PENDING)->count(),
+            'pending_payout_requests' => PayoutRequest::query()->whereIn('status', [
+                PayoutRequest::STATUS_PENDING,
+                PayoutRequest::STATUS_APPROVED,
+                PayoutRequest::STATUS_PROCESSING,
+            ])->count(),
             'unassigned_sessions' => WifiSession::query()->whereNull('access_point_id')->count(),
             'pause_ready_promos' => Plan::query()->where('supports_pause', true)->where('is_active', true)->count(),
             'anti_tethering_promos' => Plan::query()->where('enforce_no_tethering', true)->where('is_active', true)->count(),
@@ -90,6 +126,26 @@ class DashboardController extends Controller
                 'revenue_total' => number_format((float) ($site->revenue_total ?? 0), 2, '.', ''),
             ]);
 
+        $operators = Operator::query()
+            ->with(['user:id,email', 'sites:id,operator_id,name'])
+            ->latest()
+            ->limit(6)
+            ->get()
+            ->map(function (Operator $operator) use ($payoutService) {
+                $balance = $payoutService->summary($operator);
+
+                return [
+                    'id' => $operator->id,
+                    'business_name' => $operator->business_name,
+                    'contact_name' => $operator->contact_name,
+                    'email' => $operator->user?->email,
+                    'status' => $operator->status,
+                    'sites' => $operator->sites->pluck('name')->values()->all(),
+                    'available_balance' => number_format((float) $balance['available_balance'], 2, '.', ''),
+                    'revenue_total' => number_format((float) $balance['earnings'], 2, '.', ''),
+                ];
+            });
+
         return Inertia::render('Admin/Dashboard', [
             'activeSessionsCount' => $activeSessions,
             'totalRevenue' => number_format((float) $totalRevenue, 2, '.', ''),
@@ -102,8 +158,10 @@ class DashboardController extends Controller
                 'site_name',
                 'portal_base_url',
             ]),
+            'revenueTrend' => $revenueTrend,
             'accessPoints' => $accessPoints,
             'siteSummary' => $siteSummary,
+            'operators' => $operators,
         ]);
     }
 }

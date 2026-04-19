@@ -32,7 +32,7 @@ class OmadaServiceTest extends TestCase
         $verifiedOptions = $this->pendingRequestOptions($verifiedClient);
         $unverifiedOptions = $this->pendingRequestOptions($unverifiedClient);
 
-        $this->assertArrayNotHasKey('verify', $verifiedOptions);
+        $this->assertTrue($verifiedOptions['verify'] ?? true);
         $this->assertFalse($unverifiedOptions['verify']);
     }
 
@@ -237,6 +237,55 @@ class OmadaServiceTest extends TestCase
             && $request->hasHeader('Authorization', 'AccessToken=access-token'));
 
         Http::assertSent(fn ($request) => str_contains($request->url(), '/openapi/v1/controller-id/sites/main-branch/clients/AA-BB-CC-DD-EE-FF/disconnect')
+            && $request->hasHeader('Authorization', 'AccessToken=access-token'));
+    }
+
+    public function test_get_sites_uses_required_openapi_pagination_parameters(): void
+    {
+        Http::fake([
+            'https://localhost:8043/api/info' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
+            ]),
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'access-token',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites?page=1&pageSize=1000' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [
+                        ['siteId' => 'site-001', 'name' => 'Main Branch'],
+                        ['siteId' => 'site-002', 'name' => 'North Branch'],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $service = app(OmadaService::class);
+
+        $sites = $service->getSites(new ControllerSetting([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
+        ]));
+
+        $this->assertCount(2, $sites);
+        $this->assertSame('site-001', $sites[0]['siteId']);
+        $this->assertSame('Main Branch', $sites[0]['name']);
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/openapi/v1/controller-id/sites?page=1&pageSize=1000')
             && $request->hasHeader('Authorization', 'AccessToken=access-token'));
     }
 

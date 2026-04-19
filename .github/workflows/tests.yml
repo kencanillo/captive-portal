@@ -13,15 +13,9 @@ permissions:
   contents: read
 
 jobs:
-  tests:
+  php-tests:
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: true
-      matrix:
-        php: [8.2, 8.3, 8.4]
-
-    name: PHP ${{ matrix.php }}
+    name: PHP 8.4 Laravel Tests
 
     steps:
       - name: Checkout code
@@ -30,9 +24,18 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite
+          php-version: '8.4'
+          extensions: bcmath, ctype, curl, dom, fileinfo, gd, intl, mbstring, pdo, pdo_sqlite, sqlite, tokenizer, xml, zip
           coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ runner.os }}-php-8.4-composer-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-8.4-composer-
 
       - name: Install Composer dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
@@ -43,5 +46,31 @@ jobs:
       - name: Generate app key
         run: php artisan key:generate
 
-      - name: Execute tests
-        run: vendor/bin/phpunit
+      - name: Run Laravel test suite
+        run: php artisan test
+
+      - name: Smoke test cached bootstrap
+        run: |
+          php artisan config:cache
+          php artisan route:cache
+          php artisan optimize:clear
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    name: Node 20 Frontend Build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npm run build

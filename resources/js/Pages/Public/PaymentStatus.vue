@@ -12,6 +12,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  sessionToken: {
+    type: String,
+    required: true,
+  },
   plan: {
     type: Object,
     required: true,
@@ -212,7 +216,7 @@ async function generateNewQr() {
 
   try {
     const response = await window.axios.post(props.createPaymentEndpoint, {
-      session_id: props.session.id,
+      session_token: props.sessionToken,
     });
 
     const paymentUrl = response?.data?.data?.payment_url;

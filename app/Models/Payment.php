@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -94,5 +95,10 @@ class Payment extends Model
     public function shouldContinuePolling(): bool
     {
         return ! $this->isTerminal();
+    }
+
+    public function scopeForOperator(Builder $query, Operator $operator): Builder
+    {
+        return $query->whereHas('wifiSession', fn (Builder $wifiSessions) => $wifiSessions->forOperator($operator));
     }
 }

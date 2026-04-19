@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Models\Operator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -33,7 +34,25 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('admin.dashboard', absolute: false));
+        $user = $request->user()->loadMissing('operator');
+
+        if ($user->is_admin) {
+            return redirect()->intended(route('admin.dashboard', absolute: false));
+        }
+
+        if ($user->operator?->status === Operator::STATUS_APPROVED) {
+            return redirect()->intended(route('operator.dashboard', absolute: false));
+        }
+
+        if ($user->operator) {
+            return redirect()->route('operator.pending');
+        }
+
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect()->route('admin.login')->with('error', 'This account cannot access the management portal.');
     }
 
     /**
@@ -41,12 +60,14 @@ class AuthenticatedSessionController extends Controller
      */
     public function destroy(Request $request): RedirectResponse
     {
+        $routeName = $request->route()?->getName();
+
         Auth::guard('web')->logout();
 
         $request->session()->invalidate();
 
         $request->session()->regenerateToken();
 
-        return redirect('/admin/login');
+        return redirect($routeName === 'logout' ? '/' : '/admin/login');
     }
 }

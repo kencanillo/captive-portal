@@ -55,20 +55,20 @@ class OmadaService
         try {
             $normalized = $this->normalizeSettings($settings);
             $client = $this->authenticatedClient($normalized, 'client MAC lookup');
-            
+
             // Try to get connected clients from the controller
             $payload = $this->request($client, 'get', '/api/v2/controller/clients');
-            
+
             // Look for client by IP address
             $clients = $this->extractClientsFromPayload($payload);
-            
+
             foreach ($clients as $clientData) {
                 $clientIpFromApi = $this->firstFilled($clientData, [
                     'ip',
                     'ipAddress',
                     'clientIp',
                 ]);
-                
+
                 if ($clientIpFromApi && $clientIpFromApi === $clientIp) {
                     return $this->normalizeMac($this->firstFilled($clientData, [
                         'mac',
@@ -77,7 +77,7 @@ class OmadaService
                     ]));
                 }
             }
-            
+
             return null;
         } catch (\Throwable $e) {
             // Log error but don't throw - we'll fallback to manual input
@@ -91,6 +91,28 @@ class OmadaService
             'result.data',
             'result.rows',
             'result.clients',
+            'result.list',
+            'data',
+            'rows',
+        ] as $path) {
+            $value = Arr::get($payload, $path);
+
+            if (is_array($value) && array_is_list($value)) {
+                return $value;
+            }
+        }
+
+        $result = Arr::get($payload, 'result');
+
+        return is_array($result) && array_is_list($result) ? $result : [];
+    }
+
+    private function extractSitesFromPayload(array $payload): array
+    {
+        foreach ([
+            'result.data',
+            'result.rows',
+            'result.sites',
             'result.list',
             'data',
             'rows',
@@ -150,6 +172,116 @@ class OmadaService
             'pending' => $pending,
             'total' => count($adoptedDevices) + count($pendingDevices),
         ];
+    }
+
+    public function syncSites(ControllerSetting $settings): array
+    {
+        $sites = $this->getSites($settings);
+        $created = 0;
+        $updated = 0;
+
+        foreach ($sites as $sitePayload) {
+            $siteName = $this->resolveOmadaSiteName($sitePayload);
+
+            if ($siteName === null) {
+                continue;
+            }
+
+            $omadaSiteId = $this->resolveOmadaSiteIdentifier($sitePayload);
+
+            $site = Site::query()
+                ->where(function ($query) use ($omadaSiteId, $siteName) {
+                    if ($omadaSiteId) {
+                        $query->where('omada_site_id', $omadaSiteId)
+                            ->orWhere('name', $siteName);
+
+                        return;
+                    }
+
+                    $query->where('name', $siteName);
+                })
+                ->first();
+
+            if (! $site) {
+                Site::query()->create([
+                    'name' => $siteName,
+                    'slug' => $this->uniqueSiteSlug($siteName),
+                    'omada_site_id' => $omadaSiteId,
+                ]);
+                $created++;
+
+                continue;
+            }
+
+            $site->forceFill([
+                'name' => $siteName,
+                'omada_site_id' => $omadaSiteId ?? $site->omada_site_id,
+            ])->save();
+
+            $updated++;
+        }
+
+        return [
+            'total' => count($sites),
+            'created' => $created,
+            'updated' => $updated,
+        ];
+    }
+
+    public function getSites(ControllerSetting $settings): array
+    {
+        $normalized = $this->normalizeSettings($settings);
+
+        // Try OpenAPI first if credentials are available
+        if ($this->hasOpenApiCredentials($normalized)) {
+            try {
+                $this->requestOpenApiAccessToken($normalized, $this->extractControllerInfo(
+                    $this->request($this->client($normalized), 'get', '/api/info')
+                )['omadac_id']);
+
+                $openApi = $this->openApiAuthenticatedClient($normalized);
+                $payload = $this->request($openApi['client'], 'get', "/openapi/v1/{$openApi['controller_id']}/sites", [
+                    'page' => 1,
+                    'pageSize' => 1000,
+                ]);
+                return $this->extractSitesFromPayload($payload);
+            } catch (Throwable $e) {
+                \Log::warning('Omada getSites OpenAPI failed, trying legacy', ['error' => $e->getMessage()]);
+            }
+        }
+
+        // Fallback to legacy API
+        $client = $this->authenticatedClient($normalized, 'sites fetch');
+
+        try {
+            $payload = $this->request($client, 'get', '/api/v2/controller/sites');
+            return $this->extractSitesFromPayload($payload);
+        } catch (Throwable $e) {
+            // Try alternative endpoint
+            try {
+                $payload = $this->request($client, 'get', '/api/v2/sites');
+                return $this->extractSitesFromPayload($payload);
+            } catch (Throwable $e2) {
+                \Log::error('Omada getSites failed on both legacy endpoints', [
+                    'error1' => $e->getMessage(),
+                    'error2' => $e2->getMessage(),
+                    'controller_url' => $normalized['base_url'],
+                ]);
+                throw $e2;
+            }
+        }
+    }
+
+    public function adoptDevice(ControllerSetting $settings, string $deviceMac): array
+    {
+        $normalized = $this->normalizeSettings($settings);
+        $client = $this->authenticatedClient($normalized, 'device adoption');
+
+        $response = $this->request($client, 'post', '/api/v2/grid/devices/adopt', [
+            'mac' => $deviceMac,
+        ]);
+
+        return $response;
     }
 
     public function authorizeClient(ControllerSetting $settings, WifiSession $session): array
@@ -571,6 +703,39 @@ class OmadaService
             'name' => $siteName,
             'slug' => $slug,
         ]);
+    }
+
+    private function resolveOmadaSiteIdentifier(array $payload): ?string
+    {
+        return $this->stringOrNull($this->firstFilled($payload, [
+            'siteId',
+            'site_id',
+            'id',
+            'key',
+        ]));
+    }
+
+    private function resolveOmadaSiteName(array $payload): ?string
+    {
+        return $this->stringOrNull($this->firstFilled($payload, [
+            'name',
+            'siteName',
+            'displayName',
+        ]));
+    }
+
+    private function uniqueSiteSlug(string $siteName): string
+    {
+        $baseSlug = Str::slug($siteName) ?: 'location';
+        $slug = $baseSlug;
+        $suffix = 2;
+
+        while (Site::query()->where('slug', $slug)->exists()) {
+            $slug = "{$baseSlug}-{$suffix}";
+            $suffix++;
+        }
+
+        return $slug;
     }
 
     private function normalizeSettings(ControllerSetting $settings): array

@@ -6,14 +6,26 @@ use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\WifiSession;
 use App\Services\PayMongoQrPhService;
+use App\Support\PortalTokenService;
 use App\Support\ApiResponse;
+use InvalidArgumentException;
 
 class PaymentStatusController extends Controller
 {
     use ApiResponse;
 
-    public function __invoke(Payment $payment, PayMongoQrPhService $payMongoQrPhService)
+    public function __invoke(
+        string $paymentToken,
+        PayMongoQrPhService $payMongoQrPhService,
+        PortalTokenService $portalTokenService
+    )
     {
+        try {
+            $payment = $portalTokenService->resolvePaymentToken($paymentToken);
+        } catch (InvalidArgumentException $exception) {
+            abort(404);
+        }
+
         $payment = $payMongoQrPhService->ensurePaymentIsFresh(
             $payment->load('wifiSession')
         );
@@ -22,7 +34,6 @@ class PaymentStatusController extends Controller
         [$shouldContinuePolling, $nextStep, $humanMessage] = $this->resolveState($payment, $session);
 
         return $this->success([
-            'payment_id' => $payment->id,
             'payment_status' => $payment->payment_status,
             'wifi_session_status' => $session->session_status,
             'release_failure_reason' => $session->release_failure_reason,
