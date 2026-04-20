@@ -15,7 +15,7 @@ class PortalBootstrapControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_portal_bootstrap_endpoint_uses_omada_mac_and_returns_async_context_without_plans(): void
+    public function test_portal_bootstrap_endpoint_uses_omada_lookup_when_redirect_mac_is_missing(): void
     {
         ControllerSetting::query()->create([
             'controller_name' => 'Primary Controller',
@@ -48,7 +48,7 @@ class PortalBootstrapControllerTest extends TestCase
             ]);
         $this->app->instance(OmadaService::class, $omadaService);
 
-        $this->getJson('/api/portal/bootstrap?clientMac=11:22:33:44:55:66&clientIp=10.10.10.25&siteName=North%20Site')
+        $this->getJson('/api/portal/bootstrap?clientIp=10.10.10.25&siteName=North%20Site')
             ->assertOk()
             ->assertJsonPath('data.status', 'resolved')
             ->assertJsonPath('data.portal_context.mac_address', 'aa:bb:cc:dd:ee:ff')
@@ -58,10 +58,8 @@ class PortalBootstrapControllerTest extends TestCase
             ->assertJsonMissingPath('data.plans');
     }
 
-    public function test_portal_bootstrap_can_fallback_to_query_mac_when_enabled(): void
+    public function test_portal_bootstrap_uses_query_mac_without_calling_omada_for_unknown_client(): void
     {
-        config()->set('portal.allow_query_mac_fallback', true);
-
         Client::query()->create([
             'name' => 'Fallback Client',
             'phone_number' => '09179999999',
@@ -79,6 +77,22 @@ class PortalBootstrapControllerTest extends TestCase
             ->assertJsonPath('data.portal_context.mac_address', 'AA:BB:CC:DD:EE:FF')
             ->assertJsonPath('data.portal_context.client_ip', '10.10.10.26')
             ->assertJsonPath('data.existing_client.name', 'Fallback Client');
+    }
+
+    public function test_portal_device_context_accepts_cid_and_ap_aliases_from_omada_redirect(): void
+    {
+        $omadaService = Mockery::mock(OmadaService::class);
+        $omadaService->shouldNotReceive('lookupPortalClientContext');
+        $this->app->instance(OmadaService::class, $omadaService);
+
+        $this->getJson('/api/portal/device-context?cid=0E-9B-B3-1B-8C-4B&ap=AC-A7-F1-32-DB-4B&ssid=Juleanne_Coinless_Wifi_Vendo&site=69e31ca32109e3181bab7109')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'resolved')
+            ->assertJsonPath('data.resolution_source', 'redirect_query_mac')
+            ->assertJsonPath('data.portal_context.mac_address', '0E:9B:B3:1B:8C:4B')
+            ->assertJsonPath('data.portal_context.ap_mac', 'AC-A7-F1-32-DB-4B')
+            ->assertJsonPath('data.portal_context.site_identifier', '69e31ca32109e3181bab7109')
+            ->assertJsonPath('data.portal_context.ssid_name', 'Juleanne_Coinless_Wifi_Vendo');
     }
 
     public function test_portal_bootstrap_uses_known_client_mac_from_database_before_calling_omada(): void

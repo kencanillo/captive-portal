@@ -24,11 +24,14 @@ class PortalDeviceContextService
 
     public function buildInitialContext(Request $request): array
     {
+        $siteContext = $this->resolveIncomingSiteContext($request);
+
         return [
             'mac_address' => null,
-            'ap_mac' => $this->firstFilled($request, ['apMac', 'ap_mac']),
+            'ap_mac' => $this->firstFilled($request, ['apMac', 'ap_mac', 'ap']),
             'ap_name' => $this->firstFilled($request, ['apName', 'ap_name']),
-            'site_name' => $this->firstFilled($request, ['siteName', 'site_name', 'site']),
+            'site_name' => $siteContext['site_name'],
+            'site_identifier' => $siteContext['site_identifier'],
             'ssid_name' => $this->firstFilled($request, ['ssidName', 'ssid_name', 'ssid']),
             'radio_id' => $this->firstFilled($request, ['radioId', 'radio_id']),
             'client_ip' => $this->resolvedClientIp($request),
@@ -43,7 +46,7 @@ class PortalDeviceContextService
         $portalContext = $this->buildInitialContext($request);
         $resolvedClientIp = Arr::get($portalContext, 'client_ip');
         $queryMacAddress = $this->normalizeMac(
-            $this->firstFilled($request, ['clientMac', 'client_mac', 'mac_address', 'mac'])
+            $this->firstFilled($request, ['clientMac', 'client_mac', 'cid', 'mac_address', 'mac'])
         );
         $macAddress = null;
         $existingClient = null;
@@ -67,9 +70,9 @@ class PortalDeviceContextService
                 $macAddress = strtoupper($activeSession->mac_address);
                 $resolutionSource = 'active_session_query_mac';
                 $status = 'resolved';
-            } elseif (config('portal.allow_query_mac_fallback', false)) {
+            } else {
                 $macAddress = $queryMacAddress;
-                $resolutionSource = 'query_mac';
+                $resolutionSource = 'redirect_query_mac';
                 $status = 'resolved';
             }
         }
@@ -267,6 +270,31 @@ class PortalDeviceContextService
         }
 
         return null;
+    }
+
+    private function resolveIncomingSiteContext(Request $request): array
+    {
+        $siteName = $this->firstFilled($request, ['siteName', 'site_name']);
+        $siteIdentifier = $this->firstFilled($request, ['siteId', 'site_id']);
+        $siteValue = $this->firstFilled($request, ['site']);
+
+        if (! $siteIdentifier && $this->looksLikeOmadaSiteIdentifier($siteValue)) {
+            $siteIdentifier = $siteValue;
+        }
+
+        if (! $siteName && $siteValue && ! $this->looksLikeOmadaSiteIdentifier($siteValue)) {
+            $siteName = $siteValue;
+        }
+
+        return [
+            'site_name' => $siteName,
+            'site_identifier' => $siteIdentifier,
+        ];
+    }
+
+    private function looksLikeOmadaSiteIdentifier(?string $value): bool
+    {
+        return is_string($value) && preg_match('/^[a-f0-9]{24}$/i', trim($value)) === 1;
     }
 
     private function normalizeMac(?string $value): ?string

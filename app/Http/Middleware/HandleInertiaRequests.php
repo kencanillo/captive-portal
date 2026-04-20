@@ -45,6 +45,7 @@ class HandleInertiaRequests extends Middleware
                     'operator_business_name' => $user->operator?->business_name,
                 ] : null,
             ],
+            'csrf_token' => csrf_token(),
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),

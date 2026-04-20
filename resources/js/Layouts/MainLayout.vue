@@ -24,7 +24,9 @@ const adminNavigation = [
   { label: 'Promos', href: '/admin/plans', icon: 'sell' },
   { label: 'Sessions', href: '/admin/sessions', icon: 'wifi_find' },
   { label: 'Payments', href: '/admin/payments', icon: 'payments' },
+  { label: 'Service Fees', href: '/admin/service-fees', icon: 'percent' },
   { label: 'Operators', href: '/admin/operators', icon: 'groups' },
+  { label: 'Knowledge Base', href: '/admin/knowledge-base', icon: 'menu_book' },
   { label: 'Payouts', href: '/admin/payout-requests', icon: 'account_balance_wallet' },
 ];
 

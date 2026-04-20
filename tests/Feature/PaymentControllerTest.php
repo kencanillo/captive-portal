@@ -98,6 +98,46 @@ class PaymentControllerTest extends TestCase
         $this->assertSame(1, Payment::query()->count());
     }
 
+    public function test_create_payment_can_bypass_paymongo_for_local_multi_device_testing(): void
+    {
+        config()->set('portal.bypass_payment', true);
+
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'hotspot_operator_username' => 'operator',
+            'hotspot_operator_password' => 'secret',
+        ]);
+
+        $session = $this->createWifiSession();
+        $sessionToken = $this->issueSessionToken($session);
+
+        $omadaService = Mockery::mock(OmadaService::class);
+        $omadaService->shouldReceive('authorizeClient')
+            ->once()
+            ->andReturn([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+            ]);
+        $this->app->instance(OmadaService::class, $omadaService);
+
+        $response = $this->postJson('/api/create-payment', [
+            'session_token' => $sessionToken,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.payment_bypassed', true)
+            ->assertJsonPath('data.payment_status', Payment::STATUS_PAID);
+
+        $payment = Payment::query()->sole();
+        $payment->wifiSession->refresh();
+
+        $this->assertSame(Payment::PROVIDER_BYPASS, $payment->provider);
+        $this->assertSame(Payment::STATUS_PAID, $payment->status);
+        $this->assertSame(WifiSession::SESSION_STATUS_ACTIVE, $payment->wifiSession->session_status);
+        $this->assertTrue($payment->wifiSession->is_active);
+    }
+
     public function test_status_endpoint_returns_waiting_state_initially(): void
     {
         $payment = $this->createPendingPayment();

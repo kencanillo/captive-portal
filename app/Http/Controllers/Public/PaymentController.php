@@ -39,11 +39,14 @@ class PaymentController extends Controller
         }
 
         try {
-            $payment = $payMongoQrPhService->createOrReusePayment($session);
+            $payment = config('portal.bypass_payment')
+                ? $payMongoQrPhService->createBypassedPayment($session)
+                : $payMongoQrPhService->createOrReusePayment($session);
         } catch (Throwable $exception) {
-            Log::error('PayMongo QRPh payment creation failed', [
+            Log::error('Portal payment creation failed', [
                 'session_id' => $session->id,
                 'error' => $exception->getMessage(),
+                'payment_bypass' => (bool) config('portal.bypass_payment'),
             ]);
 
             return $this->error('Payment initialization failed.', [
@@ -53,9 +56,11 @@ class PaymentController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => $payment->wasRecentlyCreated
-                ? 'QRPh payment initialized.'
-                : 'Existing QRPh payment restored.',
+            'message' => $payment->provider === Payment::PROVIDER_BYPASS
+                ? 'Local payment bypass activated.'
+                : ($payment->wasRecentlyCreated
+                    ? 'QRPh payment initialized.'
+                    : 'Existing QRPh payment restored.'),
             'data' => [
                 'payment_url' => route('payments.show', [
                     'paymentToken' => $portalTokenService->issuePaymentToken($payment),
@@ -63,6 +68,7 @@ class PaymentController extends Controller
                 'payment_intent_id' => $payment->paymongo_payment_intent_id,
                 'payment_status' => $payment->payment_status,
                 'qr_expires_at' => $payment->qr_expires_at?->toIso8601String(),
+                'payment_bypassed' => $payment->provider === Payment::PROVIDER_BYPASS,
             ],
         ], $payment->wasRecentlyCreated ? 201 : 200);
     }

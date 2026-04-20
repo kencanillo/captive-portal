@@ -56,6 +56,11 @@ class Operator extends Model
         return $this->hasMany(PayoutRequest::class);
     }
 
+    public function credentials(): HasMany
+    {
+        return $this->hasMany(OperatorCredential::class);
+    }
+
     public function isApproved(): bool
     {
         return $this->status === self::STATUS_APPROVED;

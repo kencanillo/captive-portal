@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
+use App\Models\Site;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -113,6 +114,79 @@ class AdminAccessPointTest extends TestCase
             'claim_status' => 'pending',
             'block_tethering' => true,
             'allow_client_pause' => true,
+        ]);
+    }
+
+    public function test_ap_sync_reassigns_a_mislinked_access_point_using_omada_site_identifier(): void
+    {
+        Http::fake([
+            'https://localhost:8043/api/v2/login' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => ['token' => 'abc123'],
+            ]),
+            'https://localhost:8043/api/v2/grid/devices/adopted' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [[
+                        'id' => 'device-001',
+                        'name' => 'Juleanne Lobby AP',
+                        'mac' => 'ac-a7-f1-32-db-3e',
+                        'sn' => 'SN123456789',
+                        'model' => 'EAP610',
+                        'ip' => '192.168.1.2',
+                        'siteId' => '69e31ca32109e3181bab7109',
+                        'siteName' => 'Juleanne_Operator',
+                        'statusCategory' => 'connected',
+                    ]],
+                ],
+            ]),
+            'https://localhost:8043/api/v2/grid/devices/pending' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [],
+                ],
+            ]),
+        ]);
+
+        $admin = User::factory()->create(['is_admin' => true]);
+        $wrongSite = Site::query()->create([
+            'name' => '69e0c53ac78dcd54c173e0ab',
+            'slug' => '69e0c53ac78dcd54c173e0ab',
+        ]);
+        $correctSite = Site::query()->create([
+            'name' => 'Juleanne_Operator',
+            'slug' => 'juleanne-operator',
+            'omada_site_id' => '69e31ca32109e3181bab7109',
+        ]);
+        AccessPoint::query()->create([
+            'site_id' => $wrongSite->id,
+            'name' => 'ac-a7-f1-32-db-3e',
+            'mac_address' => 'ac-a7-f1-32-db-3e',
+            'is_online' => true,
+        ]);
+
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'username' => 'admin',
+            'password' => 'super-secret',
+            'site_identifier' => '69e31ca32109e3181bab7109',
+            'site_name' => 'Juleanne_Operator',
+            'default_session_minutes' => 60,
+        ]);
+
+        $this->actingAs($admin)
+            ->post('/admin/access-points/sync')
+            ->assertRedirect('/admin/access-points');
+
+        $this->assertDatabaseHas('access_points', [
+            'mac_address' => 'AC:A7:F1:32:DB:3E',
+            'site_id' => $correctSite->id,
+            'claim_status' => 'claimed',
+            'name' => 'Juleanne Lobby AP',
         ]);
     }
 

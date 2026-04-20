@@ -23,6 +23,7 @@ class PortalTokenService
                 'ap_mac' => Arr::get($context, 'ap_mac'),
                 'ap_name' => Arr::get($context, 'ap_name'),
                 'site_name' => Arr::get($context, 'site_name'),
+                'site_identifier' => Arr::get($context, 'site_identifier'),
                 'ssid_name' => Arr::get($context, 'ssid_name'),
                 'radio_id' => Arr::get($context, 'radio_id'),
                 'client_ip' => Arr::get($context, 'client_ip'),

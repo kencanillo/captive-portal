@@ -54,6 +54,9 @@ const csrfToken = usePage().props.csrf_token;
               <div>
                 <p class="font-semibold text-slate-950">{{ device.name }}</p>
                 <p class="mt-1 text-sm text-slate-500">{{ device.mac_address }} • {{ device.model }} • {{ device.site_name }}</p>
+                <p class="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {{ device.claim_status }}
+                </p>
               </div>
               <form method="POST" :action="route('operator.devices.adopt')" class="inline">
                 <input type="hidden" name="_token" :value="csrfToken" />
@@ -64,7 +67,7 @@ const csrfToken = usePage().props.csrf_token;
               </form>
             </div>
           </article>
-          <div v-if="!pendingDevices.length" class="app-empty">No pending devices.</div>
+          <div v-if="!pendingDevices.length" class="app-empty">No pending or unclaimed devices.</div>
         </div>
       </section>
 

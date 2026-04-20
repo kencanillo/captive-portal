@@ -17,6 +17,7 @@ class OperatorPayoutService
     public function __construct(
         private readonly ManualPayoutProcessor $manualProcessor,
         private readonly PayMongoTransferPayoutProcessor $payMongoProcessor,
+        private readonly ServiceFeeCalculator $serviceFeeCalculator,
     ) {
     }
 
@@ -41,11 +42,21 @@ class OperatorPayoutService
             ])
             ->sum('amount');
 
+        // Calculate service fee and net earnings
+        $feeDetails = $this->serviceFeeCalculator->getFeeDetails($operator, $earnings);
+        $serviceFee = $feeDetails['fee_amount'];
+        $netEarnings = $feeDetails['net_amount'];
+
         return [
             'earnings' => round($earnings, 2),
+            'service_fee' => round($serviceFee, 2),
+            'service_fee_rate' => $feeDetails['fee_rate'],
+            'service_fee_percentage' => $feeDetails['fee_rate_percentage'],
+            'net_earnings' => round($netEarnings, 2),
             'paid_out' => round($paidOut, 2),
             'reserved' => round($reserved, 2),
-            'available_balance' => round(max(0, $earnings - $paidOut - $reserved), 2),
+            'available_balance' => round(max(0, $netEarnings - $paidOut - $reserved), 2),
+            'fee_details' => $feeDetails,
         ];
     }
 
@@ -59,7 +70,7 @@ class OperatorPayoutService
         }
 
         if ($amount > $summary['available_balance']) {
-            throw new RuntimeException('Payout amount exceeds the available balance.');
+            throw new RuntimeException('Payout amount exceeds the available balance after service fees.');
         }
 
         return $operator->payoutRequests()->create([

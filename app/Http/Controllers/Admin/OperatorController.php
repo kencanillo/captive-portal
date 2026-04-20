@@ -6,6 +6,7 @@ use App\Mail\OperatorApprovedMail;
 use App\Http\Controllers\Controller;
 use App\Models\ControllerSetting;
 use App\Models\Operator;
+use App\Models\OperatorCredential;
 use App\Models\PayoutRequest;
 use App\Models\Site;
 use App\Models\WifiSession;
@@ -74,6 +75,12 @@ class OperatorController extends Controller
                     'name' => $site->name,
                     'slug' => $site->slug,
                 ])->all(),
+                'credentials' => $operator->credentials->map(fn ($credential) => [
+                    'id' => $credential->id,
+                    'hotspot_operator_username' => $credential->hotspot_operator_username,
+                    'notes' => $credential->notes,
+                    'created_at' => $credential->created_at?->toDateTimeString(),
+                ])->first(),
                 'summary' => [
                     'revenue_total' => number_format((float) $summary['earnings'], 2, '.', ''),
                     'available_balance' => number_format((float) $summary['available_balance'], 2, '.', ''),
@@ -167,5 +174,47 @@ class OperatorController extends Controller
         return redirect()
             ->route('admin.operators.show', $operator)
             ->with('success', 'Operator site assignments updated.');
+    }
+
+    public function updateCredentials(Request $request, Operator $operator): RedirectResponse
+    {
+        $validated = $request->validate([
+            'hotspot_operator_username' => ['required', 'string', 'max:255'],
+            'hotspot_operator_password' => ['required', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        // Validate naming convention before allowing update
+        $validationErrors = \App\Services\OperatorCredentialSyncService::validateBeforeUpdate($operator, $validated);
+        
+        if (!empty($validationErrors)) {
+            return redirect()
+                ->back()
+                ->withErrors($validationErrors)
+                ->withInput();
+        }
+
+        // Remove existing credentials for this operator
+        $operator->credentials()->delete();
+
+        // Create new credentials
+        $operator->credentials()->create([
+            'hotspot_operator_username' => $validated['hotspot_operator_username'],
+            'hotspot_operator_password' => $validated['hotspot_operator_password'],
+            'notes' => $validated['notes'] ?? null,
+        ]);
+
+        return redirect()
+            ->route('admin.operators.show', $operator)
+            ->with('success', 'Operator Omada credentials updated.');
+    }
+
+    public function deleteCredentials(Operator $operator): RedirectResponse
+    {
+        $operator->credentials()->delete();
+
+        return redirect()
+            ->route('admin.operators.show', $operator)
+            ->with('success', 'Operator Omada credentials removed.');
     }
 }
