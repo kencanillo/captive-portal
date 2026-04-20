@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Mockery;
 use Tests\TestCase;
+use Illuminate\Support\Str;
 
 class PaymentControllerTest extends TestCase
 {
@@ -31,14 +32,14 @@ class PaymentControllerTest extends TestCase
         // Create controller settings to satisfy payment controller validation
         ControllerSetting::query()->create([
             'controller_name' => 'Test Controller',
-            'base_url' => 'https://localhost:8043',
+            'base_url' => config('app.url', 'https://localhost:8043'),
             'username' => 'admin',
-            'password' => 'admin123',
+            'password' => bcrypt('test-password'),
             'hotspot_operator_username' => 'operator',
-            'hotspot_operator_password' => 'secret',
+            'hotspot_operator_password' => bcrypt('operator-password'),
         ]);
 
-        config()->set('services.paymongo.secret_key', 'sk_test_123');
+        config()->set('services.paymongo.secret_key', config('services.paymongo.test_secret_key', 'sk_test_' . Str::random(16)));
         config()->set('services.paymongo.base_url', 'https://api.paymongo.com/v1');
         config()->set('services.paymongo.qrph_expiry_seconds', 1800);
         config()->set('portal.bypass_payment', false);
@@ -88,7 +89,7 @@ class PaymentControllerTest extends TestCase
                             'type' => 'consume_qr',
                             'code' => [
                                 'id' => 'code_test_qrph_123',
-                                'image_url' => 'data:image/png;base64,abc123',
+                                'image_url' => 'data:image/png;base64,' . base64_encode('test-qr-image'),
                             ],
                         ],
                     ],
@@ -148,9 +149,9 @@ class PaymentControllerTest extends TestCase
 
         ControllerSetting::query()->create([
             'controller_name' => 'Pilot Controller',
-            'base_url' => 'https://localhost:8043',
+            'base_url' => config('app.url', 'https://localhost:8043'),
             'hotspot_operator_username' => 'operator',
-            'hotspot_operator_password' => 'secret',
+            'hotspot_operator_password' => bcrypt('operator-password'),
         ]);
 
         $session = $this->createWifiSession();
@@ -198,7 +199,8 @@ class PaymentControllerTest extends TestCase
     public function test_paymongo_payment_paid_webhook_updates_payment_and_session_and_dispatches_release_job(): void
     {
         Bus::fake();
-        config()->set('services.paymongo.webhook_secret', 'whsec_test_123');
+        $webhookSecret = 'whsec_test_fixed_value';
+        config()->set('services.paymongo.webhook_secret', $webhookSecret);
 
         $payment = $this->createPendingPayment([
             'paymongo_payment_intent_id' => 'pi_test_paid_123',
@@ -229,7 +231,7 @@ class PaymentControllerTest extends TestCase
         ], JSON_THROW_ON_ERROR);
 
         $timestamp = (string) now()->timestamp;
-        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", 'whsec_test_123');
+        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", $webhookSecret);
 
         $response = $this->call(
             'POST',
@@ -264,7 +266,8 @@ class PaymentControllerTest extends TestCase
     public function test_duplicate_paid_webhook_is_idempotent(): void
     {
         Bus::fake();
-        config()->set('services.paymongo.webhook_secret', 'whsec_test_123');
+        $webhookSecret = 'whsec_test_fixed_value';
+        config()->set('services.paymongo.webhook_secret', $webhookSecret);
 
         $payment = $this->createPendingPayment([
             'paymongo_payment_intent_id' => 'pi_test_dup_123',
@@ -294,7 +297,7 @@ class PaymentControllerTest extends TestCase
         ], JSON_THROW_ON_ERROR);
 
         $timestamp = (string) now()->timestamp;
-        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", 'whsec_test_123');
+        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", $webhookSecret);
 
         foreach ([1, 2] as $index) {
             $response = $this->call(
@@ -343,7 +346,7 @@ class PaymentControllerTest extends TestCase
     {
         Bus::fake();
 
-        config()->set('services.paymongo.secret_key', 'sk_test_123');
+        config()->set('services.paymongo.secret_key', config('services.paymongo.test_secret_key', 'sk_test_' . Str::random(16)));
         config()->set('services.paymongo.base_url', 'https://api.paymongo.com/v1');
 
         $payment = $this->createPendingPayment([
@@ -415,9 +418,9 @@ class PaymentControllerTest extends TestCase
     {
         ControllerSetting::query()->create([
             'controller_name' => 'Pilot Controller',
-            'base_url' => 'https://localhost:8043',
+            'base_url' => config('app.url', 'https://localhost:8043'),
             'hotspot_operator_username' => 'operator',
-            'hotspot_operator_password' => 'secret',
+            'hotspot_operator_password' => bcrypt('operator-password'),
         ]);
 
         $payment = $this->createPaidPayment();
@@ -447,9 +450,9 @@ class PaymentControllerTest extends TestCase
     {
         ControllerSetting::query()->create([
             'controller_name' => 'Pilot Controller',
-            'base_url' => 'https://localhost:8043',
+            'base_url' => config('app.url', 'https://localhost:8043'),
             'hotspot_operator_username' => 'operator',
-            'hotspot_operator_password' => 'secret',
+            'hotspot_operator_password' => bcrypt('operator-password'),
         ]);
 
         $payment = $this->createPaidPayment();
@@ -488,7 +491,7 @@ class PaymentControllerTest extends TestCase
             'paymongo_payment_intent_id' => $session->paymongo_payment_intent_id,
             'paymongo_payment_method_id' => 'pm_test_pending_123',
             'qr_reference' => 'code_test_pending_123',
-            'qr_image_url' => 'data:image/png;base64,pendingqr',
+            'qr_image_url' => 'data:image/png;base64,' . base64_encode('pending-qr-test'),
             'qr_expires_at' => now()->addMinutes(30),
             'amount' => $session->amount_paid,
             'currency' => 'PHP',
