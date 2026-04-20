@@ -569,14 +569,19 @@ class OmadaService
                 ]);
                 // Fall through to legacy authentication
             }
-            $loginResponse = $this->request($client, 'post', '/api/v2/login', [
-                'username' => $settings['username'],
-                'password' => $settings['password'],
-            ]);
-            throw new RuntimeException("Omada request failed for [/{$info['omadac_id']}/api/v2/hotspot/login] with HTTP {$loginResponse->status()}.");
+        }
+        
+        // Legacy authentication fallback
+        $httpResponse = $client->post('/api/v2/login', [
+            'username' => $settings['hotspot_operator_username'],
+            'password' => $settings['hotspot_operator_password'],
+        ]);
+
+        if (! $httpResponse->successful()) {
+            throw new RuntimeException("Omada request failed for [/{$info['omadac_id']}/api/v2/hotspot/login] with HTTP {$httpResponse->status()}.");
         }
 
-        $payload = $this->decodeResponse($loginResponse->body());
+        $payload = $this->decodeResponse($httpResponse->body());
 
         if (($payload['errorCode'] ?? null) !== 0) {
             throw new RuntimeException(Arr::get($payload, 'msg', 'Omada hotspot operator login failed.'));

@@ -5,9 +5,11 @@ namespace Tests\Feature;
 use App\Jobs\ReleaseWifiAccessJob;
 use App\Models\Client;
 use App\Models\ControllerSetting;
+use App\Models\Operator;
 use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\Site;
+use App\Models\User;
 use App\Models\WifiSession;
 use App\Services\OmadaService;
 use App\Services\WifiSessionService;
@@ -25,12 +27,45 @@ class PaymentControllerTest extends TestCase
     public function test_create_qrph_payment_attempt_and_reuse_existing_attempt_on_repeat_request(): void
     {
         $session = $this->createWifiSession();
+        
+        // Create controller settings to satisfy payment controller validation
+        ControllerSetting::query()->create([
+            'controller_name' => 'Test Controller',
+            'base_url' => 'https://localhost:8043',
+            'username' => 'admin',
+            'password' => 'admin123',
+            'hotspot_operator_username' => 'operator',
+            'hotspot_operator_password' => 'secret',
+        ]);
 
         config()->set('services.paymongo.secret_key', 'sk_test_123');
         config()->set('services.paymongo.base_url', 'https://api.paymongo.com/v1');
         config()->set('services.paymongo.qrph_expiry_seconds', 1800);
+        config()->set('portal.bypass_payment', false);
 
         Http::fake([
+            // Omada controller fakes - must come first (more specific)
+            'https://localhost:8043/api/info' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
+            ]),
+            'https://localhost:8043/api/v2/login' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'token' => 'csrf-token',
+                ],
+            ]),
+            'https://localhost:8043/controller-id/api/v2/hotspot/extPortal/auth' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+            ]),
+            // PayMongo API fakes - specific URLs matching base URL
             'https://api.paymongo.com/v1/payment_intents' => Http::response([
                 'data' => [
                     'id' => 'pi_test_qrph_123',
@@ -56,6 +91,15 @@ class PaymentControllerTest extends TestCase
                                 'image_url' => 'data:image/png;base64,abc123',
                             ],
                         ],
+                    ],
+                ],
+            ]),
+            // Fallback to catch any other requests
+            '*' => Http::response([
+                'data' => [
+                    'id' => 'pi_test_qrph_123',
+                    'attributes' => [
+                        'status' => 'awaiting_payment_method',
                     ],
                 ],
             ]),
@@ -472,9 +516,24 @@ class PaymentControllerTest extends TestCase
 
     private function createWifiSession(array $overrides = []): WifiSession
     {
+        $user = User::query()->create([
+            'name' => 'Test User',
+            'email' => 'test@example.com',
+            'password' => bcrypt('password'),
+        ]);
+
+        $operator = Operator::query()->create([
+            'user_id' => $user->id,
+            'business_name' => 'Test Business',
+            'contact_name' => 'Test Contact',
+            'phone_number' => '09171234567',
+            'status' => 'approved',
+        ]);
+
         $site = Site::query()->create([
             'name' => 'Main Branch',
             'slug' => 'main-branch',
+            'operator_id' => $operator->id,
         ]);
 
         $client = Client::query()->create([

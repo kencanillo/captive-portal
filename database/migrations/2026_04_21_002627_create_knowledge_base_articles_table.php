@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -26,12 +27,21 @@ return new class extends Migration
 
             $table->index(['category', 'is_published']);
             $table->index(['is_featured', 'is_published']);
-            $table->fullText(['title', 'content']);
+            
+            // Only create fulltext index for MySQL/MariaDB (SQLite doesn't support it)
+            if (DB::getDriverName() !== 'sqlite') {
+                $table->fullText(['title', 'content']);
+            }
         });
     }
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'sqlite') {
+            Schema::table('knowledge_base_articles', function (Blueprint $table) {
+                $table->dropFullText(['title', 'content']);
+            });
+        }
         Schema::dropIfExists('knowledge_base_articles');
     }
 };
