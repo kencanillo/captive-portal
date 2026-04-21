@@ -5,9 +5,11 @@ namespace Tests\Feature;
 use App\Jobs\ReleaseWifiAccessJob;
 use App\Models\Client;
 use App\Models\ControllerSetting;
+use App\Models\Operator;
 use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\Site;
+use App\Models\User;
 use App\Models\WifiSession;
 use App\Services\OmadaService;
 use App\Services\WifiSessionService;
@@ -17,6 +19,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Mockery;
 use Tests\TestCase;
+use Illuminate\Support\Str;
 
 class PaymentControllerTest extends TestCase
 {
@@ -25,12 +28,45 @@ class PaymentControllerTest extends TestCase
     public function test_create_qrph_payment_attempt_and_reuse_existing_attempt_on_repeat_request(): void
     {
         $session = $this->createWifiSession();
+        
+        // Create controller settings to satisfy payment controller validation
+        ControllerSetting::query()->create([
+            'controller_name' => 'Test Controller',
+            'base_url' => config('app.url', 'https://localhost:8043'),
+            'username' => 'admin',
+            'password' => bcrypt('test-password'),
+            'hotspot_operator_username' => 'operator',
+            'hotspot_operator_password' => bcrypt('operator-password'),
+        ]);
 
-        config()->set('services.paymongo.secret_key', 'sk_test_123');
+        config()->set('services.paymongo.secret_key', config('services.paymongo.test_secret_key', 'sk_test_' . Str::random(16)));
         config()->set('services.paymongo.base_url', 'https://api.paymongo.com/v1');
         config()->set('services.paymongo.qrph_expiry_seconds', 1800);
+        config()->set('portal.bypass_payment', false);
 
         Http::fake([
+            // Omada controller fakes - must come first (more specific)
+            'https://localhost:8043/api/info' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
+            ]),
+            'https://localhost:8043/api/v2/login' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'token' => 'csrf-token',
+                ],
+            ]),
+            'https://localhost:8043/controller-id/api/v2/hotspot/extPortal/auth' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+            ]),
+            // PayMongo API fakes - specific URLs matching base URL
             'https://api.paymongo.com/v1/payment_intents' => Http::response([
                 'data' => [
                     'id' => 'pi_test_qrph_123',
@@ -53,9 +89,18 @@ class PaymentControllerTest extends TestCase
                             'type' => 'consume_qr',
                             'code' => [
                                 'id' => 'code_test_qrph_123',
-                                'image_url' => 'data:image/png;base64,abc123',
+                                'image_url' => 'data:image/png;base64,' . base64_encode('test-qr-image'),
                             ],
                         ],
+                    ],
+                ],
+            ]),
+            // Fallback to catch any other requests
+            '*' => Http::response([
+                'data' => [
+                    'id' => 'pi_test_qrph_123',
+                    'attributes' => [
+                        'status' => 'awaiting_payment_method',
                     ],
                 ],
             ]),
@@ -98,6 +143,46 @@ class PaymentControllerTest extends TestCase
         $this->assertSame(1, Payment::query()->count());
     }
 
+    public function test_create_payment_can_bypass_paymongo_for_local_multi_device_testing(): void
+    {
+        config()->set('portal.bypass_payment', true);
+
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => config('app.url', 'https://localhost:8043'),
+            'hotspot_operator_username' => 'operator',
+            'hotspot_operator_password' => bcrypt('operator-password'),
+        ]);
+
+        $session = $this->createWifiSession();
+        $sessionToken = $this->issueSessionToken($session);
+
+        $omadaService = Mockery::mock(OmadaService::class);
+        $omadaService->shouldReceive('authorizeClient')
+            ->once()
+            ->andReturn([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+            ]);
+        $this->app->instance(OmadaService::class, $omadaService);
+
+        $response = $this->postJson('/api/create-payment', [
+            'session_token' => $sessionToken,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.payment_bypassed', true)
+            ->assertJsonPath('data.payment_status', Payment::STATUS_PAID);
+
+        $payment = Payment::query()->sole();
+        $payment->wifiSession->refresh();
+
+        $this->assertSame(Payment::PROVIDER_BYPASS, $payment->provider);
+        $this->assertSame(Payment::STATUS_PAID, $payment->status);
+        $this->assertSame(WifiSession::SESSION_STATUS_ACTIVE, $payment->wifiSession->session_status);
+        $this->assertTrue($payment->wifiSession->is_active);
+    }
+
     public function test_status_endpoint_returns_waiting_state_initially(): void
     {
         $payment = $this->createPendingPayment();
@@ -114,7 +199,8 @@ class PaymentControllerTest extends TestCase
     public function test_paymongo_payment_paid_webhook_updates_payment_and_session_and_dispatches_release_job(): void
     {
         Bus::fake();
-        config()->set('services.paymongo.webhook_secret', 'whsec_test_123');
+        $webhookSecret = 'whsec_test_fixed_value';
+        config()->set('services.paymongo.webhook_secret', $webhookSecret);
 
         $payment = $this->createPendingPayment([
             'paymongo_payment_intent_id' => 'pi_test_paid_123',
@@ -145,7 +231,7 @@ class PaymentControllerTest extends TestCase
         ], JSON_THROW_ON_ERROR);
 
         $timestamp = (string) now()->timestamp;
-        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", 'whsec_test_123');
+        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", $webhookSecret);
 
         $response = $this->call(
             'POST',
@@ -180,7 +266,8 @@ class PaymentControllerTest extends TestCase
     public function test_duplicate_paid_webhook_is_idempotent(): void
     {
         Bus::fake();
-        config()->set('services.paymongo.webhook_secret', 'whsec_test_123');
+        $webhookSecret = 'whsec_test_fixed_value';
+        config()->set('services.paymongo.webhook_secret', $webhookSecret);
 
         $payment = $this->createPendingPayment([
             'paymongo_payment_intent_id' => 'pi_test_dup_123',
@@ -210,7 +297,7 @@ class PaymentControllerTest extends TestCase
         ], JSON_THROW_ON_ERROR);
 
         $timestamp = (string) now()->timestamp;
-        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", 'whsec_test_123');
+        $signature = hash_hmac('sha256', "{$timestamp}.{$payload}", $webhookSecret);
 
         foreach ([1, 2] as $index) {
             $response = $this->call(
@@ -259,7 +346,7 @@ class PaymentControllerTest extends TestCase
     {
         Bus::fake();
 
-        config()->set('services.paymongo.secret_key', 'sk_test_123');
+        config()->set('services.paymongo.secret_key', config('services.paymongo.test_secret_key', 'sk_test_' . Str::random(16)));
         config()->set('services.paymongo.base_url', 'https://api.paymongo.com/v1');
 
         $payment = $this->createPendingPayment([
@@ -331,9 +418,9 @@ class PaymentControllerTest extends TestCase
     {
         ControllerSetting::query()->create([
             'controller_name' => 'Pilot Controller',
-            'base_url' => 'https://localhost:8043',
+            'base_url' => config('app.url', 'https://localhost:8043'),
             'hotspot_operator_username' => 'operator',
-            'hotspot_operator_password' => 'secret',
+            'hotspot_operator_password' => bcrypt('operator-password'),
         ]);
 
         $payment = $this->createPaidPayment();
@@ -363,9 +450,9 @@ class PaymentControllerTest extends TestCase
     {
         ControllerSetting::query()->create([
             'controller_name' => 'Pilot Controller',
-            'base_url' => 'https://localhost:8043',
+            'base_url' => config('app.url', 'https://localhost:8043'),
             'hotspot_operator_username' => 'operator',
-            'hotspot_operator_password' => 'secret',
+            'hotspot_operator_password' => bcrypt('operator-password'),
         ]);
 
         $payment = $this->createPaidPayment();
@@ -404,7 +491,7 @@ class PaymentControllerTest extends TestCase
             'paymongo_payment_intent_id' => $session->paymongo_payment_intent_id,
             'paymongo_payment_method_id' => 'pm_test_pending_123',
             'qr_reference' => 'code_test_pending_123',
-            'qr_image_url' => 'data:image/png;base64,pendingqr',
+            'qr_image_url' => 'data:image/png;base64,' . base64_encode('pending-qr-test'),
             'qr_expires_at' => now()->addMinutes(30),
             'amount' => $session->amount_paid,
             'currency' => 'PHP',
@@ -432,9 +519,24 @@ class PaymentControllerTest extends TestCase
 
     private function createWifiSession(array $overrides = []): WifiSession
     {
+        $user = User::query()->create([
+            'name' => 'Test User',
+            'email' => 'test@example.com',
+            'password' => bcrypt('password'),
+        ]);
+
+        $operator = Operator::query()->create([
+            'user_id' => $user->id,
+            'business_name' => 'Test Business',
+            'contact_name' => 'Test Contact',
+            'phone_number' => '09171234567',
+            'status' => 'approved',
+        ]);
+
         $site = Site::query()->create([
             'name' => 'Main Branch',
             'slug' => 'main-branch',
+            'operator_id' => $operator->id,
         ]);
 
         $client = Client::query()->create([

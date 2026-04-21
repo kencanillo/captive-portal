@@ -20,6 +20,14 @@ const props = defineProps({
     type: Number,
     default: 8000,
   },
+  paymentBypassEnabled: {
+    type: Boolean,
+    default: false,
+  },
+  initialDeviceContext: {
+    type: Object,
+    required: true,
+  },
   initialPortalContext: {
     type: Object,
     required: true,
@@ -30,21 +38,31 @@ const deviceContextLoading = ref(false);
 const plansLoading = ref(false);
 const plansError = ref('');
 const plans = ref([]);
-const portalToken = ref(null);
+const portalToken = ref(props.initialDeviceContext?.portal_token || null);
 const portalContext = ref({
   ...props.initialPortalContext,
-  mac_address: null,
+  mac_address: props.initialDeviceContext?.portal_context?.mac_address || props.initialPortalContext?.mac_address || null,
 });
-const existingClient = ref(null);
-const activeSession = ref(null);
+const existingClient = ref(props.initialDeviceContext?.existing_client || null);
+const activeSession = ref(props.initialDeviceContext?.active_session || null);
 const loadingPlanId = ref(null);
 const errorMessage = ref('');
 const activeSessionRemainingSeconds = ref(0);
-const deviceContextStatus = ref('pending');
-const deviceContextErrorCode = ref(null);
-const deviceContextMessage = ref('Detecting device...');
+const deviceContextStatus = ref(props.initialDeviceContext?.status || 'pending');
+const deviceContextErrorCode = ref(props.initialDeviceContext?.error_code || null);
+const deviceContextMessage = ref(
+  props.initialDeviceContext?.status === 'resolved'
+    ? `Device detected${props.initialDeviceContext?.portal_context?.mac_address ? `: ${props.initialDeviceContext.portal_context.mac_address}` : '.'}`
+    : 'Detecting device...'
+);
 const deviceContextStalled = ref(false);
 const deviceContextAttempts = ref(0);
+const deviceDecisionState = ref(null);
+const decisionPlanId = ref(null);
+const secondaryPinForm = ref({
+  new_pin: '',
+  new_pin_confirmation: '',
+});
 
 const maxAutomaticDeviceContextAttempts = 3;
 
@@ -98,6 +116,13 @@ const syncResolvedContext = (payload) => {
     registrationForm.value.name = registrationForm.value.name || existingClient.value.name || '';
     registrationForm.value.phone_number = registrationForm.value.phone_number || existingClient.value.phone_number || '';
   }
+};
+
+const clearDeviceDecisionState = () => {
+  deviceDecisionState.value = null;
+  decisionPlanId.value = null;
+  secondaryPinForm.value.new_pin = '';
+  secondaryPinForm.value.new_pin_confirmation = '';
 };
 
 const describeDeviceContextFailure = (errorCode) => {
@@ -214,7 +239,11 @@ onMounted(() => {
   const mountStart = performance.now();
 
   loadPlans();
-  fetchDeviceContext(false);
+  syncActiveSessionCountdown();
+
+  if (!deviceContextResolved.value) {
+    fetchDeviceContext(false);
+  }
 
   activeSessionCountdownTimer = window.setInterval(() => {
     syncActiveSessionCountdown();
@@ -261,6 +290,36 @@ const activeSessionRemainingLabel = computed(() => {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 });
 
+const canSubmitNewDevicePayment = computed(() => (
+  Boolean(secondaryPinForm.value.new_pin.trim())
+  && secondaryPinForm.value.new_pin.trim().length >= 4
+  && secondaryPinForm.value.new_pin === secondaryPinForm.value.new_pin_confirmation
+));
+
+const formatDateTime = (value) => {
+  if (!value) {
+    return '';
+  }
+
+  return new Intl.DateTimeFormat('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+};
+
+const extractErrorMessage = (error, fallback) => {
+  const validationErrors = Object.values(error?.response?.data?.errors || {}).find(Array.isArray);
+
+  if (validationErrors?.length) {
+    return validationErrors[0];
+  }
+
+  return error?.response?.data?.message || error?.message || fallback;
+};
+
 const validateRegistrationForm = (requireDeviceContext = true) => {
   if (requireDeviceContext && !hasDetectedMacAddress.value) return 'Device detection is still in progress.';
   if (requireDeviceContext && !portalToken.value) return 'Portal context is unavailable. Retry device detection before starting payment.';
@@ -294,6 +353,73 @@ const paymentActionLockedReason = computed(() => {
   return '';
 });
 
+const submitPlanSelection = async (planId, options = {}) => {
+  const payload = {
+    plan_id: planId,
+    portal_token: portalToken.value,
+  };
+
+  if (!existingClient.value) {
+    payload.client_registration = {
+      name: registrationForm.value.name,
+      phone_number: registrationForm.value.phone_number,
+      pin: registrationForm.value.pin,
+      pin_confirmation: registrationForm.value.pin_confirmation,
+    };
+  }
+
+  if (options.device_decision) {
+    payload.device_decision = options.device_decision;
+  }
+
+  if (options.new_pin) {
+    payload.new_pin = options.new_pin;
+    payload.new_pin_confirmation = options.new_pin_confirmation;
+  }
+
+  try {
+    const response = await window.axios.post('/api/select-plan', payload, {
+      headers: {
+        'X-Portal-Request-Id': props.portalRequestId,
+      },
+    });
+
+    clearDeviceDecisionState();
+
+    return response;
+  } catch (error) {
+    if (error?.response?.status === 409 && error?.response?.data?.data?.decision) {
+      deviceDecisionState.value = error.response.data.data.decision;
+      decisionPlanId.value = planId;
+      errorMessage.value = '';
+
+      return null;
+    }
+
+    throw error;
+  }
+};
+
+const startPaymentFlow = async (selectResp) => {
+  if (!selectResp?.data?.data?.payment_required) {
+    await fetchDeviceContext(true);
+    deviceContextMessage.value = selectResp?.data?.data?.session_status === 'active'
+      ? 'Transfer completed. This device now owns the active session.'
+      : 'This device is ready to continue.';
+    return;
+  }
+
+  const sessionToken = selectResp?.data?.data?.session_token;
+  const paymentResp = await window.axios.post('/api/create-payment', { session_token: sessionToken });
+  const paymentUrl = paymentResp?.data?.data?.payment_url;
+
+  if (!paymentUrl) {
+    throw new Error('Payment page URL not returned.');
+  }
+
+  window.location.href = paymentUrl;
+};
+
 const payWithGCash = async (planId) => {
   errorMessage.value = '';
   loadingPlanId.value = planId;
@@ -315,32 +441,49 @@ const payWithGCash = async (planId) => {
       throw new Error(paymentActionLockedReason.value || 'Device detection is still in progress.');
     }
 
-    const payload = {
-      plan_id: planId,
-      portal_token: portalToken.value,
-    };
+    const selectResp = await submitPlanSelection(planId);
 
-    if (!existingClient.value) {
-      payload.client_registration = {
-        name: registrationForm.value.name,
-        phone_number: registrationForm.value.phone_number,
-        pin: registrationForm.value.pin,
-        pin_confirmation: registrationForm.value.pin_confirmation,
-      };
+    if (!selectResp) {
+      return;
     }
 
-    const selectResp = await window.axios.post('/api/select-plan', payload);
-    const sessionToken = selectResp?.data?.data?.session_token;
-    const paymentResp = await window.axios.post('/api/create-payment', { session_token: sessionToken });
-    const paymentUrl = paymentResp?.data?.data?.payment_url;
-
-    if (!paymentUrl) {
-      throw new Error('Payment page URL not returned.');
-    }
-
-    window.location.href = paymentUrl;
+    await startPaymentFlow(selectResp);
   } catch (error) {
-    errorMessage.value = error?.response?.data?.message || error?.message || 'Unable to process payment.';
+    errorMessage.value = extractErrorMessage(error, 'Unable to process payment.');
+  } finally {
+    loadingPlanId.value = null;
+  }
+};
+
+const continueWithDeviceDecision = async (decision) => {
+  if (!decisionPlanId.value) {
+    return;
+  }
+
+  errorMessage.value = '';
+  loadingPlanId.value = decisionPlanId.value;
+
+  try {
+    const validationError = validateRegistrationForm(true);
+
+    if (validationError) {
+      throw new Error(validationError);
+    }
+
+    const selectResp = await submitPlanSelection(decisionPlanId.value, {
+      device_decision: decision,
+      new_pin: decision === 'pay' ? secondaryPinForm.value.new_pin : null,
+      new_pin_confirmation: decision === 'pay' ? secondaryPinForm.value.new_pin_confirmation : null,
+    });
+
+    if (!selectResp) {
+      return;
+    }
+
+    await startPaymentFlow(selectResp);
+  } catch (error) {
+    errorMessage.value = extractErrorMessage(error, 'Unable to continue with the selected device action.');
+  } finally {
     loadingPlanId.value = null;
   }
 };
@@ -514,6 +657,60 @@ const isPaymentDisabled = (planId) => {
             </div>
 
             <div v-if="!hasActiveSession" class="mt-8 space-y-6">
+              <div v-if="deviceDecisionState" class="rounded-[22px] border border-amber-200/80 bg-amber-50/90 px-5 py-5 text-sm text-amber-900">
+                <p class="font-semibold text-amber-950">{{ deviceDecisionState.message }}</p>
+                <p class="mt-2 leading-6">
+                  Existing account: {{ deviceDecisionState?.existing_client?.phone_number }} on MAC {{ deviceDecisionState?.existing_client?.mac_address }}.
+                </p>
+                <p v-if="deviceDecisionState?.active_session?.plan_name" class="mt-2 leading-6">
+                  Current active plan: {{ deviceDecisionState.active_session.plan_name }} until {{ formatDateTime(deviceDecisionState.active_session.end_time) }}.
+                </p>
+                <p v-if="deviceDecisionState?.transfer_locked_until" class="mt-2 leading-6">
+                  Transfer is locked until {{ formatDateTime(deviceDecisionState.transfer_locked_until) }}.
+                </p>
+                <p v-if="deviceDecisionState?.require_new_pin_for_pay" class="mt-2 leading-6">
+                  If this new device will pay separately, it must use a different PIN from the existing device.
+                </p>
+
+                <div v-if="deviceDecisionState?.can_transfer" class="mt-5">
+                  <button
+                    type="button"
+                    class="app-button-secondary w-full rounded-[20px] sm:w-auto"
+                    :disabled="loadingPlanId === decisionPlanId"
+                    @click="continueWithDeviceDecision('transfer')"
+                  >
+                    {{ loadingPlanId === decisionPlanId ? 'Transferring access...' : 'Transfer Active Session To This Device' }}
+                  </button>
+                </div>
+
+                <div v-if="deviceDecisionState?.can_pay" class="mt-5 space-y-4">
+                  <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <input
+                      v-model="secondaryPinForm.new_pin"
+                      type="password"
+                      maxlength="20"
+                      class="app-field h-14 text-center text-xl tracking-[0.45em]"
+                      placeholder="New PIN"
+                    />
+                    <input
+                      v-model="secondaryPinForm.new_pin_confirmation"
+                      type="password"
+                      maxlength="20"
+                      class="app-field h-14 text-center text-xl tracking-[0.45em]"
+                      placeholder="Confirm New PIN"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    class="app-button-primary w-full rounded-[20px] sm:w-auto"
+                    :disabled="loadingPlanId === decisionPlanId || !canSubmitNewDevicePayment"
+                    @click="continueWithDeviceDecision('pay')"
+                  >
+                    {{ loadingPlanId === decisionPlanId ? 'Preparing new-device payment...' : 'Pay For This New Device' }}
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <p class="app-kicker">Plan Selection</p>
                 <h3 class="mt-2 text-2xl font-bold tracking-[-0.04em] text-slate-950">Choose a plan</h3>
@@ -541,7 +738,7 @@ const isPaymentDisabled = (planId) => {
                     :disabled="isPaymentDisabled(plan.id)"
                     @click="payWithGCash(plan.id)"
                   >
-                    {{ loadingPlanId === plan.id ? 'Preparing payment...' : (deviceContextResolved ? 'Pay via QRPh' : 'Waiting for device detection') }}
+                    {{ loadingPlanId === plan.id ? 'Preparing payment...' : (deviceContextResolved ? (paymentBypassEnabled ? 'Activate Instantly' : 'Pay via QRPh') : 'Waiting for device detection') }}
                   </button>
                 </article>
               </div>

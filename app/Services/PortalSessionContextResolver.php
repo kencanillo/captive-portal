@@ -11,6 +11,7 @@ class PortalSessionContextResolver
     public function resolve(array $attributes): array
     {
         $siteName = $this->cleanString($attributes['site_name'] ?? null);
+        $siteIdentifier = $this->cleanString($attributes['site_identifier'] ?? null);
         $apName = $this->cleanString($attributes['ap_name'] ?? null);
         $ssidName = $this->cleanString($attributes['ssid_name'] ?? null);
         $radioId = $this->normalizeRadioId($attributes['radio_id'] ?? null);
@@ -19,14 +20,17 @@ class PortalSessionContextResolver
 
         $site = null;
         $accessPoint = null;
+        $resolvedSite = ($siteIdentifier || $siteName)
+            ? Site::resolveFromOmada($siteIdentifier, $siteName)
+            : null;
 
         if ($apMac) {
             $accessPoint = AccessPoint::query()->with('site')->firstWhere('mac_address', $apMac);
 
-            if ($accessPoint?->site) {
+            if ($resolvedSite) {
+                $site = $resolvedSite;
+            } elseif ($accessPoint?->site) {
                 $site = $accessPoint->site;
-            } elseif ($siteName) {
-                $site = $this->firstOrCreateSite($siteName);
             }
 
             if (! $accessPoint) {
@@ -45,8 +49,8 @@ class PortalSessionContextResolver
                     'last_seen_at' => now(),
                 ])->save();
             }
-        } elseif ($siteName) {
-            $site = $this->firstOrCreateSite($siteName);
+        } elseif ($resolvedSite) {
+            $site = $resolvedSite;
         }
 
         return [
@@ -54,33 +58,11 @@ class PortalSessionContextResolver
             'access_point_id' => $accessPoint?->id,
             'ap_mac' => $apMac,
             'ap_name' => $apName ?: $accessPoint?->name,
+            'site_identifier' => $site?->omada_site_id ?? $siteIdentifier,
             'ssid_name' => $ssidName,
             'radio_id' => $radioId,
             'client_ip' => $clientIp,
         ];
-    }
-
-    private function firstOrCreateSite(string $siteName): Site
-    {
-        $site = Site::query()->firstWhere('name', $siteName);
-
-        if ($site) {
-            return $site;
-        }
-
-        $baseSlug = Str::slug($siteName) ?: 'site';
-        $slug = $baseSlug;
-        $suffix = 2;
-
-        while (Site::query()->where('slug', $slug)->exists()) {
-            $slug = "{$baseSlug}-{$suffix}";
-            $suffix++;
-        }
-
-        return Site::query()->create([
-            'name' => $siteName,
-            'slug' => $slug,
-        ]);
     }
 
     private function cleanString(null|string $value): ?string
@@ -92,9 +74,13 @@ class PortalSessionContextResolver
 
     private function normalizeMac(null|string $value): ?string
     {
-        $value = strtolower(trim((string) $value));
+        $mac = strtoupper(preg_replace('/[^A-Fa-f0-9]/', '', (string) $value) ?? '');
 
-        return $value !== '' ? $value : null;
+        if (strlen($mac) !== 12) {
+            return null;
+        }
+
+        return implode(':', str_split($mac, 2));
     }
 
     private function normalizeRadioId(mixed $value): ?int

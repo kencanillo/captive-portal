@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Operator;
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
+use App\Models\Operator;
 use App\Services\OmadaService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,7 +22,10 @@ class DeviceController extends Controller
 
         $pendingDevices = AccessPoint::query()
             ->whereIn('site_id', $siteIds)
-            ->where('claim_status', AccessPoint::CLAIM_STATUS_PENDING)
+            ->whereIn('claim_status', [
+                AccessPoint::CLAIM_STATUS_PENDING,
+                AccessPoint::CLAIM_STATUS_UNCLAIMED,
+            ])
             ->with('site:id,name')
             ->get()
             ->map(fn (AccessPoint $ap) => [
@@ -29,6 +33,7 @@ class DeviceController extends Controller
                 'name' => $ap->name,
                 'mac_address' => $ap->mac_address,
                 'model' => $ap->model,
+                'claim_status' => $ap->claim_status,
                 'site_name' => $ap->site?->name,
                 'last_synced_at' => optional($ap->last_synced_at)?->toDateTimeString(),
             ]);
@@ -67,6 +72,8 @@ class DeviceController extends Controller
             'pendingDevices' => $pendingDevices,
             'connectedDevices' => $connectedDevices,
             'failedDevices' => $failedDevices,
+            'operatorStatus' => $operator->status,
+            'canAdoptDevices' => $operator->status === Operator::STATUS_APPROVED,
         ]);
     }
 
@@ -82,7 +89,10 @@ class DeviceController extends Controller
         $accessPoint = AccessPoint::query()
             ->where('id', $request->access_point_id)
             ->whereIn('site_id', $siteIds)
-            ->where('claim_status', AccessPoint::CLAIM_STATUS_PENDING)
+            ->whereIn('claim_status', [
+                AccessPoint::CLAIM_STATUS_PENDING,
+                AccessPoint::CLAIM_STATUS_UNCLAIMED,
+            ])
             ->firstOrFail();
 
         $settings = ControllerSetting::singleton();

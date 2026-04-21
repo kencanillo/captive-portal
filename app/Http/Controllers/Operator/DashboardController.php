@@ -50,6 +50,7 @@ class DashboardController extends Controller
                     'session_status' => $session->session_status,
                     'amount_paid' => number_format((float) $session->amount_paid, 2, '.', ''),
                     'updated_at' => optional($session->updated_at)?->toDateTimeString(),
+                    'can_authorize' => $session->payment_status === WifiSession::PAYMENT_STATUS_PAID && !$session->is_active,
                 ]),
             'recentPayments' => Payment::query()
                 ->forOperator($operator)

@@ -7,6 +7,8 @@ defineProps({
   pendingDevices: Array,
   connectedDevices: Array,
   failedDevices: Array,
+  operatorStatus: String,
+  canAdoptDevices: Boolean,
 });
 
 const csrfToken = usePage().props.csrf_token;
@@ -45,6 +47,9 @@ const csrfToken = usePage().props.csrf_token;
           <div>
             <p class="app-kicker">Pending Devices</p>
             <h2 class="mt-2 app-section-title">Ready for action</h2>
+            <p v-if="!canAdoptDevices" class="mt-2 text-sm text-amber-600">
+              Operator account pending approval - device adoption disabled
+            </p>
           </div>
           <span class="app-badge bg-sky-100 text-sky-700">{{ pendingDevices.length }} pending</span>
         </div>
@@ -54,17 +59,25 @@ const csrfToken = usePage().props.csrf_token;
               <div>
                 <p class="font-semibold text-slate-950">{{ device.name }}</p>
                 <p class="mt-1 text-sm text-slate-500">{{ device.mac_address }} • {{ device.model }} • {{ device.site_name }}</p>
+                <p class="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {{ device.claim_status }}
+                </p>
               </div>
-              <form method="POST" :action="route('operator.devices.adopt')" class="inline">
+              <form v-if="canAdoptDevices" method="POST" :action="route('operator.devices.adopt')" class="inline">
                 <input type="hidden" name="_token" :value="csrfToken" />
                 <input type="hidden" name="access_point_id" :value="device.id" />
                 <button type="submit" class="app-button-primary">
                   Adopt
                 </button>
               </form>
+              <div v-else class="inline">
+                <button disabled class="app-button-primary opacity-50 cursor-not-allowed">
+                  Adopt (Pending Approval)
+                </button>
+              </div>
             </div>
           </article>
-          <div v-if="!pendingDevices.length" class="app-empty">No pending devices.</div>
+          <div v-if="!pendingDevices.length" class="app-empty">No pending or unclaimed devices.</div>
         </div>
       </section>
 

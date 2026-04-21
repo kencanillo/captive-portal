@@ -87,6 +87,63 @@ class PayMongoQrPhService
         return $this->createPayment($session);
     }
 
+    public function createBypassedPayment(WifiSession $session): Payment
+    {
+        $session->loadMissing(['plan', 'client', 'site', 'accessPoint']);
+
+        $existingPaidPayment = $session->payments()
+            ->latest('id')
+            ->where('provider', Payment::PROVIDER_BYPASS)
+            ->where('status', Payment::STATUS_PAID)
+            ->first();
+
+        if ($existingPaidPayment && in_array($session->session_status, [
+            WifiSession::SESSION_STATUS_PAID,
+            WifiSession::SESSION_STATUS_ACTIVE,
+            WifiSession::SESSION_STATUS_RELEASE_FAILED,
+        ], true)) {
+            return $existingPaidPayment;
+        }
+
+        $payment = DB::transaction(function () use ($session): Payment {
+            $payment = Payment::query()->create([
+                'wifi_session_id' => $session->id,
+                'provider' => Payment::PROVIDER_BYPASS,
+                'payment_flow' => Payment::FLOW_BYPASS,
+                'reference_id' => 'BYPASS-'.Str::upper(Str::random(8)),
+                'status' => Payment::STATUS_PAID,
+                'amount' => (float) ($session->plan?->price ?? $session->amount_paid),
+                'currency' => 'PHP',
+                'paid_at' => now(),
+                'raw_response' => [
+                    'bypass' => true,
+                    'reason' => 'portal_local_bypass',
+                ],
+            ]);
+
+            $session->forceFill([
+                'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+                'session_status' => WifiSession::SESSION_STATUS_PAID,
+                'release_failure_reason' => null,
+            ])->save();
+
+            return $payment;
+        });
+
+        // Get fresh payment with all required relationships before authorization
+        $freshPayment = $payment->fresh(['wifiSession.plan', 'wifiSession.client', 'wifiSession.site', 'wifiSession.accessPoint']);
+        
+        $this->markBypassedSessionAsAuthorized($freshPayment);
+
+        // Reload payment to ensure clean state after authorization
+        $finalPayment = $freshPayment->fresh(['wifiSession.plan', 'wifiSession.client']);
+        
+        // Mark as recently created for response consistency
+        $finalPayment->wasRecentlyCreated = true;
+
+        return $finalPayment;
+    }
+
     public function ensurePaymentIsFresh(Payment $payment): Payment
     {
         if ($payment->status === Payment::STATUS_PAID) {
@@ -371,6 +428,43 @@ class PayMongoQrPhService
         ]);
 
         return $payment->load(['wifiSession.plan', 'wifiSession.client']);
+    }
+
+    private function markBypassedSessionAsAuthorized(Payment $payment): void
+    {
+        $session = $payment->wifiSession;
+
+        if (! $session) {
+            throw new RuntimeException('Bypass payment cannot authorize a missing WiFi session.');
+        }
+
+        $session->loadMissing(['plan', 'client', 'site', 'accessPoint']);
+
+        DB::transaction(function () use ($payment, $session): void {
+            $payment->forceFill([
+                'status' => Payment::STATUS_PAID,
+                'paid_at' => $payment->paid_at ?? now(),
+            ])->save();
+
+            $session->forceFill([
+                'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+                'session_status' => WifiSession::SESSION_STATUS_PAID,
+                'release_failure_reason' => null,
+                'amount_paid' => (float) ($session->plan?->net_amount ?? $payment->amount ?? $session->amount_paid),
+            ])->save();
+        });
+
+        try {
+            app(\App\Services\WifiSessionService::class)->activateSession($session->fresh(['plan', 'client', 'site', 'accessPoint']));
+        } catch (Throwable $exception) {
+            $session->forceFill([
+                'is_active' => false,
+                'session_status' => WifiSession::SESSION_STATUS_RELEASE_FAILED,
+                'release_failure_reason' => $exception->getMessage(),
+            ])->save();
+
+            throw $exception;
+        }
     }
 
     private function handlePaidWebhook(

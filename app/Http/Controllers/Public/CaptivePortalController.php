@@ -16,13 +16,19 @@ class CaptivePortalController extends Controller
     {
         $startedAt = microtime(true);
         $requestId = (string) Str::uuid();
-        $initialPortalContext = $portalDeviceContextService->buildInitialContext($request);
+        $initialDeviceContext = $portalDeviceContextService->resolveForInitialPage($request, $requestId);
+        $initialPortalContext = $initialDeviceContext['portal_context'] ?? [];
 
         Log::info('Portal page shell prepared.', [
             'request_id' => $requestId,
             'client_ip' => $initialPortalContext['client_ip'],
             'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
-            'has_query_mac' => filled($request->query('clientMac') ?: $request->query('client_mac')),
+            'has_query_mac' => filled(
+                $request->query('clientMac')
+                ?: $request->query('client_mac')
+                ?: $request->query('cid')
+                ?: $request->query('mac')
+            ),
         ]);
 
         return Inertia::render('Public/PlanSelection', [
@@ -30,6 +36,8 @@ class CaptivePortalController extends Controller
             'deviceContextUrl' => url('/api/portal/device-context').($request->getQueryString() ? "?{$request->getQueryString()}" : ''),
             'plansUrl' => url('/api/portal/plans').($request->getQueryString() ? "?{$request->getQueryString()}" : ''),
             'deviceContextTimeoutMs' => (int) config('portal.bootstrap_timeout_seconds', 8) * 1000,
+            'paymentBypassEnabled' => (bool) config('portal.bypass_payment', false),
+            'initialDeviceContext' => $initialDeviceContext,
             'initialPortalContext' => $initialPortalContext,
         ]);
     }

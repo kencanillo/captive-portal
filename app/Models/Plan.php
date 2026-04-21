@@ -50,7 +50,19 @@ class Plan extends Model
     public function processingFeeRate(): Attribute
     {
         return Attribute::make(
-            get: fn (): float => round((float) config('portal.ewallet_fee_rate', 0.02), 4),
+            get: function (): float {
+                // For plan pricing, use the site-wide default fee
+                $siteWideFee = \App\Models\ServiceFeeSetting::query()
+                    ->active()
+                    ->siteWide()
+                    ->first();
+
+                if ($siteWideFee) {
+                    return round((float) $siteWideFee->fee_rate, 4);
+                }
+
+                return round((float) config('portal.ewallet_fee_rate', 0.05), 4);
+            },
         );
     }
 

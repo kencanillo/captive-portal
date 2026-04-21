@@ -20,12 +20,28 @@ const siteForm = useForm({
   site_ids: props.operator.sites.map((site) => site.id),
 });
 
+const credentialForm = useForm({
+  hotspot_operator_username: props.operator.credentials?.hotspot_operator_username || '',
+  hotspot_operator_password: '',
+  notes: props.operator.credentials?.notes || '',
+});
+
 const updateStatus = () => {
   statusForm.put(`/admin/operators/${props.operator.id}/status`, { preserveScroll: true });
 };
 
 const updateSites = () => {
   siteForm.put(`/admin/operators/${props.operator.id}/sites`, { preserveScroll: true });
+};
+
+const updateCredentials = () => {
+  credentialForm.put(`/admin/operators/${props.operator.id}/credentials`, { preserveScroll: true });
+};
+
+const deleteCredentials = () => {
+  if (confirm('Are you sure you want to remove these Omada credentials? This will affect client authorization.')) {
+    credentialForm.delete(`/admin/operators/${props.operator.id}/credentials`, { preserveScroll: true });
+  }
 };
 </script>
 
@@ -164,6 +180,43 @@ const updateSites = () => {
             </label>
 
             <button type="submit" class="app-button-primary">Save site mapping</button>
+          </form>
+        </div>
+
+        <div class="app-card p-7">
+          <p class="app-kicker">Omada Credentials</p>
+          <h2 class="mt-3 app-section-title">Hotspot operator authentication</h2>
+          <p class="mt-4 text-sm text-slate-600">
+            These credentials are used for client authorization in Omada. Each operator should have their own hotspot operator account.
+          </p>
+
+          <div v-if="operator.credentials" class="mt-6 rounded-[20px] bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
+            <p class="font-semibold">Credentials configured</p>
+            <p class="mt-1">Username: {{ operator.credentials.hotspot_operator_username }}</p>
+            <p class="mt-1">Added: {{ operator.credentials.created_at }}</p>
+          </div>
+
+          <form class="mt-6 space-y-5" @submit.prevent="updateCredentials">
+            <div>
+              <label class="app-label">Hotspot Operator Username</label>
+              <input v-model="credentialForm.hotspot_operator_username" type="text" class="app-field" placeholder="e.g., juleanne_operator" />
+            </div>
+
+            <div>
+              <label class="app-label">Hotspot Operator Password</label>
+              <input v-model="credentialForm.hotspot_operator_password" type="password" class="app-field" placeholder="Enter password" />
+              <p class="mt-2 text-xs text-slate-500">Required even when updating existing credentials.</p>
+            </div>
+
+            <div>
+              <label class="app-label">Notes (Optional)</label>
+              <textarea v-model="credentialForm.notes" class="app-field min-h-[80px]" placeholder="Internal notes about these credentials" />
+            </div>
+
+            <div class="flex gap-3">
+              <button type="submit" class="app-button-primary">Save credentials</button>
+              <button v-if="operator.credentials" type="button" @click="deleteCredentials" class="app-button-secondary">Remove credentials</button>
+            </div>
           </form>
         </div>
 

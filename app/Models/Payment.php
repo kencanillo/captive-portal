@@ -13,7 +13,9 @@ class Payment extends Model
     use HasFactory;
 
     public const PROVIDER_PAYMONGO = 'paymongo';
+    public const PROVIDER_BYPASS = 'bypass';
     public const FLOW_QRPH = 'qrph';
+    public const FLOW_BYPASS = 'bypass';
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_AWAITING_PAYMENT = 'awaiting_payment';
@@ -42,6 +44,7 @@ class Payment extends Model
         'failure_reason',
         'amount',
         'currency',
+        'archived_at',
     ];
 
     protected $appends = [
@@ -58,6 +61,7 @@ class Payment extends Model
             'qr_expires_at' => 'datetime',
             'paid_at' => 'datetime',
             'webhook_received_at' => 'datetime',
+            'archived_at' => 'datetime',
         ];
     }
 
@@ -90,6 +94,11 @@ class Payment extends Model
             self::STATUS_FAILED,
             self::STATUS_CANCELED,
         ], true);
+    }
+
+    public function scopeUnarchived(Builder $query): Builder
+    {
+        return $query->whereNull('archived_at');
     }
 
     public function shouldContinuePolling(): bool

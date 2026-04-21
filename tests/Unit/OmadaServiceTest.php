@@ -6,6 +6,7 @@ use App\Models\ControllerSetting;
 use App\Models\Site;
 use App\Models\WifiSession;
 use App\Services\OmadaService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -15,6 +16,7 @@ use Tests\TestCase;
 
 class OmadaServiceTest extends TestCase
 {
+    use RefreshDatabase;
     public function test_client_respects_ssl_verification_config_flag(): void
     {
         $service = app(OmadaService::class);
@@ -183,7 +185,7 @@ class OmadaServiceTest extends TestCase
                     'omadacId' => 'controller-id',
                 ],
             ]),
-            'https://localhost:8043/controller-id/api/v2/hotspot/login' => Http::response([
+            'https://localhost:8043/api/v2/login' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
                 'result' => [
@@ -217,8 +219,8 @@ class OmadaServiceTest extends TestCase
             'hotspot_operator_password' => 'secret',
         ]), $session);
 
-        Http::assertSent(fn ($request) => str_contains($request->url(), '/controller-id/api/v2/hotspot/login')
-            && data_get($request->data(), 'name') === 'operator'
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/v2/login')
+            && data_get($request->data(), 'username') === 'operator'
             && data_get($request->data(), 'password') === 'secret');
 
         Http::assertSent(fn ($request) => str_contains($request->url(), '/controller-id/api/v2/hotspot/extPortal/auth')
