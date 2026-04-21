@@ -36,6 +36,10 @@ class PaymentStatusController extends Controller
         return $this->success([
             'payment_status' => $payment->payment_status,
             'wifi_session_status' => $session->session_status,
+            'release_status' => $session->release_status,
+            'release_attempt_count' => $session->release_attempt_count,
+            'controller_state_uncertain' => $session->controller_state_uncertain,
+            'last_release_error' => $session->last_release_error,
             'release_failure_reason' => $session->release_failure_reason,
             'amount' => $payment->amount,
             'currency' => $payment->currency,
@@ -56,12 +60,29 @@ class PaymentStatusController extends Controller
         }
 
         if ($payment->payment_status === Payment::STATUS_PAID) {
-            if ($session->session_status === WifiSession::SESSION_STATUS_ACTIVE) {
+            if ($session->release_status === WifiSession::RELEASE_STATUS_SUCCEEDED
+                || in_array($session->session_status, [
+                    WifiSession::SESSION_STATUS_ACTIVE,
+                    WifiSession::SESSION_STATUS_MERGED,
+                ], true)) {
                 return [false, 'access_enabled', 'Your internet access is now enabled.'];
             }
 
-            if ($session->session_status === WifiSession::SESSION_STATUS_RELEASE_FAILED) {
-                return [false, 'access_failed', 'Payment received, but internet access could not be enabled.'];
+            if ($session->release_status === WifiSession::RELEASE_STATUS_UNCERTAIN) {
+                return [false, 'contact_support', 'Payment was received, but controller state is uncertain. Please contact support so the session can be recovered.'];
+            }
+
+            if ($session->release_status === WifiSession::RELEASE_STATUS_MANUAL_REQUIRED) {
+                return [false, 'contact_support', 'Payment was received, but this session now requires manual support follow-up.'];
+            }
+
+            if ($session->release_status === WifiSession::RELEASE_STATUS_FAILED
+                || $session->session_status === WifiSession::SESSION_STATUS_RELEASE_FAILED) {
+                return [false, 'access_failed', 'Payment received, but internet access could not be enabled yet. Support can retry the release.'];
+            }
+
+            if ($session->release_status === WifiSession::RELEASE_STATUS_IN_PROGRESS) {
+                return [true, 'enabling_access', 'Payment received. Omada authorization is in progress.'];
             }
 
             return [true, 'enabling_access', 'Payment received. Preparing your internet access.'];

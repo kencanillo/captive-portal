@@ -4,9 +4,15 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\WifiSession;
+use App\Services\WifiSessionReleaseService;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Carbon\CarbonInterface;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use RuntimeException;
 
 class SessionController extends Controller
 {
@@ -15,6 +21,7 @@ class SessionController extends Controller
         $this->authorize('viewAny', WifiSession::class);
 
         return Inertia::render('Admin/Sessions', [
+            'releaseRuntime' => $this->releaseRuntime(),
             'sessions' => WifiSession::query()
                 ->with([
                     'client:id,name,phone_number,mac_address',
@@ -53,6 +60,21 @@ class SessionController extends Controller
                             'duration_minutes' => $session->plan->duration_minutes,
                         ] : null,
                         'payment_status' => $session->payment_status,
+                        'session_status' => $session->session_status,
+                        'release_status' => $session->release_status,
+                        'release_outcome_type' => $session->release_outcome_type,
+                        'release_attempt_count' => $session->release_attempt_count,
+                        'last_release_attempt_at' => optional($session->last_release_attempt_at)?->toDateTimeString(),
+                        'last_release_error' => $session->last_release_error,
+                        'controller_state_uncertain' => $session->controller_state_uncertain,
+                        'released_at' => optional($session->released_at)?->toDateTimeString(),
+                        'last_reconciled_at' => optional($session->last_reconciled_at)?->toDateTimeString(),
+                        'reconcile_attempt_count' => $session->reconcile_attempt_count,
+                        'last_reconcile_result' => $session->last_reconcile_result,
+                        'release_stuck_at' => optional($session->release_stuck_at)?->toDateTimeString(),
+                        'manual_followup_required' => $session->release_status === WifiSession::RELEASE_STATUS_MANUAL_REQUIRED,
+                        'released_by_path' => $session->released_by_path,
+                        'release_metadata' => $session->release_metadata,
                         'is_active' => $session->is_active,
                         'start_time' => optional($session->start_time)?->toDateTimeString(),
                         'end_time' => optional($session->end_time)?->toDateTimeString(),
@@ -61,6 +83,49 @@ class SessionController extends Controller
                 })
                 ->withQueryString(),
         ]);
+    }
+
+    public function retryRelease(
+        Request $request,
+        WifiSession $wifiSession,
+        WifiSessionReleaseService $wifiSessionReleaseService
+    ): RedirectResponse {
+        $this->authorize('retryRelease', $wifiSession);
+
+        try {
+            $wifiSessionReleaseService->queueAdminRetry($wifiSession, $request->user());
+        } catch (RuntimeException $exception) {
+            return redirect()
+                ->route('admin.sessions.index')
+                ->with('error', $exception->getMessage());
+        }
+
+        return redirect()
+            ->route('admin.sessions.index')
+            ->with('success', 'WiFi release retry queued.');
+    }
+
+    public function reconcileRelease(
+        Request $request,
+        WifiSession $wifiSession,
+        WifiSessionReleaseService $wifiSessionReleaseService
+    ): RedirectResponse {
+        $this->authorize('reconcileRelease', $wifiSession);
+
+        try {
+            $wifiSessionReleaseService->reconcileSession($wifiSession, 'admin_reconcile', [
+                'triggered_by_user_id' => $request->user()->id,
+                'triggered_by_name' => $request->user()->name,
+            ]);
+        } catch (RuntimeException $exception) {
+            return redirect()
+                ->route('admin.sessions.index')
+                ->with('error', $exception->getMessage());
+        }
+
+        return redirect()
+            ->route('admin.sessions.index')
+            ->with('success', 'WiFi release reconciliation completed.');
     }
 
     private function formatRemainingTime(WifiSession $session): string
@@ -96,5 +161,45 @@ class SessionController extends Controller
         $parts[] = "{$remainingSeconds}s";
 
         return implode(' ', $parts);
+    }
+
+    private function releaseRuntime(): array
+    {
+        $outstandingReleaseCount = WifiSession::query()
+            ->where('payment_status', WifiSession::PAYMENT_STATUS_PAID)
+            ->where(function ($query): void {
+                $query->whereIn('release_status', [
+                    WifiSession::RELEASE_STATUS_PENDING,
+                    WifiSession::RELEASE_STATUS_IN_PROGRESS,
+                    WifiSession::RELEASE_STATUS_UNCERTAIN,
+                    WifiSession::RELEASE_STATUS_MANUAL_REQUIRED,
+                ])->orWhere('controller_state_uncertain', true);
+            })
+            ->count();
+
+        $jobHeartbeat = $this->parseHeartbeat(Cache::get(WifiSessionReleaseService::JOB_HEARTBEAT_CACHE_KEY));
+        $reconcileHeartbeat = $this->parseHeartbeat(Cache::get(WifiSessionReleaseService::RECONCILE_HEARTBEAT_CACHE_KEY));
+        $workerDegraded = $outstandingReleaseCount > 0
+            && (! $jobHeartbeat || $jobHeartbeat->lt(now()->subMinutes(5)));
+        $reconcileDegraded = $outstandingReleaseCount > 0
+            && (! $reconcileHeartbeat || $reconcileHeartbeat->lt(now()->subMinutes(5)));
+
+        return [
+            'outstanding_release_count' => $outstandingReleaseCount,
+            'job_heartbeat_at' => $jobHeartbeat?->toDateTimeString(),
+            'reconcile_heartbeat_at' => $reconcileHeartbeat?->toDateTimeString(),
+            'degraded' => $workerDegraded || $reconcileDegraded,
+            'worker_degraded' => $workerDegraded,
+            'reconcile_degraded' => $reconcileDegraded,
+        ];
+    }
+
+    private function parseHeartbeat(mixed $value): ?Carbon
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        return Carbon::parse($value);
     }
 }

@@ -1,8 +1,10 @@
 <?php
 
 use App\Http\Controllers\Admin\AccessPointController;
+use App\Http\Controllers\Admin\AccessPointClaimController as AdminAccessPointClaimController;
 use App\Http\Controllers\Admin\ControllerSettingsController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\DeviceTransferRequestController;
 use App\Http\Controllers\Admin\OperatorController as AdminOperatorController;
 use App\Http\Controllers\Admin\PaymentController as AdminPaymentController;
 use App\Http\Controllers\Admin\PayoutRequestController as AdminPayoutRequestController;
@@ -19,6 +21,7 @@ use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use App\Http\Controllers\Operator\DashboardController as OperatorDashboardController;
 use App\Http\Controllers\Operator\DeviceController as DeviceController;
+use App\Http\Controllers\Operator\AccessPointClaimController as OperatorAccessPointClaimController;
 use App\Http\Controllers\Operator\PayoutController as OperatorPayoutController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingsController;
@@ -143,12 +146,24 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::post('/controller/sync-sites', [ControllerSettingsController::class, 'syncSites'])->name('controller.sync-sites');
     Route::get('/access-points', [AccessPointController::class, 'index'])->name('access-points.index');
     Route::post('/access-points/sync', [AccessPointController::class, 'sync'])->name('access-points.sync');
+    Route::post('/access-points/post-connection-fees', [AccessPointController::class, 'postConnectionFees'])->name('access-points.post-connection-fees');
+    Route::post('/access-points/{accessPoint}/reverse-connection-fee', [AccessPointController::class, 'reverseConnectionFee'])->name('access-points.reverse-connection-fee');
+    Route::post('/access-points/{accessPoint}/resolve-billing-incident', [AccessPointController::class, 'resolveBillingIncident'])->name('access-points.resolve-billing-incident');
+    Route::post('/access-points/{accessPoint}/correct-ownership', [AccessPointController::class, 'correctOwnership'])->name('access-points.correct-ownership');
+    Route::get('/access-point-claims', [AdminAccessPointClaimController::class, 'index'])->name('access-point-claims.index');
+    Route::post('/access-point-claims/{accessPointClaim}/approve', [AdminAccessPointClaimController::class, 'approve'])->name('access-point-claims.approve');
+    Route::post('/access-point-claims/{accessPointClaim}/deny', [AdminAccessPointClaimController::class, 'deny'])->name('access-point-claims.deny');
     Route::get('/plans', [PlanController::class, 'index'])->name('plans.index');
     Route::post('/plans', [PlanController::class, 'store'])->name('plans.store');
     Route::put('/plans/{plan}', [PlanController::class, 'update'])->name('plans.update');
     Route::delete('/plans/{plan}', [PlanController::class, 'destroy'])->name('plans.destroy');
     Route::get('/sessions', [SessionController::class, 'index'])->name('sessions.index');
+    Route::post('/sessions/{wifiSession}/retry-release', [SessionController::class, 'retryRelease'])->name('sessions.retry-release');
+    Route::post('/sessions/{wifiSession}/reconcile-release', [SessionController::class, 'reconcileRelease'])->name('sessions.reconcile-release');
     Route::get('/payments', [AdminPaymentController::class, 'index'])->name('payments.index');
+    Route::get('/transfer-requests', [DeviceTransferRequestController::class, 'index'])->name('transfer-requests.index');
+    Route::post('/transfer-requests/{deviceTransferRequest}/approve', [DeviceTransferRequestController::class, 'approve'])->name('transfer-requests.approve');
+    Route::post('/transfer-requests/{deviceTransferRequest}/deny', [DeviceTransferRequestController::class, 'deny'])->name('transfer-requests.deny');
     Route::get('/operators', [AdminOperatorController::class, 'index'])->name('operators.index');
     Route::get('/operators/{operator}', [AdminOperatorController::class, 'show'])->name('operators.show');
     Route::put('/operators/{operator}/status', [AdminOperatorController::class, 'updateStatus'])->name('operators.status.update');
@@ -164,7 +179,10 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 Route::middleware(['auth', 'can:access-operator-panel'])->prefix('operator')->name('operator.')->group(function (): void {
     Route::get('/dashboard', OperatorDashboardController::class)->name('dashboard');
     Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
-    Route::post('/devices/adopt', [DeviceController::class, 'adopt'])->name('devices.adopt');
+    Route::post('/access-point-claims', [OperatorAccessPointClaimController::class, 'store'])
+        ->middleware('throttle:operator-access-point-claims')
+        ->name('access-point-claims.store');
+    Route::post('/access-point-claims/{accessPointClaim}/adopt', [OperatorAccessPointClaimController::class, 'adopt'])->name('access-point-claims.adopt');
     Route::get('/payouts', [OperatorPayoutController::class, 'index'])->name('payouts.index');
     Route::post('/payouts', [OperatorPayoutController::class, 'store'])->name('payouts.store');
 });

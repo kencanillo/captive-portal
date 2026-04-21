@@ -21,9 +21,11 @@ const adminNavigation = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: 'dashboard' },
   { label: 'Controller', href: '/admin/controller', icon: 'settings_input_component' },
   { label: 'Access Points', href: '/admin/access-points', icon: 'router' },
+  { label: 'AP Claims', href: '/admin/access-point-claims', icon: 'fact_check' },
   { label: 'Promos', href: '/admin/plans', icon: 'sell' },
   { label: 'Sessions', href: '/admin/sessions', icon: 'wifi_find' },
   { label: 'Payments', href: '/admin/payments', icon: 'payments' },
+  { label: 'Transfers', href: '/admin/transfer-requests', icon: 'swap_horiz' },
   { label: 'Operators', href: '/admin/operators', icon: 'groups' },
   { label: 'Payouts', href: '/admin/payout-requests', icon: 'account_balance_wallet' },
 ];

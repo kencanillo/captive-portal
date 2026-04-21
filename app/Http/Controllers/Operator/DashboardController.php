@@ -6,13 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\Payment;
 use App\Models\WifiSession;
+use App\Services\AccessPointHealthService;
 use App\Services\OperatorPayoutService;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(OperatorPayoutService $payoutService): Response
+    public function __invoke(OperatorPayoutService $payoutService, AccessPointHealthService $healthService): Response
     {
         $operator = request()->user()->loadMissing('operator.sites')->operator;
         $siteIds = $operator->sites()->pluck('id');
@@ -77,9 +78,11 @@ class DashboardController extends Controller
                     'name' => $accessPoint->name,
                     'site_name' => $accessPoint->site?->name,
                     'claim_status' => $accessPoint->claim_status,
-                    'is_online' => $accessPoint->is_online,
+                    'health' => $healthService->present($accessPoint),
                     'last_synced_at' => optional($accessPoint->last_synced_at)?->toDateTimeString(),
                 ]),
+            'healthRuntime' => $healthService->runtimeHealth(),
+            'webhookCapabilityVerdict' => $healthService->webhookCapabilityVerdict(),
         ]);
     }
 }

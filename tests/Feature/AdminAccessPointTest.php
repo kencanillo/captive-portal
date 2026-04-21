@@ -132,7 +132,9 @@ class AdminAccessPointTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Admin/AccessPoints')
-                ->where('syncConfigured', true));
+                ->where('syncConfigured', true)
+                ->where('webhookCapabilityVerdict', 'webhook_not_safely_supported_using_current_setup')
+                ->has('healthRuntime'));
     }
 
     public function test_access_points_page_marks_automatic_sync_disabled_when_only_openapi_credentials_exist(): void
@@ -151,6 +153,64 @@ class AdminAccessPointTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Admin/AccessPoints')
-                ->where('syncConfigured', false));
+                ->where('syncConfigured', false)
+                ->where('webhookCapabilityVerdict', 'webhook_not_safely_supported_using_current_setup'));
+    }
+
+    public function test_sync_does_not_fall_back_to_global_site_name_when_device_payload_is_missing_site_details(): void
+    {
+        Http::fake([
+            'https://localhost:8043/api/v2/login' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => ['token' => 'abc123'],
+            ]),
+            'https://localhost:8043/api/v2/grid/devices/adopted' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [],
+                ],
+            ]),
+            'https://localhost:8043/api/v2/grid/devices/pending' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [[
+                        'id' => 'device-002',
+                        'name' => 'Back Gate AP',
+                        'mac' => 'AA-BB-CC-DD-EE-FF',
+                        'sn' => 'SN987654321',
+                        'model' => 'EAP225',
+                        'ip' => '192.168.1.3',
+                        'statusCategory' => 'pending',
+                    ]],
+                ],
+            ]),
+        ]);
+
+        $admin = User::factory()->create(['is_admin' => true]);
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'username' => 'admin',
+            'password' => 'super-secret',
+            'site_name' => 'Main Branch',
+            'default_session_minutes' => 60,
+        ]);
+
+        $this->actingAs($admin)
+            ->post('/admin/access-points/sync')
+            ->assertRedirect('/admin/access-points');
+
+        $this->assertDatabaseHas('access_points', [
+            'name' => 'Back Gate AP',
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+            'site_id' => null,
+        ]);
+
+        $this->assertDatabaseMissing('sites', [
+            'name' => 'Main Branch',
+        ]);
     }
 }

@@ -1,10 +1,14 @@
 <script setup>
 import { computed } from 'vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, Link } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatNumber } from '@/utils/formatters';
 
 const props = defineProps({
+  releaseRuntime: {
+    type: Object,
+    required: true,
+  },
   sessions: {
     type: Object,
     required: true,
@@ -48,6 +52,18 @@ const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.si
       </article>
     </section>
 
+    <section
+      v-if="releaseRuntime.degraded"
+      class="mt-6 rounded-[24px] border border-rose-200 bg-rose-50 px-6 py-5 text-sm text-rose-800"
+    >
+      <p class="font-semibold text-rose-950">Release automation looks degraded.</p>
+      <p class="mt-2">
+        Outstanding release incidents: {{ formatNumber(releaseRuntime.outstanding_release_count || 0) }}.
+        Worker heartbeat: {{ releaseRuntime.job_heartbeat_at || 'missing' }}.
+        Reconcile heartbeat: {{ releaseRuntime.reconcile_heartbeat_at || 'missing' }}.
+      </p>
+    </section>
+
     <section class="app-table-shell mt-8">
       <div class="px-6 py-6">
         <p class="app-kicker">Client Activity</p>
@@ -64,10 +80,13 @@ const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.si
               <th>Access Point</th>
               <th>SSID</th>
               <th>Plan</th>
-              <th>Status</th>
+              <th>Payment</th>
+              <th>Release</th>
+              <th>Reconcile</th>
               <th>Active</th>
               <th>Time Left</th>
               <th>Ends</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -93,12 +112,76 @@ const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.si
                   {{ item.payment_status }}
                 </span>
               </td>
+              <td>
+                <div class="space-y-2">
+                  <span
+                    class="app-badge"
+                    :class="item.release_status === 'succeeded'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : item.release_status === 'pending' || item.release_status === 'in_progress'
+                        ? 'bg-amber-100 text-amber-700'
+                        : item.release_status === 'uncertain' || item.release_status === 'manual_required'
+                          ? 'bg-rose-100 text-rose-700'
+                          : 'bg-slate-100 text-slate-600'"
+                  >
+                    {{ item.release_status || 'not_started' }}
+                  </span>
+                  <p v-if="item.release_outcome_type" class="text-xs text-slate-600">
+                    {{ item.release_outcome_type }}
+                  </p>
+                  <p class="text-xs text-slate-500">
+                    {{ item.release_attempt_count || 0 }} attempts
+                  </p>
+                  <p v-if="item.release_stuck_at" class="text-xs font-semibold text-rose-700">
+                    Stuck since {{ item.release_stuck_at }}
+                  </p>
+                  <p v-if="item.last_release_error" class="max-w-[16rem] text-xs text-rose-600">
+                    {{ item.last_release_error }}
+                  </p>
+                </div>
+              </td>
+              <td>
+                <div class="space-y-2">
+                  <p class="text-xs text-slate-600">
+                    {{ item.last_reconcile_result || 'not_reconciled' }}
+                  </p>
+                  <p class="text-xs text-slate-500">
+                    {{ item.reconcile_attempt_count || 0 }} checks
+                  </p>
+                  <p v-if="item.last_reconciled_at" class="text-xs text-slate-500">
+                    {{ item.last_reconciled_at }}
+                  </p>
+                </div>
+              </td>
               <td>{{ item.is_active ? 'Yes' : 'No' }}</td>
               <td class="font-semibold text-slate-950">{{ item.remaining_time }}</td>
               <td>{{ item.end_time || '-' }}</td>
+              <td>
+                <div class="flex flex-col gap-2">
+                  <Link
+                    v-if="item.payment_status === 'paid' && !item.is_active && ['failed', 'uncertain', 'manual_required'].includes(item.release_status)"
+                    as="button"
+                    method="post"
+                    :href="`/admin/sessions/${item.id}/retry-release`"
+                    class="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-950 hover:text-slate-950"
+                  >
+                    Retry release
+                  </Link>
+                  <Link
+                    v-if="item.payment_status === 'paid' && !item.is_active && ['uncertain', 'manual_required', 'in_progress'].includes(item.release_status)"
+                    as="button"
+                    method="post"
+                    :href="`/admin/sessions/${item.id}/reconcile-release`"
+                    class="rounded-full border border-amber-300 px-3 py-1 text-xs font-semibold text-amber-800 transition hover:border-amber-500 hover:text-amber-950"
+                  >
+                    Check controller
+                  </Link>
+                  <span v-if="item.payment_status !== 'paid' || item.is_active" class="text-xs text-slate-400">-</span>
+                </div>
+              </td>
             </tr>
             <tr v-if="!sessionRows.length">
-              <td colspan="10">
+              <td colspan="13">
                 <div class="app-empty">No WiFi sessions are available in this dataset.</div>
               </td>
             </tr>

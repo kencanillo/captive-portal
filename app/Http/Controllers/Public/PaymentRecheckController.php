@@ -29,6 +29,10 @@ class PaymentRecheckController extends Controller
         return $this->success([
             'payment_status' => $payment->payment_status,
             'wifi_session_status' => $payment->wifiSession->session_status,
+            'release_status' => $payment->wifiSession->release_status,
+            'release_attempt_count' => $payment->wifiSession->release_attempt_count,
+            'controller_state_uncertain' => $payment->wifiSession->controller_state_uncertain,
+            'last_release_error' => $payment->wifiSession->last_release_error,
             'release_failure_reason' => $payment->wifiSession->release_failure_reason,
             'paid_at' => $payment->paid_at?->toIso8601String(),
         ], 'Payment recheck completed.');

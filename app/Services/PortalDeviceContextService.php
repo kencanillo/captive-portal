@@ -6,13 +6,10 @@ use App\Models\Client;
 use App\Models\ControllerSetting;
 use App\Models\WifiSession;
 use App\Support\PortalTokenService;
-use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Throwable;
 
 class PortalDeviceContextService
 {
@@ -74,34 +71,6 @@ class PortalDeviceContextService
             }
         }
 
-        if (! $macAddress && $resolvedClientIp) {
-            $cachedContext = $this->safeCacheGet($this->deviceContextCacheKey($portalContext));
-
-            if (is_array($cachedContext) && filled($cachedContext['mac_address'] ?? null)) {
-                $macAddress = $this->normalizeMac($cachedContext['mac_address']);
-                $resolutionSource = 'device_context_cache';
-                $status = 'resolved';
-                $deviceContextCacheHit = true;
-            }
-        }
-
-        if (! $macAddress && $resolvedClientIp) {
-            $sessionByIp = $this->findSessionByClientIp($resolvedClientIp);
-
-            if ($sessionByIp && filled($sessionByIp->mac_address)) {
-                $macAddress = strtoupper($sessionByIp->mac_address);
-                $existingClient = $sessionByIp->client;
-
-                if ($this->sessionIsActive($sessionByIp)) {
-                    $activeSession = $sessionByIp;
-                    $resolutionSource = 'active_session_ip';
-                } else {
-                    $resolutionSource = 'recent_session_ip';
-                }
-
-                $status = 'resolved';
-            }
-        }
         $phase1DurationMs = $this->elapsedMilliseconds($phase1Start);
 
         $phase2Start = microtime(true);
@@ -135,11 +104,7 @@ class PortalDeviceContextService
             $activeSession ??= $this->findActiveSession($macAddress);
             $status = 'resolved';
 
-            $this->safeCachePut(
-                $this->deviceContextCacheKey($portalContext),
-                ['mac_address' => $macAddress],
-                (int) config('portal.device_context_positive_cache_seconds', 300)
-            );
+            $deviceContextCacheHit = false;
         }
         $phase3DurationMs = $this->elapsedMilliseconds($phase3Start);
 
@@ -207,30 +172,6 @@ class PortalDeviceContextService
             ->first();
     }
 
-    private function findSessionByClientIp(string $clientIp): ?WifiSession
-    {
-        return WifiSession::query()
-            ->with(['client:id,name,phone_number,mac_address', 'plan:id,name,duration_minutes'])
-            ->where('client_ip', $clientIp)
-            ->where(function ($query): void {
-                $query->where(function ($activeQuery): void {
-                    $activeQuery->where('is_active', true)
-                        ->whereNotNull('end_time')
-                        ->where('end_time', '>', now());
-                })->orWhere('created_at', '>=', now()->subMinutes(30));
-            })
-            ->orderByDesc('is_active')
-            ->latest('created_at')
-            ->first();
-    }
-
-    private function sessionIsActive(WifiSession $session): bool
-    {
-        return (bool) $session->is_active
-            && $session->end_time !== null
-            && $session->end_time->isFuture();
-    }
-
     private function requestId(Request $request): string
     {
         $value = trim((string) ($request->header('X-Portal-Request-Id') ?: $request->query('request_id', '')));
@@ -283,51 +224,6 @@ class PortalDeviceContextService
     private function defaultRetryAfterMs(): int
     {
         return max(250, (int) config('portal.device_context_retry_after_ms', 1500));
-    }
-
-    private function deviceContextCacheKey(array $portalContext): string
-    {
-        return 'portal:device_context:' . sha1(json_encode([
-            Arr::get($portalContext, 'client_ip'),
-            Arr::get($portalContext, 'site_name'),
-            Arr::get($portalContext, 'ap_mac'),
-            Arr::get($portalContext, 'ssid_name'),
-        ], JSON_THROW_ON_ERROR));
-    }
-
-    private function cacheStore(): CacheRepository
-    {
-        return Cache::store((string) config('portal.cache_store', config('cache.default', 'database')));
-    }
-
-    private function safeCacheGet(string $key): mixed
-    {
-        try {
-            return $this->cacheStore()->get($key);
-        } catch (Throwable $exception) {
-            Log::warning('Portal device context cache read failed.', [
-                'cache_key' => $key,
-                'error' => $exception->getMessage(),
-            ]);
-
-            return null;
-        }
-    }
-
-    private function safeCachePut(string $key, mixed $value, int $seconds): void
-    {
-        if ($seconds < 1) {
-            return;
-        }
-
-        try {
-            $this->cacheStore()->put($key, $value, now()->addSeconds($seconds));
-        } catch (Throwable $exception) {
-            Log::warning('Portal device context cache write failed.', [
-                'cache_key' => $key,
-                'error' => $exception->getMessage(),
-            ]);
-        }
     }
 
     private function elapsedMilliseconds(float $startedAt): int

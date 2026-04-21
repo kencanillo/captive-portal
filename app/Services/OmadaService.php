@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\OmadaOperationException;
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
 use App\Models\Site;
@@ -20,6 +21,11 @@ use Throwable;
 
 class OmadaService
 {
+    public function __construct(
+        private readonly AccessPointHealthService $accessPointHealthService,
+    ) {
+    }
+
     public function testConnection(ControllerSetting $settings): array
     {
         $normalized = $this->normalizeSettings($settings);
@@ -223,6 +229,7 @@ class OmadaService
         $normalized = $this->normalizeSettings($settings);
         $client = $this->authenticatedClient($normalized, 'AP sync');
         $syncedAt = now();
+        $this->accessPointHealthService->noteSyncHeartbeat($syncedAt);
 
         $adoptedDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/adopted');
         $pendingDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/pending');
@@ -379,10 +386,18 @@ class OmadaService
         $hotspotSession = $this->hotspotAuthenticatedClient($normalized);
 
         if (! $session->end_time) {
-            throw new RuntimeException('Session end time is missing, so Omada authorization expiry cannot be calculated.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_VALIDATION,
+                'Session end time is missing, so Omada authorization expiry cannot be calculated.'
+            );
         }
 
         return $this->submitExtPortalAuth($hotspotSession, $normalized, $session, $session->end_time);
+    }
+
+    public function classifyFailure(Throwable $exception): string
+    {
+        return $this->classifyOmadaException($exception);
     }
 
     public function deauthorizeClient(ControllerSetting $settings, WifiSession $session): array
@@ -392,11 +407,17 @@ class OmadaService
         $clientMac = $this->normalizeMacForPath($session->mac_address);
 
         if (blank($siteId)) {
-            throw new RuntimeException('Omada deauthorization requires a site identifier.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_VALIDATION,
+                'Omada deauthorization requires a site identifier.'
+            );
         }
 
         if (! $this->hasOpenApiCredentials($normalized)) {
-            throw new RuntimeException('Omada deauthorization requires OpenAPI client credentials.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'Omada deauthorization requires OpenAPI client credentials.'
+            );
         }
 
         $openApi = $this->openApiAuthenticatedClient($normalized);
@@ -422,10 +443,81 @@ class OmadaService
         return $unauthResponse;
     }
 
+    public function inspectClientAuthorization(ControllerSetting $settings, WifiSession $session): array
+    {
+        $normalized = $this->normalizeSettings($settings);
+
+        if (! $this->hasLegacyCredentials($normalized)) {
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'Legacy controller credentials are required to inspect client authorization state.'
+            );
+        }
+
+        $normalizedMac = $this->normalizeMac($session->mac_address);
+
+        if (! $normalizedMac) {
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_VALIDATION,
+                'Client MAC address is required to inspect controller authorization state.'
+            );
+        }
+
+        $client = $this->authenticatedClient($normalized, 'client authorization inspection', $this->portalMacLookupTimeoutProfile());
+        $payload = $this->request($client, 'get', '/api/v2/controller/clients');
+        $clients = $this->extractClientsFromPayload($payload);
+        $matchedClient = $this->matchClientRecordByMac($clients, $normalizedMac);
+
+        if (! $matchedClient) {
+            return [
+                'found' => false,
+                'authorized' => false,
+                'connected' => false,
+                'raw_status' => null,
+                'raw_portal_status' => null,
+                'source' => 'controller_clients',
+            ];
+        }
+
+        $rawStatus = strtolower((string) ($this->firstFilled($matchedClient, [
+            'status',
+            'state',
+            'statusText',
+            'wireless.status',
+        ]) ?? ''));
+        $rawPortalStatus = strtolower((string) ($this->firstFilled($matchedClient, [
+            'portalAuthStatus',
+            'portalStatus',
+            'authenticationStatus',
+        ]) ?? ''));
+
+        $authorized = in_array($this->firstFilled($matchedClient, [
+            'authorized',
+            'isAuthorized',
+            'portalAuthorized',
+        ]), [true, 1, '1', 'true', 'authorized'], true)
+            || in_array($rawPortalStatus, ['authorized', 'authenticated', 'success'], true)
+            || ($rawPortalStatus === '' && in_array($rawStatus, ['authorized', 'authenticated'], true));
+
+        $connected = in_array($rawStatus, ['connected', 'online', 'normal', 'up'], true);
+
+        return [
+            'found' => true,
+            'authorized' => $authorized,
+            'connected' => $connected,
+            'raw_status' => $rawStatus !== '' ? $rawStatus : null,
+            'raw_portal_status' => $rawPortalStatus !== '' ? $rawPortalStatus : null,
+            'source' => 'controller_clients',
+        ];
+    }
+
     private function authenticatedClient(array $settings, string $purpose, ?array $timeoutProfile = null): PendingRequest
     {
         if (! $this->hasLegacyCredentials($settings)) {
-            throw new RuntimeException("{$purpose} currently requires a local controller username/password. OpenAPI client credentials are only wired for connection testing right now.");
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                "{$purpose} currently requires a local controller username/password. OpenAPI client credentials are only wired for connection testing right now."
+            );
         }
 
         $client = $this->client($settings, $timeoutProfile);
@@ -444,13 +536,19 @@ class OmadaService
                 'error' => $exception->getMessage(),
             ]);
 
-            throw new RuntimeException('Omada login connection failed. Check controller SSL settings and connectivity.', previous: $exception);
+            throw $this->wrapTransportException(
+                $exception,
+                'Omada login connection failed. Check controller SSL settings and connectivity.'
+            );
         }
 
         $payload = $this->decodeResponse($loginResponse->body());
 
         if (($payload['errorCode'] ?? null) !== 0) {
-            throw new RuntimeException(Arr::get($payload, 'msg', 'Omada login failed.'));
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_AUTHENTICATION,
+                Arr::get($payload, 'msg', 'Omada login failed.')
+            );
         }
 
         return $client;
@@ -459,7 +557,10 @@ class OmadaService
     private function hotspotAuthenticatedClient(array $settings): array
     {
         if (! $this->hasHotspotCredentials($settings)) {
-            throw new RuntimeException('Hotspot operator credentials are required for Omada client authorization.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'Hotspot operator credentials are required for Omada client authorization.'
+            );
         }
 
         $client = $this->client($settings);
@@ -468,7 +569,10 @@ class OmadaService
         );
 
         if (blank($info['omadac_id'])) {
-            throw new RuntimeException('Omada controller ID is missing from /api/info, so hotspot authorization cannot proceed.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'Omada controller ID is missing from /api/info, so hotspot authorization cannot proceed.'
+            );
         }
 
         $loginResponse = $client->post("/{$info['omadac_id']}/api/v2/hotspot/login", [
@@ -477,19 +581,28 @@ class OmadaService
         ]);
 
         if ($loginResponse->failed()) {
-            throw new RuntimeException("Omada request failed for [/{$info['omadac_id']}/api/v2/hotspot/login] with HTTP {$loginResponse->status()}.");
+            throw $this->classifyHttpFailure(
+                "Omada request failed for [/{$info['omadac_id']}/api/v2/hotspot/login] with HTTP {$loginResponse->status()}.",
+                $loginResponse->status()
+            );
         }
 
         $payload = $this->decodeResponse($loginResponse->body());
 
         if (($payload['errorCode'] ?? null) !== 0) {
-            throw new RuntimeException(Arr::get($payload, 'msg', 'Omada hotspot operator login failed.'));
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_AUTHENTICATION,
+                Arr::get($payload, 'msg', 'Omada hotspot operator login failed.')
+            );
         }
 
         $csrfToken = Arr::get($payload, 'result.token');
 
         if (! is_string($csrfToken) || trim($csrfToken) === '') {
-            throw new RuntimeException('Omada hotspot operator login succeeded without returning a CSRF token.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONTROLLER,
+                'Omada hotspot operator login succeeded without returning a CSRF token.'
+            );
         }
 
         return [
@@ -508,7 +621,10 @@ class OmadaService
             ?? $settings['site_name'];
 
         if (blank($session->mac_address) || blank($session->ap_mac) || blank($session->ssid_name) || $session->radio_id === null || blank($site)) {
-            throw new RuntimeException('Omada authorization requires client MAC, AP MAC, SSID, radio ID, and site.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_VALIDATION,
+                'Omada authorization requires client MAC, AP MAC, SSID, radio ID, and site.'
+            );
         }
 
         return $this->request(
@@ -535,7 +651,10 @@ class OmadaService
         );
 
         if (blank($info['omadac_id'])) {
-            throw new RuntimeException('Omada controller ID is missing from /api/info, so OpenAPI authentication cannot proceed.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'Omada controller ID is missing from /api/info, so OpenAPI authentication cannot proceed.'
+            );
         }
 
         $token = $this->requestOpenApiAccessToken($settings, $info['omadac_id']);
@@ -551,11 +670,17 @@ class OmadaService
     private function requestOpenApiAccessToken(array $settings, ?string $omadacId): string
     {
         if (! $this->hasOpenApiCredentials($settings)) {
-            throw new RuntimeException('OpenAPI client ID and client secret are required.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'OpenAPI client ID and client secret are required.'
+            );
         }
 
         if (blank($omadacId)) {
-            throw new RuntimeException('Omada controller ID is missing from /api/info, so OpenAPI authentication cannot proceed.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'Omada controller ID is missing from /api/info, so OpenAPI authentication cannot proceed.'
+            );
         }
 
         $payload = $this->request(
@@ -572,7 +697,10 @@ class OmadaService
         $token = Arr::get($payload, 'result.accessToken');
 
         if (! is_string($token) || trim($token) === '') {
-            throw new RuntimeException('Omada returned a successful OpenAPI response without an access token.');
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONTROLLER,
+                'Omada returned a successful OpenAPI response without an access token.'
+            );
         }
 
         return $token;
@@ -606,7 +734,11 @@ class OmadaService
     private function request(PendingRequest $client, string $method, string $uri, array $payload = []): array
     {
         $requestStart = microtime(true);
-        $response = $client->{$method}($uri, $payload);
+        try {
+            $response = $client->{$method}($uri, $payload);
+        } catch (Throwable $exception) {
+            throw $this->wrapTransportException($exception, "Omada request failed for [{$uri}].");
+        }
         $requestDuration = microtime(true) - $requestStart;
 
         Log::info('Omada API request timing', [
@@ -617,13 +749,19 @@ class OmadaService
         ]);
 
         if ($response->failed()) {
-            throw new RuntimeException("Omada request failed for [{$uri}] with HTTP {$response->status()}.");
+            throw $this->classifyHttpFailure(
+                "Omada request failed for [{$uri}] with HTTP {$response->status()}.",
+                $response->status()
+            );
         }
 
         $decoded = $this->decodeResponse($response->body());
 
         if (array_key_exists('errorCode', $decoded) && $decoded['errorCode'] !== 0) {
-            throw new RuntimeException(Arr::get($decoded, 'msg', "Omada request failed for [{$uri}]."));
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONTROLLER,
+                Arr::get($decoded, 'msg', "Omada request failed for [{$uri}].")
+            );
         }
 
         return $decoded;
@@ -684,12 +822,11 @@ class OmadaService
             ->first() ?? new AccessPoint;
 
         $wasCreated = ! $accessPoint->exists;
-        $site = $this->resolveSite(
-            $this->stringOrNull($this->firstFilled($device, [
-                'siteName',
-                'site',
-            ])) ?? $settings['site_name']
-        );
+        $siteName = $this->stringOrNull($this->firstFilled($device, [
+            'siteName',
+            'site',
+        ]));
+        $site = $siteName ? $this->resolveSite($siteName) : null;
 
         $accessPoint->fill([
             'site_id' => $site?->id,
@@ -718,13 +855,20 @@ class OmadaService
                 'ipAddress',
             ])) ?? $accessPoint->ip_address,
             'claim_status' => $claimStatus,
+            'adoption_state' => $accessPoint->adoption_state ?? AccessPoint::ADOPTION_STATE_UNCLAIMED,
             'claimed_at' => $claimStatus === AccessPoint::CLAIM_STATUS_CLAIMED
                 ? ($accessPoint->claimed_at ?? $syncedAt)
                 : null,
             'last_synced_at' => $syncedAt,
-            'is_online' => $this->resolveOnlineState($device),
-            'last_seen_at' => $this->resolveLastSeenAt($device) ?? $accessPoint->last_seen_at,
         ]);
+
+        $this->accessPointHealthService->applyControllerObservation(
+            $accessPoint,
+            $device,
+            $syncedAt,
+            $claimStatus,
+            AccessPoint::STATUS_SOURCE_SYNC,
+        );
 
         if ($wasCreated) {
             $accessPoint->custom_ssid = 'KennFi Lab';
@@ -739,58 +883,6 @@ class OmadaService
             'was_created' => $wasCreated,
             'access_point_id' => $accessPoint->id,
         ];
-    }
-
-    private function resolveOnlineState(array $device): bool
-    {
-        $value = $this->firstFilled($device, [
-            'isOnline',
-            'connected',
-            'status',
-            'statusCategory',
-        ]);
-
-        if (is_bool($value)) {
-            return $value;
-        }
-
-        if (is_numeric($value)) {
-            return (int) $value === 1;
-        }
-
-        $status = strtolower(trim((string) $value));
-
-        return in_array($status, ['connected', 'online', 'normal', 'up'], true);
-    }
-
-    private function resolveLastSeenAt(array $device): ?Carbon
-    {
-        $value = $this->firstFilled($device, [
-            'lastSeenAt',
-            'lastSeen',
-            'latestSeen',
-            'lastSeenTime',
-        ]);
-
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        if (is_numeric($value)) {
-            $timestamp = (int) $value;
-
-            if ($timestamp > 9999999999) {
-                $timestamp = (int) floor($timestamp / 1000);
-            }
-
-            return Carbon::createFromTimestamp($timestamp);
-        }
-
-        try {
-            return Carbon::parse((string) $value);
-        } catch (\Throwable) {
-            return null;
-        }
     }
 
     private function resolveSite(?string $siteName): ?Site
@@ -1024,6 +1116,23 @@ class OmadaService
         return null;
     }
 
+    private function matchClientRecordByMac(array $clientSnapshot, string $normalizedMac): ?array
+    {
+        foreach ($clientSnapshot as $clientData) {
+            $clientMac = $this->normalizeMac($this->firstFilled($clientData, [
+                'mac',
+                'macAddress',
+                'clientMac',
+            ]));
+
+            if ($clientMac === $normalizedMac) {
+                return $clientData;
+            }
+        }
+
+        return null;
+    }
+
     private function resolveRequestBaseUrl(string $configuredBaseUrl): string
     {
         $internalBaseUrl = trim((string) config('services.omada.internal_base_url', ''));
@@ -1033,6 +1142,15 @@ class OmadaService
 
     private function classifyOmadaException(Throwable $exception): string
     {
+        if ($exception instanceof OmadaOperationException) {
+            return match ($exception->category) {
+                OmadaOperationException::CATEGORY_TIMEOUT => 'timeout',
+                OmadaOperationException::CATEGORY_AUTHENTICATION => 'auth',
+                OmadaOperationException::CATEGORY_SSL => 'omada_ssl',
+                default => 'omada_error',
+            };
+        }
+
         $message = strtolower($exception->getMessage());
 
         if (str_contains($message, 'ssl certificate') || str_contains($message, 'curl error 60')) {
@@ -1049,6 +1167,44 @@ class OmadaService
         }
 
         return 'omada_error';
+    }
+
+    private function wrapTransportException(Throwable $exception, string $fallbackMessage): OmadaOperationException
+    {
+        $message = strtolower($exception->getMessage());
+
+        if (str_contains($message, 'ssl certificate') || str_contains($message, 'curl error 60')) {
+            return new OmadaOperationException(
+                OmadaOperationException::CATEGORY_SSL,
+                $fallbackMessage,
+                previous: $exception,
+            );
+        }
+
+        if (str_contains($message, 'timed out') || str_contains($message, 'timeout')) {
+            return new OmadaOperationException(
+                OmadaOperationException::CATEGORY_TIMEOUT,
+                $fallbackMessage,
+                previous: $exception,
+            );
+        }
+
+        return new OmadaOperationException(
+            OmadaOperationException::CATEGORY_CONTROLLER,
+            $fallbackMessage,
+            previous: $exception,
+        );
+    }
+
+    private function classifyHttpFailure(string $message, int $status): OmadaOperationException
+    {
+        $category = match (true) {
+            in_array($status, [401, 403], true) => OmadaOperationException::CATEGORY_AUTHENTICATION,
+            $status >= 500 => OmadaOperationException::CATEGORY_CONTROLLER,
+            default => OmadaOperationException::CATEGORY_VALIDATION,
+        };
+
+        return new OmadaOperationException($category, $message, $status);
     }
 
     private function cacheStore(): CacheRepository

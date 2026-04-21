@@ -279,12 +279,10 @@ const paymentActionLockedReason = computed(() => {
     return 'This device already has active internet access.';
   }
 
-  if (!existingClient.value) {
-    const validationError = validateRegistrationForm(false);
+  const validationError = validateRegistrationForm(false);
 
-    if (validationError) {
-      return validationError;
-    }
+  if (validationError) {
+    return validationError;
   }
 
   if (!deviceContextResolved.value) {
@@ -303,12 +301,10 @@ const payWithGCash = async (planId) => {
       throw new Error('This device already has active internet access. Disconnect from WiFi and reconnect if you need the captive portal again.');
     }
 
-    if (!existingClient.value) {
-      const validationError = validateRegistrationForm(true);
+    const validationError = validateRegistrationForm(true);
 
-      if (validationError) {
-        throw new Error(validationError);
-      }
+    if (validationError) {
+      throw new Error(validationError);
     }
 
     if (!deviceContextResolved.value) {
@@ -318,16 +314,13 @@ const payWithGCash = async (planId) => {
     const payload = {
       plan_id: planId,
       portal_token: portalToken.value,
-    };
-
-    if (!existingClient.value) {
-      payload.client_registration = {
+      client_registration: {
         name: registrationForm.value.name,
         phone_number: registrationForm.value.phone_number,
         pin: registrationForm.value.pin,
         pin_confirmation: registrationForm.value.pin_confirmation,
-      };
-    }
+      },
+    };
 
     const selectResp = await window.axios.post('/api/select-plan', payload);
     const sessionToken = selectResp?.data?.data?.session_token;
@@ -340,7 +333,10 @@ const payWithGCash = async (planId) => {
 
     window.location.href = paymentUrl;
   } catch (error) {
-    errorMessage.value = error?.response?.data?.message || error?.message || 'Unable to process payment.';
+    const backendCode = error?.response?.data?.data?.code;
+    errorMessage.value = backendCode === 'transfer_required'
+      ? error?.response?.data?.message
+      : error?.response?.data?.message || error?.message || 'Unable to process payment.';
     loadingPlanId.value = null;
   }
 };
@@ -449,7 +445,7 @@ const isPaymentDisabled = (planId) => {
               <p class="mt-1 text-sm text-emerald-700">Your device is already registered. Payment unlocks once device detection is ready.</p>
             </div>
 
-            <div v-if="!existingClient && !hasActiveSession" class="space-y-6">
+            <div v-if="!hasActiveSession" class="space-y-6">
               <div>
                 <label class="app-label" for="mac_address">MAC Address</label>
                 <div
@@ -461,6 +457,17 @@ const isPaymentDisabled = (planId) => {
                 </div>
                 <p class="mt-2 text-sm text-slate-500">
                   This field is controller-driven and cannot be edited by the client.
+                </p>
+              </div>
+
+              <div v-if="existingClient" class="rounded-[22px] bg-slate-50/90 px-5 py-4">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Known Account</p>
+                <div class="mt-3 space-y-2 text-sm text-slate-600">
+                  <p><span class="font-semibold text-slate-950">Registered Name:</span> {{ existingClient?.name }}</p>
+                  <p><span class="font-semibold text-slate-950">Registered Phone:</span> {{ existingClient?.phone_number }}</p>
+                </div>
+                <p class="mt-3 text-sm text-slate-500">
+                  PIN verification is still required before payment. Existing-device detection does not unlock checkout by itself.
                 </p>
               </div>
 
@@ -499,17 +506,6 @@ const isPaymentDisabled = (planId) => {
                 <p class="mt-2 text-sm text-slate-500">
                   Registration stays usable while the controller resolves the device identity.
                 </p>
-              </div>
-            </div>
-
-            <div v-else-if="!hasActiveSession" class="space-y-6">
-              <div class="rounded-[22px] bg-slate-50/90 px-5 py-4">
-                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Registration Summary</p>
-                <div class="mt-3 space-y-2 text-sm text-slate-600">
-                  <p><span class="font-semibold text-slate-950">MAC:</span> {{ activeMacAddress || 'Pending detection' }}</p>
-                  <p><span class="font-semibold text-slate-950">Name:</span> {{ existingClient?.name }}</p>
-                  <p><span class="font-semibold text-slate-950">Phone:</span> {{ existingClient?.phone_number }}</p>
-                </div>
               </div>
             </div>
 

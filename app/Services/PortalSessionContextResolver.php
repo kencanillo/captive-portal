@@ -34,15 +34,11 @@ class PortalSessionContextResolver
                     'site_id' => $site?->id,
                     'name' => $apName ?: $apMac,
                     'mac_address' => $apMac,
-                    'is_online' => true,
-                    'last_seen_at' => now(),
                 ]);
             } else {
                 $accessPoint->fill([
                     'site_id' => $site?->id ?? $accessPoint->site_id,
                     'name' => $apName ?: $accessPoint->name,
-                    'is_online' => true,
-                    'last_seen_at' => now(),
                 ])->save();
             }
         } elseif ($siteName) {

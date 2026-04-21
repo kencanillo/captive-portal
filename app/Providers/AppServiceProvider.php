@@ -42,6 +42,9 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('portal-create-payment', fn (Request $request) => [
             Limit::perMinute(20)->by($request->ip()),
         ]);
+        RateLimiter::for('operator-access-point-claims', fn (Request $request) => [
+            Limit::perMinute(10)->by(optional($request->user())->id ?: $request->ip()),
+        ]);
 
         Gate::define('access-admin', fn (User $user) => (bool) $user->is_admin);
         Gate::define('access-operator-panel', fn (User $user) => ! $user->is_admin

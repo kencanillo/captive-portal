@@ -9,6 +9,8 @@ defineProps({
   recentSessions: Array,
   recentPayments: Array,
   recentAccessPoints: Array,
+  healthRuntime: Object,
+  webhookCapabilityVerdict: String,
 });
 </script>
 
@@ -58,6 +60,16 @@ defineProps({
     </section>
 
     <section class="mt-8 grid gap-6 xl:grid-cols-[0.9fr,1.1fr]">
+      <section
+        v-if="healthRuntime?.degraded || webhookCapabilityVerdict !== 'webhook_supported_and_implemented'"
+        class="xl:col-span-2 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900"
+      >
+        AP health is controller-reconciled.
+        Sync heartbeat: {{ healthRuntime?.sync_heartbeat_at || 'missing' }}.
+        Reconcile heartbeat: {{ healthRuntime?.reconcile_heartbeat_at || 'missing' }}.
+        Stale unknown APs: {{ healthRuntime?.stale_unknown_count || 0 }}.
+      </section>
+
       <section class="app-card-strong p-7">
         <p class="app-kicker">Assigned Sites</p>
         <h2 class="mt-3 app-section-title">Your operating footprint</h2>
@@ -143,8 +155,8 @@ defineProps({
               </div>
               <div class="text-left sm:text-right">
                 <p class="font-medium text-slate-950">{{ accessPoint.claim_status }}</p>
-                <p :class="accessPoint.is_online ? 'mt-1 text-xs text-emerald-700' : 'mt-1 text-xs text-slate-500'">
-                  {{ accessPoint.is_online ? 'Online' : 'Offline' }}
+                <p class="mt-1 text-xs text-slate-500">
+                  {{ accessPoint.health.health_label }} • {{ accessPoint.health.freshness_label || 'No freshness data' }} • {{ accessPoint.health.status_source || 'unknown' }}
                 </p>
               </div>
             </div>

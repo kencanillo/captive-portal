@@ -30,9 +30,46 @@ class Client extends Model
         return $this->hasMany(WifiSession::class);
     }
 
+    public function devices(): HasMany
+    {
+        return $this->hasMany(ClientDevice::class);
+    }
+
+    public function deviceTransferRequests(): HasMany
+    {
+        return $this->hasMany(DeviceTransferRequest::class);
+    }
+
     public static function findByMacAddress(string $macAddress): ?self
     {
-        return static::where('mac_address', $macAddress)->first();
+        $normalizedMacAddress = strtolower($macAddress);
+
+        $device = ClientDevice::query()
+            ->with('client')
+            ->whereRaw('LOWER(mac_address) = ?', [$normalizedMacAddress])
+            ->first();
+
+        if ($device?->client) {
+            $client = $device->client;
+
+            if (strtolower((string) $client->mac_address) !== $normalizedMacAddress) {
+                // Legacy compatibility only. Device ownership lives in client_devices.
+                $client->forceFill(['mac_address' => $normalizedMacAddress])->save();
+            }
+
+            return $client;
+        }
+
+        $legacyClient = static::query()
+            ->whereRaw('LOWER(mac_address) = ?', [$normalizedMacAddress])
+            ->first();
+
+        if (! $legacyClient) {
+            return null;
+        }
+
+        // Legacy fallback is allowed only for pre-migration rows that do not have client_devices yet.
+        return $legacyClient->devices()->exists() ? null : $legacyClient;
     }
 
     public static function findByPhoneNumber(string $phoneNumber): ?self

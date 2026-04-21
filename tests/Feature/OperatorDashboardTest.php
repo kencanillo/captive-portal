@@ -107,9 +107,11 @@ class OperatorDashboardTest extends TestCase
                 ->where('summary.active_sessions_count', 1)
                 ->where('summary.completed_payments_count', 1)
                 ->where('summary.revenue_total', '30.00')
+                ->where('webhookCapabilityVerdict', 'webhook_not_safely_supported_using_current_setup')
                 ->has('recentPayments', 1)
                 ->where('recentPayments.0.reference_id', 'NORTH123')
-                ->where('recentAccessPoints.0.name', 'North AP'));
+                ->where('recentAccessPoints.0.name', 'North AP')
+                ->where('recentAccessPoints.0.health.health_state', 'connected'));
     }
 
     public function test_pending_operator_is_redirected_to_pending_approval_page(): void

@@ -37,7 +37,10 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withSchedule(function (Schedule $schedule) {
         $schedule->command('wifi:expire-sessions')->everyMinute()->withoutOverlapping();
+        $schedule->command('wifi:reconcile-releases')->everyMinute()->withoutOverlapping();
         $schedule->command('omada:sync-access-points')->everyMinute()->withoutOverlapping();
+        $schedule->command('omada:reconcile-access-point-health')->everyMinute()->withoutOverlapping();
+        $schedule->command('billing:post-access-point-fees')->everyMinute()->withoutOverlapping();
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

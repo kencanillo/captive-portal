@@ -176,4 +176,42 @@ class PortalBootstrapControllerTest extends TestCase
             ->assertJsonPath('data.portal_context.mac_address', null)
             ->assertJsonPath('data.portal_token', null);
     }
+
+    public function test_portal_bootstrap_does_not_trust_recent_sessions_by_ip_for_account_resolution(): void
+    {
+        $client = Client::query()->create([
+            'name' => 'Recent Session Client',
+            'phone_number' => '09170000000',
+            'pin' => bcrypt('1234'),
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+        ]);
+
+        $plan = Plan::query()->create([
+            'name' => 'Quick Surf 1 Hour',
+            'price' => 25,
+            'duration_minutes' => 60,
+        ]);
+
+        WifiSession::query()->create([
+            'client_id' => $client->id,
+            'plan_id' => $plan->id,
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+            'client_ip' => '10.10.10.45',
+            'amount_paid' => 25,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PENDING,
+            'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+            'is_active' => false,
+            'created_at' => now()->subMinutes(5),
+            'updated_at' => now()->subMinutes(5),
+        ]);
+
+        $this->getJson('/api/portal/bootstrap?clientIp=10.10.10.45')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'failed')
+            ->assertJsonPath('data.error_code', 'controller_unavailable')
+            ->assertJsonPath('data.portal_context.client_ip', '10.10.10.45')
+            ->assertJsonPath('data.portal_context.mac_address', null)
+            ->assertJsonPath('data.existing_client', null)
+            ->assertJsonPath('data.active_session', null);
+    }
 }

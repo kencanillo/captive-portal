@@ -32,4 +32,19 @@ class Site extends Model
     {
         return $this->hasMany(WifiSession::class);
     }
+
+    public function accessPointClaims(): HasMany
+    {
+        return $this->hasMany(AccessPointClaim::class);
+    }
+
+    public function accessPointOwnershipCorrections(): HasMany
+    {
+        return $this->hasMany(AccessPointOwnershipCorrection::class, 'to_site_id');
+    }
+
+    public function billingLedgerEntries(): HasMany
+    {
+        return $this->hasMany(BillingLedgerEntry::class);
+    }
 }
