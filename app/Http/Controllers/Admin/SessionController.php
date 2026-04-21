@@ -5,8 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\WifiSession;
 use App\Services\WifiSessionReleaseService;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Carbon\CarbonInterface;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,12 +14,12 @@ use RuntimeException;
 
 class SessionController extends Controller
 {
-    public function index(): Response
+    public function index(WifiSessionReleaseService $wifiSessionReleaseService): Response
     {
         $this->authorize('viewAny', WifiSession::class);
 
         return Inertia::render('Admin/Sessions', [
-            'releaseRuntime' => $this->releaseRuntime(),
+            'releaseRuntime' => $wifiSessionReleaseService->runtimeHealth(),
             'sessions' => WifiSession::query()
                 ->with([
                     'client:id,name,phone_number,mac_address',
@@ -163,43 +161,4 @@ class SessionController extends Controller
         return implode(' ', $parts);
     }
 
-    private function releaseRuntime(): array
-    {
-        $outstandingReleaseCount = WifiSession::query()
-            ->where('payment_status', WifiSession::PAYMENT_STATUS_PAID)
-            ->where(function ($query): void {
-                $query->whereIn('release_status', [
-                    WifiSession::RELEASE_STATUS_PENDING,
-                    WifiSession::RELEASE_STATUS_IN_PROGRESS,
-                    WifiSession::RELEASE_STATUS_UNCERTAIN,
-                    WifiSession::RELEASE_STATUS_MANUAL_REQUIRED,
-                ])->orWhere('controller_state_uncertain', true);
-            })
-            ->count();
-
-        $jobHeartbeat = $this->parseHeartbeat(Cache::get(WifiSessionReleaseService::JOB_HEARTBEAT_CACHE_KEY));
-        $reconcileHeartbeat = $this->parseHeartbeat(Cache::get(WifiSessionReleaseService::RECONCILE_HEARTBEAT_CACHE_KEY));
-        $workerDegraded = $outstandingReleaseCount > 0
-            && (! $jobHeartbeat || $jobHeartbeat->lt(now()->subMinutes(5)));
-        $reconcileDegraded = $outstandingReleaseCount > 0
-            && (! $reconcileHeartbeat || $reconcileHeartbeat->lt(now()->subMinutes(5)));
-
-        return [
-            'outstanding_release_count' => $outstandingReleaseCount,
-            'job_heartbeat_at' => $jobHeartbeat?->toDateTimeString(),
-            'reconcile_heartbeat_at' => $reconcileHeartbeat?->toDateTimeString(),
-            'degraded' => $workerDegraded || $reconcileDegraded,
-            'worker_degraded' => $workerDegraded,
-            'reconcile_degraded' => $reconcileDegraded,
-        ];
-    }
-
-    private function parseHeartbeat(mixed $value): ?Carbon
-    {
-        if (! is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        return Carbon::parse($value);
-    }
 }

@@ -140,6 +140,7 @@ Route::middleware('auth')->group(function () {
 
 Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::post('/dashboard/verify-operations', [DashboardController::class, 'verify'])->name('dashboard.verify-operations');
     Route::get('/controller', [ControllerSettingsController::class, 'edit'])->name('controller.edit');
     Route::put('/controller', [ControllerSettingsController::class, 'update'])->name('controller.update');
     Route::post('/controller/test-connection', [ControllerSettingsController::class, 'testConnection'])->name('controller.test');

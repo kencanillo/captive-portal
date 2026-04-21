@@ -36,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withSchedule(function (Schedule $schedule) {
+        $schedule->command('ops:record-scheduler-heartbeat')->everyMinute()->withoutOverlapping();
         $schedule->command('wifi:expire-sessions')->everyMinute()->withoutOverlapping();
         $schedule->command('wifi:reconcile-releases')->everyMinute()->withoutOverlapping();
         $schedule->command('omada:sync-access-points')->everyMinute()->withoutOverlapping();

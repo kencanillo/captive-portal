@@ -33,7 +33,7 @@ return new class extends Migration
             DB::statement(
                 "ALTER TABLE wifi_sessions
                 ADD COLUMN active_client_guard BIGINT UNSIGNED
-                GENERATED ALWAYS AS (CASE WHEN is_active = 1 THEN client_id ELSE NULL END) STORED"
+                GENERATED ALWAYS AS (CASE WHEN is_active = 1 THEN client_id ELSE NULL END) VIRTUAL"
             );
 
             DB::statement(
@@ -54,7 +54,7 @@ return new class extends Migration
                         THEN CONCAT(extends_session_id, ':', client_device_id)
                         ELSE NULL
                     END
-                ) STORED"
+                ) VIRTUAL"
             );
 
             DB::statement(

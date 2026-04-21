@@ -9,6 +9,8 @@ const props = defineProps({
   totalRevenue: String,
   mostPopularPlan: Object,
   analytics: Object,
+  automationStatus: Object,
+  operationalVerification: Object,
   controllerSettings: Object,
   revenueTrend: Array,
   accessPoints: Array,
@@ -46,6 +48,14 @@ const trendBars = computed(() => (props.revenueTrend || []).map((item) => ({
   ...item,
   normalizedHeight: Math.max(28, Math.round((Number(item.amount || 0) / trendMax.value) * 100)),
 })));
+
+function runtimeBadgeClass(status) {
+  return {
+    'app-badge bg-emerald-100 text-emerald-700': status === 'healthy' || status === 'pass',
+    'app-badge bg-amber-100 text-amber-700': status === 'degraded' || status === 'warn',
+    'app-badge bg-rose-100 text-rose-700': status === 'stale' || status === 'missing' || status === 'fail',
+  };
+}
 </script>
 
 <template>
@@ -159,6 +169,113 @@ const trendBars = computed(() => (props.revenueTrend || []).map((item) => ({
               {{ props.controllerSettings?.controller_name || 'No controller configured' }}
             </p>
             <p class="mt-2 break-all text-sm text-slate-500">{{ props.controllerSettings?.base_url || 'Save controller settings first' }}</p>
+          </div>
+        </div>
+
+        <div class="mt-8 rounded-[24px] border border-slate-200/80 bg-slate-50/90 p-5">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p class="app-kicker">Operational Runtime</p>
+              <h3 class="mt-2 text-xl font-semibold tracking-[-0.04em] text-slate-950">Critical automation status</h3>
+              <p class="mt-2 text-sm text-slate-500">
+                This is the real runtime picture for scheduler, release, AP sync, reconcile, and billing automation.
+              </p>
+            </div>
+            <div class="flex items-center gap-3">
+              <span :class="runtimeBadgeClass(props.automationStatus?.overall_status)">
+                {{ props.automationStatus?.overall_status || 'unknown' }}
+              </span>
+              <Link
+                href="/admin/dashboard/verify-operations"
+                method="post"
+                as="button"
+                class="app-button-secondary px-4 py-2.5"
+              >
+                Run verification
+              </Link>
+            </div>
+          </div>
+
+          <div class="mt-5 grid gap-3 lg:grid-cols-2">
+            <article
+              v-for="status in props.automationStatus?.statuses || []"
+              :key="status.key"
+              class="rounded-[20px] border border-slate-200/80 bg-white px-4 py-4"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-slate-950">{{ status.label }}</p>
+                  <p class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                    Last heartbeat: {{ status.last_heartbeat_at || 'Never observed' }}
+                  </p>
+                </div>
+                <span :class="runtimeBadgeClass(status.status)">
+                  {{ status.status }}
+                </span>
+              </div>
+              <p class="mt-3 text-sm leading-6 text-slate-600">{{ status.summary }}</p>
+            </article>
+          </div>
+
+          <div class="mt-5 grid gap-4 sm:grid-cols-3">
+            <div class="app-panel">
+              <p class="app-metric-label">Outstanding Releases</p>
+              <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                {{ formatNumber(props.automationStatus?.incident_counts?.outstanding_release_count || 0) }}
+              </p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Stale AP Health</p>
+              <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                {{ formatNumber(props.automationStatus?.incident_counts?.stale_access_point_count || 0) }}
+              </p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Billing Incidents</p>
+              <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                {{ formatNumber(props.automationStatus?.incident_counts?.billing_blocked_incident_count || 0) }}
+              </p>
+              <p class="mt-2 text-sm text-slate-500">
+                {{ formatNumber(props.automationStatus?.incident_counts?.billing_manual_review_count || 0) }} manual-review APs
+              </p>
+            </div>
+          </div>
+
+          <div class="mt-5 rounded-[20px] border border-slate-200/80 bg-white px-4 py-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-950">Latest operational verification</p>
+                <p class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                  {{ props.operationalVerification?.performed_at || 'Not run yet' }}
+                </p>
+              </div>
+              <span
+                v-if="props.operationalVerification"
+                :class="runtimeBadgeClass(props.operationalVerification?.overall_status)"
+              >
+                {{ props.operationalVerification?.overall_status }}
+              </span>
+            </div>
+
+            <div v-if="props.operationalVerification" class="mt-4 space-y-3">
+              <div
+                v-for="check in props.operationalVerification.checks"
+                :key="check.key"
+                class="rounded-[16px] border border-slate-200/80 bg-slate-50 px-4 py-3"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <p class="text-sm font-semibold text-slate-950">{{ check.label }}</p>
+                  <span :class="runtimeBadgeClass(check.status)">
+                    {{ check.status }}
+                  </span>
+                </div>
+                <p class="mt-2 text-sm text-slate-600">{{ check.summary }}</p>
+              </div>
+            </div>
+
+            <div v-else class="mt-4 rounded-[16px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+              Run operational verification before trusting automation in production.
+            </div>
           </div>
         </div>
       </div>

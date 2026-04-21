@@ -31,7 +31,7 @@ return new class extends Migration
                         THEN active_wifi_session_id
                         ELSE NULL
                     END
-                ) STORED"
+                ) VIRTUAL"
             );
 
             DB::statement(

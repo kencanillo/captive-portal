@@ -418,6 +418,38 @@ class WifiSessionReleaseService
         Cache::put(self::RECONCILE_HEARTBEAT_CACHE_KEY, now()->toIso8601String(), now()->addDay());
     }
 
+    public function runtimeHealth(): array
+    {
+        $outstandingReleaseCount = WifiSession::query()
+            ->where('payment_status', WifiSession::PAYMENT_STATUS_PAID)
+            ->where(function ($query): void {
+                $query->whereIn('release_status', [
+                    WifiSession::RELEASE_STATUS_PENDING,
+                    WifiSession::RELEASE_STATUS_IN_PROGRESS,
+                    WifiSession::RELEASE_STATUS_UNCERTAIN,
+                    WifiSession::RELEASE_STATUS_MANUAL_REQUIRED,
+                ])->orWhere('controller_state_uncertain', true);
+            })
+            ->count();
+
+        $jobHeartbeat = $this->parseHeartbeat(Cache::get(self::JOB_HEARTBEAT_CACHE_KEY));
+        $reconcileHeartbeat = $this->parseHeartbeat(Cache::get(self::RECONCILE_HEARTBEAT_CACHE_KEY));
+        $degradedThreshold = now()->subSeconds($this->runtimeDegradedAfterSeconds());
+        $workerDegraded = $outstandingReleaseCount > 0
+            && (! $jobHeartbeat || $jobHeartbeat->lt($degradedThreshold));
+        $reconcileDegraded = $outstandingReleaseCount > 0
+            && (! $reconcileHeartbeat || $reconcileHeartbeat->lt($degradedThreshold));
+
+        return [
+            'outstanding_release_count' => $outstandingReleaseCount,
+            'job_heartbeat_at' => $jobHeartbeat?->toDateTimeString(),
+            'reconcile_heartbeat_at' => $reconcileHeartbeat?->toDateTimeString(),
+            'degraded' => $workerDegraded || $reconcileDegraded,
+            'worker_degraded' => $workerDegraded,
+            'reconcile_degraded' => $reconcileDegraded,
+        ];
+    }
+
     private function queueRelease(WifiSession $session, string $path, array $context = []): WifiSession
     {
         $dispatch = false;
@@ -653,5 +685,19 @@ class WifiSessionReleaseService
             'start' => $start ? Carbon::parse($start) : null,
             'end' => $end ? Carbon::parse($end) : null,
         ];
+    }
+
+    private function parseHeartbeat(mixed $value): ?Carbon
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        return Carbon::parse($value);
+    }
+
+    private function runtimeDegradedAfterSeconds(): int
+    {
+        return max(60, (int) config('operations.release_runtime_degraded_after_seconds', 300));
     }
 }

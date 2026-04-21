@@ -10,14 +10,22 @@ use App\Models\PayoutRequest;
 use App\Models\Plan;
 use App\Models\Site;
 use App\Models\WifiSession;
+use App\Services\AutomationHealthService;
+use App\Services\OperationalVerificationService;
 use App\Services\OperatorPayoutService;
 use Carbon\Carbon;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(OperatorPayoutService $payoutService): Response
+    public function __invoke(
+        OperatorPayoutService $payoutService,
+        AutomationHealthService $automationHealthService,
+        OperationalVerificationService $operationalVerificationService,
+    ): Response
     {
         $trendStart = now()->subDays(6)->startOfDay();
         $trendEnd = now()->endOfDay();
@@ -151,6 +159,8 @@ class DashboardController extends Controller
             'totalRevenue' => number_format((float) $totalRevenue, 2, '.', ''),
             'mostPopularPlan' => $mostPopularPlan,
             'analytics' => $analytics,
+            'automationStatus' => $automationHealthService->statusSummary(),
+            'operationalVerification' => $operationalVerificationService->latestResult(),
             'controllerSettings' => ControllerSetting::query()->first()?->only([
                 'controller_name',
                 'base_url',
@@ -163,5 +173,14 @@ class DashboardController extends Controller
             'siteSummary' => $siteSummary,
             'operators' => $operators,
         ]);
+    }
+
+    public function verify(Request $request, OperationalVerificationService $operationalVerificationService): RedirectResponse
+    {
+        $result = $operationalVerificationService->verify($request->user());
+
+        return redirect()
+            ->route('admin.dashboard')
+            ->with('success', 'Operational verification completed with status: '.$result['overall_status'].'.');
     }
 }
