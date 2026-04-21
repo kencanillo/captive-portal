@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -49,8 +50,21 @@ class Site extends Model
             $site = self::query()->firstWhere('omada_site_id', $omadaSiteId);
         }
 
+        $placeholderSite = null;
+
+        if ($omadaSiteId !== null) {
+            $placeholderSite = self::query()
+                ->whereNull('omada_site_id')
+                ->where('name', $omadaSiteId)
+                ->first();
+        }
+
         if (! $site && $siteName !== null) {
             $site = self::query()->firstWhere('name', $siteName);
+        }
+
+        if (! $site && $placeholderSite) {
+            $site = $placeholderSite;
         }
 
         if (! $site) {
@@ -59,6 +73,10 @@ class Site extends Model
                 'slug' => self::uniqueSlug($siteName ?? $omadaSiteId ?? 'site'),
                 'omada_site_id' => $omadaSiteId,
             ]);
+        }
+
+        if ($placeholderSite && $placeholderSite->id !== $site->id) {
+            $site = self::mergePlaceholderSite($site, $placeholderSite);
         }
 
         $dirty = false;
@@ -78,6 +96,28 @@ class Site extends Model
         }
 
         return $site;
+    }
+
+    private static function mergePlaceholderSite(self $targetSite, self $placeholderSite): self
+    {
+        DB::transaction(function () use ($targetSite, $placeholderSite): void {
+            AccessPoint::query()
+                ->where('site_id', $placeholderSite->id)
+                ->update(['site_id' => $targetSite->id]);
+
+            WifiSession::query()
+                ->where('site_id', $placeholderSite->id)
+                ->update(['site_id' => $targetSite->id]);
+
+            if ($targetSite->operator_id === null && $placeholderSite->operator_id !== null) {
+                $targetSite->operator_id = $placeholderSite->operator_id;
+                $targetSite->save();
+            }
+
+            $placeholderSite->delete();
+        });
+
+        return $targetSite->refresh();
     }
 
     private static function uniqueSlug(string $baseValue): string

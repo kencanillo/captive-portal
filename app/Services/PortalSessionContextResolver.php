@@ -74,9 +74,13 @@ class PortalSessionContextResolver
 
     private function normalizeMac(null|string $value): ?string
     {
-        $value = strtolower(trim((string) $value));
+        $mac = strtoupper(preg_replace('/[^A-Fa-f0-9]/', '', (string) $value) ?? '');
 
-        return $value !== '' ? $value : null;
+        if (strlen($mac) !== 12) {
+            return null;
+        }
+
+        return implode(':', str_split($mac, 2));
     }
 
     private function normalizeRadioId(mixed $value): ?int
