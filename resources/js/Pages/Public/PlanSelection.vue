@@ -24,6 +24,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  initialDeviceContext: {
+    type: Object,
+    required: true,
+  },
   initialPortalContext: {
     type: Object,
     required: true,
@@ -34,19 +38,23 @@ const deviceContextLoading = ref(false);
 const plansLoading = ref(false);
 const plansError = ref('');
 const plans = ref([]);
-const portalToken = ref(null);
+const portalToken = ref(props.initialDeviceContext?.portal_token || null);
 const portalContext = ref({
   ...props.initialPortalContext,
-  mac_address: null,
+  mac_address: props.initialDeviceContext?.portal_context?.mac_address || props.initialPortalContext?.mac_address || null,
 });
-const existingClient = ref(null);
-const activeSession = ref(null);
+const existingClient = ref(props.initialDeviceContext?.existing_client || null);
+const activeSession = ref(props.initialDeviceContext?.active_session || null);
 const loadingPlanId = ref(null);
 const errorMessage = ref('');
 const activeSessionRemainingSeconds = ref(0);
-const deviceContextStatus = ref('pending');
-const deviceContextErrorCode = ref(null);
-const deviceContextMessage = ref('Detecting device...');
+const deviceContextStatus = ref(props.initialDeviceContext?.status || 'pending');
+const deviceContextErrorCode = ref(props.initialDeviceContext?.error_code || null);
+const deviceContextMessage = ref(
+  props.initialDeviceContext?.status === 'resolved'
+    ? `Device detected${props.initialDeviceContext?.portal_context?.mac_address ? `: ${props.initialDeviceContext.portal_context.mac_address}` : '.'}`
+    : 'Detecting device...'
+);
 const deviceContextStalled = ref(false);
 const deviceContextAttempts = ref(0);
 const deviceDecisionState = ref(null);
@@ -231,7 +239,11 @@ onMounted(() => {
   const mountStart = performance.now();
 
   loadPlans();
-  fetchDeviceContext(false);
+  syncActiveSessionCountdown();
+
+  if (!deviceContextResolved.value) {
+    fetchDeviceContext(false);
+  }
 
   activeSessionCountdownTimer = window.setInterval(() => {
     syncActiveSessionCountdown();

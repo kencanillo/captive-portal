@@ -40,6 +40,7 @@ class PlanSelectionApiController extends Controller
                     'ap_mac',
                     'ap_name',
                     'site_name',
+                    'site_identifier',
                     'ssid_name',
                     'radio_id',
                     'client_ip',

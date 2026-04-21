@@ -41,8 +41,22 @@ class PortalDeviceContextService
 
     public function resolve(Request $request): array
     {
+        return $this->resolveInternal($request);
+    }
+
+    public function resolveForInitialPage(Request $request, ?string $requestId = null): array
+    {
+        return $this->resolveInternal($request, $requestId, false);
+    }
+
+    private function resolveInternal(
+        Request $request,
+        ?string $requestIdOverride = null,
+        bool $allowOmadaLookup = true,
+    ): array
+    {
         $startedAt = microtime(true);
-        $requestId = $this->requestId($request);
+        $requestId = $requestIdOverride !== null ? trim($requestIdOverride) : $this->requestId($request);
         $portalContext = $this->buildInitialContext($request);
         $resolvedClientIp = Arr::get($portalContext, 'client_ip');
         $queryMacAddress = $this->normalizeMac(
@@ -108,7 +122,7 @@ class PortalDeviceContextService
         $phase1DurationMs = $this->elapsedMilliseconds($phase1Start);
 
         $phase2Start = microtime(true);
-        if (! $macAddress) {
+        if (! $macAddress && $allowOmadaLookup) {
             $controllerSettings = ControllerSetting::singleton();
 
             if ($controllerSettings->canTestConnection()) {

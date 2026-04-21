@@ -73,6 +73,47 @@ class PlanSelectionApiTest extends TestCase
         $this->assertSame('192.168.20.10', $session->client_ip);
     }
 
+    public function test_it_uses_site_identifier_from_the_portal_token_when_site_name_is_missing(): void
+    {
+        $site = Site::query()->create([
+            'name' => 'Kencanillo Site',
+            'slug' => 'kencanillo-site',
+            'omada_site_id' => '69e31ca32109e3181bab7109',
+        ]);
+
+        $plan = Plan::query()->create([
+            'name' => '1 Hour',
+            'price' => 25,
+            'duration_minutes' => 60,
+        ]);
+
+        $portalToken = app(PortalTokenService::class)->issuePortalContextToken([
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+            'site_identifier' => '69e31ca32109e3181bab7109',
+            'ssid_name' => 'Guest WiFi',
+            'radio_id' => 1,
+            'client_ip' => '192.168.20.10',
+        ]);
+
+        $response = $this->postJson('/api/select-plan', [
+            'plan_id' => $plan->id,
+            'portal_token' => $portalToken,
+            'client_registration' => [
+                'name' => 'Juan Dela Cruz',
+                'phone_number' => '09171234567',
+                'pin' => '1234',
+                'pin_confirmation' => '1234',
+            ],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonStructure(['data' => ['session_token', 'plan']]);
+
+        $session = WifiSession::query()->firstOrFail();
+
+        $this->assertSame($site->id, $session->site_id);
+    }
+
     public function test_it_requires_a_device_decision_when_the_same_phone_and_pin_are_used_on_a_new_mac(): void
     {
         $plan = Plan::query()->create([

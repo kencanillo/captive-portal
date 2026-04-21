@@ -16,7 +16,8 @@ class CaptivePortalController extends Controller
     {
         $startedAt = microtime(true);
         $requestId = (string) Str::uuid();
-        $initialPortalContext = $portalDeviceContextService->buildInitialContext($request);
+        $initialDeviceContext = $portalDeviceContextService->resolveForInitialPage($request, $requestId);
+        $initialPortalContext = $initialDeviceContext['portal_context'] ?? [];
 
         Log::info('Portal page shell prepared.', [
             'request_id' => $requestId,
@@ -36,6 +37,7 @@ class CaptivePortalController extends Controller
             'plansUrl' => url('/api/portal/plans').($request->getQueryString() ? "?{$request->getQueryString()}" : ''),
             'deviceContextTimeoutMs' => (int) config('portal.bootstrap_timeout_seconds', 8) * 1000,
             'paymentBypassEnabled' => (bool) config('portal.bypass_payment', false),
+            'initialDeviceContext' => $initialDeviceContext,
             'initialPortalContext' => $initialPortalContext,
         ]);
     }
