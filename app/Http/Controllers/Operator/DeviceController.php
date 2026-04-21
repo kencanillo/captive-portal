@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Operator;
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
+use App\Models\Operator;
 use App\Services\OmadaService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
