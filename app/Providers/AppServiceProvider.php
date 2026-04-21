@@ -46,6 +46,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('access-admin', fn (User $user) => (bool) $user->is_admin);
         Gate::define('access-operator-panel', fn (User $user) => ! $user->is_admin
             && $user->operator()->where('status', Operator::STATUS_APPROVED)->exists());
+        Gate::define('access-operator-panel-view', fn (User $user) => ! $user->is_admin
+            && $user->operator()->whereIn('status', [Operator::STATUS_APPROVED, Operator::STATUS_PENDING])->exists());
         Gate::policy(Plan::class, PlanPolicy::class);
         Gate::policy(WifiSession::class, WifiSessionPolicy::class);
 

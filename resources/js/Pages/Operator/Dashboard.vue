@@ -2,6 +2,7 @@
 import { Head } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatCurrency, formatNumber } from '@/utils/formatters';
+import { router } from '@inertiajs/vue3';
 
 defineProps({
   summary: Object,
@@ -10,6 +11,20 @@ defineProps({
   recentPayments: Array,
   recentAccessPoints: Array,
 });
+
+const authorizeSession = async (sessionId) => {
+  try {
+    const response = await router.post(`/operator/sessions/${sessionId}/authorize`);
+    if (response.data.success) {
+      // Reload the page to show updated session status
+      router.reload();
+    } else {
+      alert('Failed to authorize session: ' + (response.data.error || 'Unknown error'));
+    }
+  } catch (error) {
+    alert('Error authorizing session: ' + error.message);
+  }
+};
 </script>
 
 <template>
@@ -96,6 +111,13 @@ defineProps({
                   <span class="app-badge" :class="session.session_status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'">
                     {{ session.session_status }}
                   </span>
+                </td>
+                <td v-if="session.can_authorize">
+                  <button 
+                    @click="authorizeSession(session.id)"
+                    class="px-3 py-1 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors">
+                    Authorize
+                  </button>
                 </td>
                 <td>{{ formatCurrency(session.amount_paid) }}</td>
               </tr>

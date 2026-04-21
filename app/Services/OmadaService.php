@@ -153,6 +153,25 @@ class OmadaService
         } catch (Throwable $exception) {
             $errorCode = $this->classifyOmadaException($exception);
 
+            // Calculate exponential backoff for rate limiting
+            $calculatedRetryAfterMs = $retryAfterMs;
+            if ($errorCode === 'rate_limited') {
+                $backoffKey = $this->authBackoffCacheKey($normalized['request_base_url'], $normalized['username']);
+                $currentBackoff = $this->safeCacheGet($backoffKey) ?: 1;
+                $calculatedRetryAfterMs = min($retryAfterMs * $currentBackoff, 30000); // Max 30 seconds
+                
+                // Increment backoff for next time
+                $this->safeCachePut($backoffKey, $currentBackoff * 2, 300); // Cache for 5 minutes
+                
+                Log::warning('Portal Omada MAC lookup rate limited, applying exponential backoff.', [
+                    'request_id' => $requestId,
+                    'client_ip' => $clientIp,
+                    'backoff_multiplier' => $currentBackoff,
+                    'retry_after_ms' => $calculatedRetryAfterMs,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+
             Log::warning('Portal Omada MAC lookup failed.', [
                 'request_id' => $requestId,
                 'client_ip' => $clientIp,
@@ -164,11 +183,11 @@ class OmadaService
             ]);
 
             return [
-                'status' => in_array($errorCode, ['timeout', 'not_found'], true) ? 'retryable' : 'failed',
+                'status' => in_array($errorCode, ['timeout', 'not_found', 'rate_limited'], true) ? 'retryable' : 'failed',
                 'resolution_source' => 'omada_error',
                 'mac_address' => null,
                 'error_code' => $errorCode,
-                'retry_after_ms' => $retryAfterMs,
+                'retry_after_ms' => $calculatedRetryAfterMs,
             ];
         }
     }
@@ -510,6 +529,41 @@ class OmadaService
             throw new RuntimeException("{$purpose} currently requires a local controller username/password. OpenAPI client credentials are only wired for connection testing right now.");
         }
 
+        $sessionCacheKey = $this->authSessionCacheKey($settings['request_base_url'], $settings['username']);
+        $cachedSession = $this->safeCacheGet($sessionCacheKey);
+
+        if ($cachedSession && is_array($cachedSession) && isset($cachedSession['cookies'])) {
+            try {
+                $client = $this->client($settings, $timeoutProfile);
+                
+                // Restore cached session cookies
+                $cookieJar = new CookieJar;
+                foreach ($cachedSession['cookies'] as $cookie) {
+                    $cookieJar->setCookie($cookie);
+                }
+                
+                $client->withOptions(['cookies' => $cookieJar]);
+                
+                // Test if session is still valid
+                $testResponse = $this->request($client, 'get', '/api/v2/controller/setting');
+                
+                Log::info('Omada session cache hit.', [
+                    'purpose' => $purpose,
+                    'base_url' => $settings['base_url'],
+                ]);
+                
+                return $client;
+            } catch (Throwable $exception) {
+                Log::warning('Omada cached session invalid, performing fresh login.', [
+                    'purpose' => $purpose,
+                    'error' => $exception->getMessage(),
+                ]);
+                
+                // Clear invalid session from cache
+                $this->safeCachePut($sessionCacheKey, null, 0);
+            }
+        }
+
         $client = $this->client($settings, $timeoutProfile);
 
         try {
@@ -534,6 +588,19 @@ class OmadaService
         if (($payload['errorCode'] ?? null) !== 0) {
             throw new RuntimeException(Arr::get($payload, 'msg', 'Omada login failed.'));
         }
+
+        // Cache the successful session for 30 minutes
+        $cookieJar = $client->getOptions()['cookies'];
+        if ($cookieJar instanceof CookieJar) {
+            $this->safeCachePut($sessionCacheKey, [
+                'cookies' => iterator_to_array($cookieJar->getIterator()),
+                'created_at' => now()->timestamp,
+            ], 1800); // 30 minutes
+        }
+
+        // Clear any backoff cache on successful login
+        $backoffKey = $this->authBackoffCacheKey($settings['request_base_url'], $settings['username']);
+        $this->safeCachePut($backoffKey, null, 0);
 
         return $client;
     }
@@ -1086,6 +1153,16 @@ class OmadaService
         return 'portal:omada:clients_snapshot:' . sha1($baseUrl);
     }
 
+    private function authSessionCacheKey(string $baseUrl, string $username): string
+    {
+        return 'portal:omada:auth_session:' . sha1($baseUrl . '|' . $username);
+    }
+
+    private function authBackoffCacheKey(string $baseUrl, string $username): string
+    {
+        return 'portal:omada:auth_backoff:' . sha1($baseUrl . '|' . $username);
+    }
+
     private function matchClientMacFromSnapshot(array $clientSnapshot, string $clientIp): ?string
     {
         foreach ($clientSnapshot as $clientData) {
@@ -1129,6 +1206,10 @@ class OmadaService
         if (str_contains($message, 'http 401') || str_contains($message, 'http 403')
             || str_contains($message, 'login failed') || str_contains($message, 'unauthorized')) {
             return 'auth';
+        }
+
+        if (str_contains($message, 'too many unsuccessful login attempts') || str_contains($message, 'retry after')) {
+            return 'rate_limited';
         }
 
         return 'omada_error';

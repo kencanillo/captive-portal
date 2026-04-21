@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
+import Breadcrumbs from '@/Components/Breadcrumbs.vue';
 
 const props = defineProps({
   title: {
@@ -17,17 +18,41 @@ const currentPath = computed(() => page.url || '');
 const isAdmin = computed(() => Boolean(user.value?.is_admin));
 const isOperator = computed(() => Boolean(user.value?.can_access_operator_panel));
 
-const adminNavigation = [
-  { label: 'Dashboard', href: '/admin/dashboard', icon: 'dashboard' },
-  { label: 'Controller', href: '/admin/controller', icon: 'settings_input_component' },
-  { label: 'Access Points', href: '/admin/access-points', icon: 'router' },
-  { label: 'Promos', href: '/admin/plans', icon: 'sell' },
-  { label: 'Sessions', href: '/admin/sessions', icon: 'wifi_find' },
-  { label: 'Payments', href: '/admin/payments', icon: 'payments' },
-  { label: 'Service Fees', href: '/admin/service-fees', icon: 'percent' },
-  { label: 'Operators', href: '/admin/operators', icon: 'groups' },
-  { label: 'Knowledge Base', href: '/admin/knowledge-base', icon: 'menu_book' },
-  { label: 'Payouts', href: '/admin/payout-requests', icon: 'account_balance_wallet' },
+const adminNavigationGroups = [
+  {
+    label: 'Overview',
+    icon: 'dashboard',
+    items: [
+      { label: 'Dashboard', href: '/admin/dashboard', icon: 'dashboard' }
+    ]
+  },
+  {
+    label: 'Network Management',
+    icon: 'router',
+    items: [
+      { label: 'Controller', href: '/admin/controller', icon: 'settings_input_component' },
+      { label: 'Access Points', href: '/admin/access-points', icon: 'router' }
+    ]
+  },
+  {
+    label: 'Business Operations',
+    icon: 'sell',
+    items: [
+      { label: 'Promos', href: '/admin/plans', icon: 'sell' },
+      { label: 'Sessions', href: '/admin/sessions', icon: 'wifi_find' },
+      { label: 'Payments', href: '/admin/payments', icon: 'payments' },
+      { label: 'Service Fees', href: '/admin/service-fees', icon: 'percent' },
+      { label: 'Payouts', href: '/admin/payout-requests', icon: 'account_balance_wallet' }
+    ]
+  },
+  {
+    label: 'User Management',
+    icon: 'groups',
+    items: [
+      { label: 'Operators', href: '/admin/operators', icon: 'groups' },
+      { label: 'Knowledge Base', href: '/admin/knowledge-base', icon: 'menu_book' }
+    ]
+  }
 ];
 
 const operatorNavigation = [
@@ -41,7 +66,10 @@ const accountNavigation = [
   { label: 'Settings', href: '/settings', icon: 'settings' },
 ];
 
-const navigation = computed(() => (isAdmin.value ? adminNavigation : operatorNavigation));
+// Collapsible state for navigation groups
+const collapsedGroups = ref({});
+
+const navigation = computed(() => (isAdmin.value ? adminNavigationGroups : operatorNavigation));
 const workspaceLabel = computed(() => (isAdmin.value ? 'Admin Authority' : 'Operator Workspace'));
 const workspaceNote = computed(() => (isAdmin.value ? 'Network control plane' : 'Site-scoped operations'));
 
@@ -55,6 +83,14 @@ const isActive = (href) => {
 
 const closeNav = () => {
   navOpen.value = false;
+};
+
+const toggleGroup = (groupLabel) => {
+  collapsedGroups.value[groupLabel] = !collapsedGroups.value[groupLabel];
+};
+
+const isGroupCollapsed = (groupLabel) => {
+  return collapsedGroups.value[groupLabel] || false;
 };
 
 const logout = () => {
@@ -90,19 +126,68 @@ const logout = () => {
         </div>
 
         <nav class="mt-8 flex-1 space-y-2">
-          <Link
-            v-for="item in navigation"
-            :key="item.href"
-            :href="item.href"
-            class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold tracking-[0.01em] transition"
-            :class="isActive(item.href)
-              ? 'bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]'
-              : 'text-slate-400 hover:bg-white/6 hover:text-white'"
-            @click="closeNav"
-          >
-            <span class="material-symbols-outlined text-[20px]">{{ item.icon }}</span>
-            <span>{{ item.label }}</span>
-          </Link>
+          <!-- Admin navigation groups -->
+          <template v-if="isAdmin">
+            <div
+              v-for="group in navigation"
+              :key="group.label"
+              class="space-y-1"
+            >
+              <!-- Group header -->
+              <button
+                @click="toggleGroup(group.label)"
+                class="flex w-full items-center justify-between rounded-2xl px-4 py-2.5 text-sm font-semibold tracking-[0.01em] transition text-slate-300 hover:bg-white/6 hover:text-white"
+              >
+                <div class="flex items-center gap-3">
+                  <span class="material-symbols-outlined text-[18px]">{{ group.icon }}</span>
+                  <span>{{ group.label }}</span>
+                </div>
+                <span
+                  class="material-symbols-outlined text-[16px] transition-transform duration-200"
+                  :class="{ 'rotate-180': !isGroupCollapsed(group.label) }"
+                >
+                  expand_more
+                </span>
+              </button>
+              
+              <!-- Group items -->
+              <div
+                v-show="!isGroupCollapsed(group.label)"
+                class="ml-2 space-y-1"
+              >
+                <Link
+                  v-for="item in group.items"
+                  :key="item.href"
+                  :href="item.href"
+                  class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium tracking-[0.01em] transition"
+                  :class="isActive(item.href)
+                    ? 'bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]'
+                    : 'text-slate-400 hover:bg-white/6 hover:text-white'"
+                  @click="closeNav"
+                >
+                  <span class="material-symbols-outlined text-[18px]">{{ item.icon }}</span>
+                  <span>{{ item.label }}</span>
+                </Link>
+              </div>
+            </div>
+          </template>
+          
+          <!-- Operator navigation (flat) -->
+          <template v-else>
+            <Link
+              v-for="item in navigation"
+              :key="item.href"
+              :href="item.href"
+              class="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold tracking-[0.01em] transition"
+              :class="isActive(item.href)
+                ? 'bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]'
+                : 'text-slate-400 hover:bg-white/6 hover:text-white'"
+              @click="closeNav"
+            >
+              <span class="material-symbols-outlined text-[20px]">{{ item.icon }}</span>
+              <span>{{ item.label }}</span>
+            </Link>
+          </template>
         </nav>
 
         <div class="mt-2 border-t border-white/10 pt-5">
@@ -150,9 +235,12 @@ const logout = () => {
             >
               <span class="material-symbols-outlined text-[20px]">menu</span>
             </button>
-            <div>
+            <div class="flex-1">
               <p class="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-400">WiFi Management</p>
-              <h2 class="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-950">{{ props.title }}</h2>
+              <div class="mt-1 flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                <h2 class="text-lg font-semibold tracking-[-0.03em] text-slate-950">{{ props.title }}</h2>
+                <Breadcrumbs class="text-sm" />
+              </div>
             </div>
           </div>
 

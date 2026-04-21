@@ -389,7 +389,7 @@ class WifiSessionService
             if (strpos($e->getMessage(), 'username or password') !== false || strpos($e->getMessage(), 'Failed to authenticate') !== false) {
                 Log::warning('Operator credentials failed, falling back to controller admin', [
                     'session_id' => $session->id,
-                    'operator' => $session->site->operator->business_name,
+                    'operator' => $session->site->operator?->business_name,
                     'error' => $e->getMessage(),
                 ]);
                 

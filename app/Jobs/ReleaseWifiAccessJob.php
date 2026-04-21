@@ -35,7 +35,7 @@ class ReleaseWifiAccessJob implements ShouldQueue, ShouldBeUnique
     public function handle(WifiSessionService $wifiSessionService): void
     {
         $payment = Payment::query()
-            ->with(['wifiSession.plan', 'wifiSession.client', 'wifiSession.site', 'wifiSession.accessPoint'])
+            ->with(['wifiSession.plan', 'wifiSession.client', 'wifiSession.site', 'wifiSession.site.operator', 'wifiSession.accessPoint'])
             ->findOrFail($this->paymentId);
 
         $session = $payment->wifiSession;

@@ -184,8 +184,15 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 
 Route::middleware(['auth', 'can:access-operator-panel'])->prefix('operator')->name('operator.')->group(function (): void {
     Route::get('/dashboard', OperatorDashboardController::class)->name('dashboard');
-    Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
-    Route::post('/devices/adopt', [DeviceController::class, 'adopt'])->name('devices.adopt');
+    Route::post('/sessions/{session}/authorize', [SessionAuthorizationController::class, 'authorize'])->name('sessions.authorize');
     Route::get('/payouts', [OperatorPayoutController::class, 'index'])->name('payouts.index');
     Route::post('/payouts', [OperatorPayoutController::class, 'store'])->name('payouts.store');
+});
+
+Route::middleware(['auth', 'can:access-operator-panel-view'])->prefix('operator')->name('operator.')->group(function (): void {
+    Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
+});
+
+Route::middleware(['auth', 'can:access-operator-panel'])->prefix('operator')->name('operator.')->group(function (): void {
+    Route::post('/devices/adopt', [DeviceController::class, 'adopt'])->name('devices.adopt');
 });

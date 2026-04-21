@@ -71,6 +71,8 @@ class DeviceController extends Controller
             'pendingDevices' => $pendingDevices,
             'connectedDevices' => $connectedDevices,
             'failedDevices' => $failedDevices,
+            'operatorStatus' => $operator->status,
+            'canAdoptDevices' => $operator->status === Operator::STATUS_APPROVED,
         ]);
     }
 
