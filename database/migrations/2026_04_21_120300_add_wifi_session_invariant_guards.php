@@ -30,25 +30,17 @@ return new class extends Migration
         }
 
         if (in_array($driver, ['mysql', 'mariadb'], true)) {
-            // Use functional expressions in indexes instead of generated columns
-            // to avoid foreign key constraint issues
+            // For MariaDB compatibility, use standard unique indexes
+            // MariaDB doesn't support partial indexes or functional indexes in older versions
             
             DB::statement(
                 'CREATE UNIQUE INDEX wifi_sessions_active_client_guard_unique
-                ON wifi_sessions ((CASE WHEN is_active = 1 THEN client_id ELSE NULL END))'
+                ON wifi_sessions (client_id, is_active)'
             );
 
             DB::statement(
                 'CREATE UNIQUE INDEX wifi_sessions_open_extension_guard_unique
-                ON wifi_sessions ((CASE 
-                    WHEN extends_session_id IS NOT NULL
-                        AND client_device_id IS NOT NULL
-                        AND merged_into_session_id IS NULL
-                        AND session_status = \'pending_payment\'
-                        AND payment_status IN (\'pending\', \'awaiting_payment\')
-                    THEN CONCAT(extends_session_id, \':\', client_device_id)
-                    ELSE NULL
-                END))'
+                ON wifi_sessions (extends_session_id, client_device_id, session_status, payment_status, merged_into_session_id)'
             );
         }
     }

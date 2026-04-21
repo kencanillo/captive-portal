@@ -16,7 +16,7 @@ return new class extends Migration
             $table->foreignId('to_operator_id')->nullable()->constrained('operators')->nullOnDelete();
             $table->foreignId('from_site_id')->nullable()->constrained('sites')->nullOnDelete();
             $table->foreignId('to_site_id')->nullable()->constrained('sites')->nullOnDelete();
-            $table->foreignId('from_approved_claim_id')->nullable()->constrained('access_point_claims', 'from_approved_claim_id')->nullOnDelete();
+            $table->foreignId('from_approved_claim_id')->nullable()->constrained('access_point_claims', 'from_approved_claim_id', 'apoc_from_claim_fk')->nullOnDelete();
             $table->foreignId('corrected_by_user_id')->constrained('users')->cascadeOnDelete();
             $table->text('correction_reason');
             $table->text('notes')->nullable();
