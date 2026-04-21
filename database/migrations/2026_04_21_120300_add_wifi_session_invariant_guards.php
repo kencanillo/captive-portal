@@ -30,17 +30,36 @@ return new class extends Migration
         }
 
         if (in_array($driver, ['mysql', 'mariadb'], true)) {
-            // For MariaDB compatibility, use standard unique indexes
-            // MariaDB doesn't support partial indexes or functional indexes in older versions
-            
+            DB::statement(
+                "ALTER TABLE wifi_sessions
+                ADD COLUMN active_client_guard BIGINT UNSIGNED
+                GENERATED ALWAYS AS (CASE WHEN is_active = 1 THEN client_id ELSE NULL END) STORED"
+            );
+
             DB::statement(
                 'CREATE UNIQUE INDEX wifi_sessions_active_client_guard_unique
-                ON wifi_sessions (client_id, is_active)'
+                ON wifi_sessions (active_client_guard)'
+            );
+
+            DB::statement(
+                "ALTER TABLE wifi_sessions
+                ADD COLUMN open_extension_guard VARCHAR(191)
+                GENERATED ALWAYS AS (
+                    CASE
+                        WHEN extends_session_id IS NOT NULL
+                            AND client_device_id IS NOT NULL
+                            AND merged_into_session_id IS NULL
+                            AND session_status = 'pending_payment'
+                            AND payment_status IN ('pending', 'awaiting_payment')
+                        THEN CONCAT(extends_session_id, ':', client_device_id)
+                        ELSE NULL
+                    END
+                ) STORED"
             );
 
             DB::statement(
                 'CREATE UNIQUE INDEX wifi_sessions_open_extension_guard_unique
-                ON wifi_sessions (extends_session_id, client_device_id, session_status, payment_status, merged_into_session_id)'
+                ON wifi_sessions (open_extension_guard)'
             );
         }
     }
@@ -59,6 +78,8 @@ return new class extends Migration
         if (in_array($driver, ['mysql', 'mariadb'], true)) {
             DB::statement('DROP INDEX wifi_sessions_active_client_guard_unique ON wifi_sessions');
             DB::statement('DROP INDEX wifi_sessions_open_extension_guard_unique ON wifi_sessions');
+            DB::statement('ALTER TABLE wifi_sessions DROP COLUMN active_client_guard');
+            DB::statement('ALTER TABLE wifi_sessions DROP COLUMN open_extension_guard');
         }
     }
 };

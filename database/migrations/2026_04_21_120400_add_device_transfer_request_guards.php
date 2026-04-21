@@ -23,7 +23,7 @@ return new class extends Migration
         if (in_array($driver, ['mysql', 'mariadb'], true)) {
             DB::statement(
                 "ALTER TABLE device_transfer_requests
-                ADD COLUMN open_request_guard BIGINT
+                ADD COLUMN open_request_guard BIGINT UNSIGNED
                 GENERATED ALWAYS AS (
                     CASE
                         WHEN active_wifi_session_id IS NOT NULL
