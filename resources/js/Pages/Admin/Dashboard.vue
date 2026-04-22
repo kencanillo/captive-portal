@@ -10,6 +10,7 @@ const props = defineProps({
   mostPopularPlan: Object,
   analytics: Object,
   automationStatus: Object,
+  operationalReadiness: Object,
   operationalVerification: Object,
   controllerSettings: Object,
   revenueTrend: Array,
@@ -52,8 +53,9 @@ const trendBars = computed(() => (props.revenueTrend || []).map((item) => ({
 function runtimeBadgeClass(status) {
   return {
     'app-badge bg-emerald-100 text-emerald-700': status === 'healthy' || status === 'pass',
+    'app-badge bg-sky-100 text-sky-700': status === 'warning',
     'app-badge bg-amber-100 text-amber-700': status === 'degraded' || status === 'warn',
-    'app-badge bg-rose-100 text-rose-700': status === 'stale' || status === 'missing' || status === 'fail',
+    'app-badge bg-rose-100 text-rose-700': status === 'stale' || status === 'missing' || status === 'fail' || status === 'blocked',
   };
 }
 </script>
@@ -238,6 +240,36 @@ function runtimeBadgeClass(status) {
               <p class="mt-2 text-sm text-slate-500">
                 {{ formatNumber(props.automationStatus?.incident_counts?.billing_manual_review_count || 0) }} manual-review APs
               </p>
+            </div>
+          </div>
+
+          <div class="mt-5 rounded-[20px] border border-slate-200/80 bg-white px-4 py-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-950">Action readiness</p>
+                <p class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                  {{ props.operationalReadiness?.overall_state || 'unknown' }}
+                </p>
+              </div>
+              <span :class="runtimeBadgeClass(props.operationalReadiness?.overall_state)">
+                {{ props.operationalReadiness?.overall_state || 'unknown' }}
+              </span>
+            </div>
+
+            <div class="mt-4 space-y-3">
+              <div
+                v-for="action in props.operationalReadiness?.actions || []"
+                :key="action.key"
+                class="rounded-[16px] border border-slate-200/80 bg-slate-50 px-4 py-3"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <p class="text-sm font-semibold text-slate-950">{{ action.label }}</p>
+                  <span :class="runtimeBadgeClass(action.state)">
+                    {{ action.state }}
+                  </span>
+                </div>
+                <p class="mt-2 text-sm text-slate-600">{{ action.summary }}</p>
+              </div>
             </div>
           </div>
 

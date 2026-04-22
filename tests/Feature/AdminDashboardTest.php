@@ -65,6 +65,7 @@ class AdminDashboardTest extends TestCase
                 ->where('analytics.sites_count', 1)
                 ->where('analytics.unassigned_sessions', 0)
                 ->has('automationStatus.statuses', 6)
+                ->has('operationalReadiness.actions', 7)
                 ->has('accessPoints', 1)
                 ->has('siteSummary', 1)
                 ->where('accessPoints.0.name', 'AP-01')
@@ -111,6 +112,7 @@ class AdminDashboardTest extends TestCase
 
         $stale = now()->subMinutes(20)->toIso8601String();
         Cache::put(AutomationHealthService::SCHEDULER_HEARTBEAT_CACHE_KEY, $stale, now()->addDay());
+        Cache::put(AutomationHealthService::QUEUE_WORKER_HEARTBEAT_CACHE_KEY, $stale, now()->addDay());
         Cache::put(AccessPointHealthService::SYNC_HEARTBEAT_CACHE_KEY, $stale, now()->addDay());
         Cache::put(AccessPointHealthService::RECONCILE_HEARTBEAT_CACHE_KEY, $stale, now()->addDay());
         Cache::put(AccessPointBillingService::POST_HEARTBEAT_CACHE_KEY, $stale, now()->addDay());
@@ -123,16 +125,30 @@ class AdminDashboardTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Admin/Dashboard')
                 ->where('automationStatus.overall_status', 'stale')
+                ->where('automationStatus.overall_readiness', 'blocked')
                 ->where('automationStatus.statuses.0.key', 'scheduler')
                 ->where('automationStatus.statuses.0.status', 'stale')
                 ->where('automationStatus.statuses.1.key', 'ap_sync')
                 ->where('automationStatus.statuses.1.status', 'stale')
                 ->where('automationStatus.statuses.2.key', 'ap_health_reconcile')
                 ->where('automationStatus.statuses.2.status', 'stale')
-                ->where('automationStatus.statuses.3.key', 'release_worker')
+                ->where('automationStatus.statuses.3.key', 'queue_worker')
                 ->where('automationStatus.statuses.3.status', 'stale')
                 ->where('automationStatus.statuses.4.key', 'release_reconcile')
                 ->where('automationStatus.statuses.4.status', 'stale')
+                ->where('operationalReadiness.overall_state', 'blocked')
+                ->where('operationalReadiness.actions.0.key', 'admin_retry_release')
+                ->where('operationalReadiness.actions.0.state', 'blocked')
+                ->where('operationalReadiness.actions.1.key', 'billing_post')
+                ->where('operationalReadiness.actions.1.state', 'warning')
+                ->where('operationalReadiness.actions.3.key', 'payout_request_create')
+                ->where('operationalReadiness.actions.3.state', 'blocked')
+                ->where('operationalReadiness.actions.4.key', 'payout_review')
+                ->where('operationalReadiness.actions.4.state', 'blocked')
+                ->where('operationalReadiness.actions.5.key', 'payout_settlement')
+                ->where('operationalReadiness.actions.5.state', 'blocked')
+                ->where('operationalReadiness.actions.6.key', 'payout_execution')
+                ->where('operationalReadiness.actions.6.state', 'blocked')
                 ->where('automationStatus.incident_counts.outstanding_release_count', 1)
                 ->where('automationStatus.incident_counts.stale_access_point_count', 1));
     }

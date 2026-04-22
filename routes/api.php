@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Public\PayMongoWebhookController;
+use App\Http\Controllers\Public\PayMongoPayoutExecutionCallbackController;
 use App\Http\Controllers\Public\PaymentController;
 use App\Http\Controllers\Public\PortalBootstrapController;
 use App\Http\Controllers\Public\PortalPlansController;
@@ -13,3 +14,4 @@ Route::middleware('throttle:portal-plans')->get('/portal/plans', PortalPlansCont
 Route::middleware('throttle:portal-select-plan')->post('/select-plan', PlanSelectionApiController::class)->name('api.select-plan');
 Route::middleware('throttle:portal-create-payment')->post('/create-payment', [PaymentController::class, 'create'])->name('api.create-payment');
 Route::post('/paymongo/webhook', PayMongoWebhookController::class)->name('api.paymongo.webhook');
+Route::post('/paymongo/payout-executions/{payoutExecutionAttempt}/callback', PayMongoPayoutExecutionCallbackController::class)->name('api.paymongo.payout-executions.callback');

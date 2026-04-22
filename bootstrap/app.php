@@ -33,15 +33,18 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         $middleware->validateCsrfTokens(except: [
             'api/paymongo/webhook',
+            'api/paymongo/payout-executions/*/callback',
         ]);
     })
     ->withSchedule(function (Schedule $schedule) {
         $schedule->command('ops:record-scheduler-heartbeat')->everyMinute()->withoutOverlapping();
+        $schedule->command('ops:dispatch-queue-worker-heartbeat')->everyMinute()->withoutOverlapping();
         $schedule->command('wifi:expire-sessions')->everyMinute()->withoutOverlapping();
         $schedule->command('wifi:reconcile-releases')->everyMinute()->withoutOverlapping();
         $schedule->command('omada:sync-access-points')->everyMinute()->withoutOverlapping();
         $schedule->command('omada:reconcile-access-point-health')->everyMinute()->withoutOverlapping();
         $schedule->command('billing:post-access-point-fees')->everyMinute()->withoutOverlapping();
+        $schedule->command('payouts:reconcile-execution-attempts')->everyFiveMinutes()->withoutOverlapping();
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

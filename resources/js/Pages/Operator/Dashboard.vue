@@ -53,10 +53,22 @@ defineProps({
           <p class="app-metric-value">{{ formatNumber(summary.access_points_count || 0) }}</p>
         </article>
         <article class="app-metric-card">
-          <p class="app-metric-label">Ledger Balance</p>
+          <p class="app-metric-label">Net Payable Fees</p>
+          <p class="app-metric-value">{{ formatCurrency(summary.net_payable_fees || 0) }}</p>
+        </article>
+        <article class="app-metric-card">
+          <p class="app-metric-label">Available Balance</p>
           <p class="app-metric-value">{{ formatCurrency(summary.available_balance || 0) }}</p>
         </article>
       </div>
+    </section>
+
+    <section
+      v-if="summary.confidence_state !== 'healthy'"
+      class="mt-6 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900"
+    >
+      Operator accounting confidence is degraded.
+      {{ formatNumber(summary.unresolved_blocked_count || 0) }} blocked fee incidents still need manual resolution.
     </section>
 
     <section class="mt-8 grid gap-6 xl:grid-cols-[0.9fr,1.1fr]">

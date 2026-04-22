@@ -11,6 +11,7 @@ use App\Services\AccessPointBillingService;
 use App\Services\AccessPointClaimService;
 use App\Services\AccessPointHealthService;
 use App\Services\OmadaService;
+use App\Services\OperationalReadinessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -175,9 +176,14 @@ class AccessPointController extends Controller
         }
     }
 
-    public function postConnectionFees(Request $request, AccessPointBillingService $billingService): RedirectResponse
+    public function postConnectionFees(
+        Request $request,
+        AccessPointBillingService $billingService,
+        OperationalReadinessService $operationalReadinessService,
+    ): RedirectResponse
     {
         try {
+            $operationalReadinessService->assertActionReady(OperationalReadinessService::ACTION_BILLING_POST);
             $result = $billingService->postConnectionFees($request->user(), \App\Models\BillingLedgerEntry::SOURCE_ADMIN_RUN);
 
             return redirect()
@@ -220,7 +226,12 @@ class AccessPointController extends Controller
             ->with('success', 'AP connection fee reversed with a compensating credit.');
     }
 
-    public function resolveBillingIncident(Request $request, AccessPoint $accessPoint, AccessPointBillingService $billingService): RedirectResponse
+    public function resolveBillingIncident(
+        Request $request,
+        AccessPoint $accessPoint,
+        AccessPointBillingService $billingService,
+        OperationalReadinessService $operationalReadinessService,
+    ): RedirectResponse
     {
         $validated = $request->validate([
             'action' => ['required', 'string', 'in:confirm_eligibility,authorize_repost'],
@@ -229,6 +240,7 @@ class AccessPointController extends Controller
         ]);
 
         try {
+            $operationalReadinessService->assertActionReady(OperationalReadinessService::ACTION_BILLING_RESOLUTION);
             $billingService->resolveBillingIncident(
                 $accessPoint,
                 $request->user(),

@@ -47,6 +47,7 @@ return [
         'payouts_enabled' => env('PAYMONGO_PAYOUTS_ENABLED', false),
         'payout_wallet_id' => env('PAYMONGO_PAYOUT_WALLET_ID'),
         'payout_callback_url' => env('PAYMONGO_PAYOUT_CALLBACK_URL'),
+        'payout_webhook_secret' => env('PAYMONGO_PAYOUT_WEBHOOK_SECRET', env('PAYMONGO_WEBHOOK_SECRET')),
     ],
 
     'omada' => [

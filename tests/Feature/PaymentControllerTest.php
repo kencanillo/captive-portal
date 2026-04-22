@@ -762,6 +762,13 @@ class PaymentControllerTest extends TestCase
     {
         Bus::fake();
         $admin = User::factory()->create(['is_admin' => true]);
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'hotspot_operator_username' => 'operator',
+            'hotspot_operator_password' => 'secret',
+        ]);
+        Cache::put(\App\Services\AutomationHealthService::QUEUE_WORKER_HEARTBEAT_CACHE_KEY, now()->toIso8601String(), now()->addDay());
         $payment = $this->createPaidPayment();
         $payment->wifiSession->forceFill([
             'session_status' => WifiSession::SESSION_STATUS_RELEASE_FAILED,
@@ -795,6 +802,7 @@ class PaymentControllerTest extends TestCase
             'hotspot_operator_username' => 'operator',
             'hotspot_operator_password' => 'secret',
         ]);
+        Cache::put(\App\Services\AutomationHealthService::QUEUE_WORKER_HEARTBEAT_CACHE_KEY, now()->toIso8601String(), now()->addDay());
 
         $payment = $this->createPaidPayment();
         $payment->wifiSession->forceFill([
@@ -991,6 +999,13 @@ class PaymentControllerTest extends TestCase
     {
         Bus::fake();
         $admin = User::factory()->create(['is_admin' => true]);
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'hotspot_operator_username' => 'operator',
+            'hotspot_operator_password' => 'secret',
+        ]);
+        Cache::put(\App\Services\AutomationHealthService::QUEUE_WORKER_HEARTBEAT_CACHE_KEY, now()->toIso8601String(), now()->addDay());
         $payment = $this->createPaidPayment();
         $payment->wifiSession->forceFill([
             'session_status' => WifiSession::SESSION_STATUS_RELEASE_FAILED,

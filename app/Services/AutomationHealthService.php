@@ -13,6 +13,7 @@ class AutomationHealthService
     public const STATUS_MISSING = 'missing';
 
     public const SCHEDULER_HEARTBEAT_CACHE_KEY = 'ops:scheduler:heartbeat-at';
+    public const QUEUE_WORKER_HEARTBEAT_CACHE_KEY = 'ops:queue-worker:heartbeat-at';
 
     public function __construct(
         private readonly AccessPointHealthService $accessPointHealthService,
@@ -24,6 +25,11 @@ class AutomationHealthService
     public function recordSchedulerHeartbeat(?Carbon $at = null): void
     {
         Cache::put(self::SCHEDULER_HEARTBEAT_CACHE_KEY, ($at ?? now())->toIso8601String(), now()->addDay());
+    }
+
+    public function recordQueueWorkerHeartbeat(?Carbon $at = null): void
+    {
+        Cache::put(self::QUEUE_WORKER_HEARTBEAT_CACHE_KEY, ($at ?? now())->toIso8601String(), now()->addDay());
     }
 
     public function statusSummary(): array
@@ -64,14 +70,14 @@ class AutomationHealthService
                     : 'Reconcile expires stale AP health into stale_unknown.'
             ),
             $this->buildHeartbeatStatus(
-                key: 'release_worker',
-                label: 'Release queue worker',
-                heartbeat: $releaseRuntime['job_heartbeat_at'] ?? null,
-                degradedAfterSeconds: $this->releaseRuntimeDegradedAfterSeconds(),
-                required: ((int) ($releaseRuntime['outstanding_release_count'] ?? 0)) > 0,
+                key: 'queue_worker',
+                label: 'Queue worker heartbeat',
+                heartbeat: Cache::get(self::QUEUE_WORKER_HEARTBEAT_CACHE_KEY),
+                degradedAfterSeconds: $this->queueWorkerDegradedAfterSeconds(),
+                required: true,
                 summary: ((int) ($releaseRuntime['outstanding_release_count'] ?? 0)) > 0
                     ? sprintf('%d paid sessions still need release delivery.', (int) $releaseRuntime['outstanding_release_count'])
-                    : 'No outstanding release backlog to prove worker activity right now.'
+                    : 'Worker health is tracked explicitly with a queued heartbeat, not inferred from business traffic.'
             ),
             $this->buildHeartbeatStatus(
                 key: 'release_reconcile',
@@ -115,9 +121,11 @@ class AutomationHealthService
 
         return [
             'overall_status' => $overallStatus,
+            'overall_readiness' => $this->overallReadiness($statuses),
             'healthy' => $overallStatus === self::STATUS_HEALTHY,
             'degraded' => $overallStatus !== self::STATUS_HEALTHY,
             'statuses' => $statuses,
+            'incidents' => $this->incidentsForStatuses($statuses),
             'warnings' => $warnings,
             'incident_counts' => [
                 'outstanding_release_count' => (int) ($releaseRuntime['outstanding_release_count'] ?? 0),
@@ -146,6 +154,9 @@ class AutomationHealthService
             'label' => $label,
             'status' => $status,
             'required' => $required,
+            'severity' => $this->severityForStatus($status, $required),
+            'blocking' => $this->severityForStatus($status, $required) === 'blocked',
+            'incident_open' => $status !== self::STATUS_HEALTHY,
             'last_heartbeat_at' => $heartbeatAt?->toDateTimeString(),
             'stale_threshold_seconds' => $degradedAfterSeconds,
             'summary' => $this->statusSummaryText($status, $summary, $required),
@@ -197,6 +208,49 @@ class AutomationHealthService
         return self::STATUS_HEALTHY;
     }
 
+    private function incidentsForStatuses(array $statuses): array
+    {
+        return collect($statuses)
+            ->filter(fn (array $status) => $status['incident_open'])
+            ->map(fn (array $status) => [
+                'key' => $status['key'],
+                'label' => $status['label'],
+                'severity' => $status['severity'],
+                'summary' => $status['summary'],
+                'incident_open' => true,
+                'blocking' => $status['blocking'],
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function severityForStatus(string $status, bool $required): string
+    {
+        return match ($status) {
+            self::STATUS_HEALTHY => 'healthy',
+            self::STATUS_DEGRADED => $required ? 'degraded' : 'warning',
+            self::STATUS_STALE, self::STATUS_MISSING => $required ? 'blocked' : 'warning',
+            default => 'warning',
+        };
+    }
+
+    private function overallReadiness(array $statuses): string
+    {
+        if (collect($statuses)->contains(fn (array $status) => $status['severity'] === 'blocked')) {
+            return 'blocked';
+        }
+
+        if (collect($statuses)->contains(fn (array $status) => $status['severity'] === 'degraded')) {
+            return 'degraded';
+        }
+
+        if (collect($statuses)->contains(fn (array $status) => $status['severity'] === 'warning')) {
+            return 'warning';
+        }
+
+        return 'healthy';
+    }
+
     private function parseHeartbeat(mixed $value): ?Carbon
     {
         if ($value instanceof Carbon) {
@@ -231,5 +285,10 @@ class AutomationHealthService
     private function releaseRuntimeDegradedAfterSeconds(): int
     {
         return max(60, (int) config('operations.release_runtime_degraded_after_seconds', 300));
+    }
+
+    private function queueWorkerDegradedAfterSeconds(): int
+    {
+        return max(60, (int) config('operations.queue_worker_heartbeat_degraded_after_seconds', 180));
     }
 }

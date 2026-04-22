@@ -12,6 +12,7 @@ use App\Models\Site;
 use App\Models\WifiSession;
 use App\Services\AutomationHealthService;
 use App\Services\OperationalVerificationService;
+use App\Services\OperationalReadinessService;
 use App\Services\OperatorPayoutService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
@@ -24,6 +25,7 @@ class DashboardController extends Controller
     public function __invoke(
         OperatorPayoutService $payoutService,
         AutomationHealthService $automationHealthService,
+        OperationalReadinessService $operationalReadinessService,
         OperationalVerificationService $operationalVerificationService,
     ): Response
     {
@@ -160,6 +162,7 @@ class DashboardController extends Controller
             'mostPopularPlan' => $mostPopularPlan,
             'analytics' => $analytics,
             'automationStatus' => $automationHealthService->statusSummary(),
+            'operationalReadiness' => $operationalReadinessService->summary(),
             'operationalVerification' => $operationalVerificationService->latestResult(),
             'controllerSettings' => ControllerSetting::query()->first()?->only([
                 'controller_name',

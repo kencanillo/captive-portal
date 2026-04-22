@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\WifiSession;
+use App\Services\OperationalReadinessService;
 use App\Services\WifiSessionReleaseService;
 use Carbon\CarbonInterface;
 use Illuminate\Http\RedirectResponse;
@@ -86,11 +87,13 @@ class SessionController extends Controller
     public function retryRelease(
         Request $request,
         WifiSession $wifiSession,
+        OperationalReadinessService $operationalReadinessService,
         WifiSessionReleaseService $wifiSessionReleaseService
     ): RedirectResponse {
         $this->authorize('retryRelease', $wifiSession);
 
         try {
+            $operationalReadinessService->assertActionReady(OperationalReadinessService::ACTION_ADMIN_RETRY_RELEASE);
             $wifiSessionReleaseService->queueAdminRetry($wifiSession, $request->user());
         } catch (RuntimeException $exception) {
             return redirect()

@@ -8,6 +8,7 @@ const props = defineProps({
   availableSites: Array,
   sitesSynced: Boolean,
   recentPayoutRequests: Array,
+  recentAccountEntries: Array,
   recentSessions: Array,
 });
 
@@ -85,13 +86,32 @@ const updateSites = () => {
           </p>
           <div class="mt-6 grid gap-4 sm:grid-cols-2">
             <div>
-              <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-white/60">Revenue</p>
-              <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(operator.summary.revenue_total) }}</p>
+              <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-white/60">Gross AP Fees</p>
+              <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(operator.summary.gross_billed_fees) }}</p>
             </div>
             <div>
               <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-white/60">Available Balance</p>
               <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(operator.summary.available_balance) }}</p>
             </div>
+            <div>
+              <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-white/60">Reversed Fees</p>
+              <p class="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(operator.summary.reversed_fees) }}</p>
+            </div>
+            <div>
+              <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-white/60">Blocked Fees</p>
+              <p class="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(operator.summary.blocked_fees) }}</p>
+            </div>
+          </div>
+          <div class="mt-6 rounded-[20px] border border-white/10 bg-white/8 px-5 py-4">
+            <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-white/60">Net Payable Fees</p>
+            <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(operator.summary.net_payable_fees) }}</p>
+            <p class="mt-2 text-sm text-slate-300">
+              Confidence: {{ operator.summary.confidence_state }}.
+              {{ operator.summary.unresolved_blocked_count }} unresolved blocked fee incidents.
+            </p>
+          </div>
+          <div v-if="operator.summary.confidence_reasons?.length" class="mt-4 rounded-[20px] border border-amber-200/40 bg-amber-500/10 px-4 py-4 text-sm text-amber-100">
+            <p v-for="reason in operator.summary.confidence_reasons" :key="reason">{{ reason }}</p>
           </div>
         </div>
 
@@ -168,6 +188,23 @@ const updateSites = () => {
         </div>
 
         <div class="grid gap-6 xl:grid-cols-2">
+          <section class="app-card p-6">
+            <p class="app-kicker">Accounting Statement</p>
+            <h2 class="mt-2 app-section-title">Recent AP fee entries</h2>
+            <div class="mt-5 space-y-3">
+              <article v-for="item in recentAccountEntries" :key="item.id" class="rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-4">
+                <p class="font-semibold text-slate-950">
+                  {{ formatCurrency(item.amount) }} • {{ item.direction }}
+                  <span v-if="!item.affects_payable" class="text-amber-700">• excluded from payable</span>
+                </p>
+                <p class="mt-1 text-sm text-slate-500">
+                  {{ item.site?.name || 'No site' }} • {{ item.access_point?.name || 'No AP' }} • source #{{ item.source_billing_ledger_entry_id }}
+                </p>
+              </article>
+              <div v-if="!recentAccountEntries.length" class="app-empty">No accounting entries yet.</div>
+            </div>
+          </section>
+
           <section class="app-card p-6">
             <p class="app-kicker">Payout Requests</p>
             <h2 class="mt-2 app-section-title">Recent payout activity</h2>

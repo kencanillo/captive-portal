@@ -7,17 +7,23 @@ use App\Models\AccessPoint;
 use App\Models\Payment;
 use App\Models\WifiSession;
 use App\Services\AccessPointHealthService;
+use App\Services\OperatorAccountingService;
 use App\Services\OperatorPayoutService;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(OperatorPayoutService $payoutService, AccessPointHealthService $healthService): Response
+    public function __invoke(
+        OperatorPayoutService $payoutService,
+        OperatorAccountingService $operatorAccountingService,
+        AccessPointHealthService $healthService,
+    ): Response
     {
         $operator = request()->user()->loadMissing('operator.sites')->operator;
         $siteIds = $operator->sites()->pluck('id');
         $balance = $payoutService->summary($operator);
+        $accounting = $operatorAccountingService->summary($operator);
 
         return Inertia::render('Operator/Dashboard', [
             'summary' => [
@@ -25,8 +31,13 @@ class DashboardController extends Controller
                 'access_points_count' => AccessPoint::query()->forOperator($operator)->count(),
                 'active_sessions_count' => WifiSession::query()->forOperator($operator)->where('is_active', true)->count(),
                 'completed_payments_count' => Payment::query()->forOperator($operator)->where('status', Payment::STATUS_PAID)->count(),
-                'revenue_total' => number_format((float) $balance['earnings'], 2, '.', ''),
+                'gross_billed_fees' => number_format((float) $accounting['gross_billed_fees'], 2, '.', ''),
+                'reversed_fees' => number_format((float) $accounting['reversed_fees'], 2, '.', ''),
+                'blocked_fees' => number_format((float) $accounting['blocked_fees'], 2, '.', ''),
+                'net_payable_fees' => number_format((float) $accounting['net_payable_fees'], 2, '.', ''),
                 'available_balance' => number_format((float) $balance['available_balance'], 2, '.', ''),
+                'confidence_state' => $accounting['confidence_state'],
+                'unresolved_blocked_count' => $accounting['unresolved_blocked_count'],
             ],
             'sites' => $operator->sites()
                 ->orderBy('name')

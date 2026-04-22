@@ -56,6 +56,11 @@ class Operator extends Model
         return $this->hasMany(PayoutRequest::class);
     }
 
+    public function payoutSettlements(): HasMany
+    {
+        return $this->hasMany(PayoutSettlement::class);
+    }
+
     public function accessPointClaims(): HasMany
     {
         return $this->hasMany(AccessPointClaim::class);

@@ -9,6 +9,7 @@ use App\Models\Operator;
 use App\Models\PayoutRequest;
 use App\Models\Site;
 use App\Models\WifiSession;
+use App\Services\OperatorAccountingService;
 use App\Services\OperatorPayoutService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -50,7 +51,11 @@ class OperatorController extends Controller
         ]);
     }
 
-    public function show(Operator $operator, OperatorPayoutService $payoutService): Response
+    public function show(
+        Operator $operator,
+        OperatorPayoutService $payoutService,
+        OperatorAccountingService $operatorAccountingService,
+    ): Response
     {
         $operator->load(['user:id,email', 'sites:id,operator_id,name,slug', 'reviewedBy:id,name']);
         $summary = $payoutService->summary($operator);
@@ -75,8 +80,14 @@ class OperatorController extends Controller
                     'slug' => $site->slug,
                 ])->all(),
                 'summary' => [
-                    'revenue_total' => number_format((float) $summary['earnings'], 2, '.', ''),
+                    'gross_billed_fees' => number_format((float) $summary['gross_billed_fees'], 2, '.', ''),
+                    'reversed_fees' => number_format((float) $summary['reversed_fees'], 2, '.', ''),
+                    'blocked_fees' => number_format((float) $summary['blocked_fees'], 2, '.', ''),
+                    'net_payable_fees' => number_format((float) $summary['net_payable_fees'], 2, '.', ''),
                     'available_balance' => number_format((float) $summary['available_balance'], 2, '.', ''),
+                    'confidence_state' => $summary['confidence_state'],
+                    'confidence_reasons' => $summary['confidence_reasons'],
+                    'unresolved_blocked_count' => $summary['unresolved_blocked_count'],
                 ],
             ],
             'availableSites' => Site::query()
@@ -103,6 +114,7 @@ class OperatorController extends Controller
                     'processing_mode' => $payoutRequest->processing_mode,
                     'provider' => $payoutRequest->provider,
                 ]),
+            'recentAccountEntries' => $operatorAccountingService->statement($operator, 10)->all(),
             'recentSessions' => WifiSession::query()
                 ->forOperator($operator)
                 ->with(['site:id,name', 'plan:id,name'])

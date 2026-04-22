@@ -17,6 +17,7 @@ class OperationalVerificationService
 
     public function __construct(
         private readonly AutomationHealthService $automationHealthService,
+        private readonly MigrationPortabilityService $migrationPortabilityService,
         private readonly OmadaService $omadaService,
     ) {
     }
@@ -28,11 +29,13 @@ class OperationalVerificationService
 
         $checks = [
             $this->controllerConnectivityCheck($settings),
+            $this->automationCheck('queue_worker_freshness', 'Queue worker freshness', $this->automationStatusFor($automation, 'queue_worker')),
             $this->automationCheck('ap_sync_freshness', 'AP sync freshness', $this->automationStatusFor($automation, 'ap_sync')),
             $this->automationCheck('ap_health_reconcile_freshness', 'AP health reconcile freshness', $this->automationStatusFor($automation, 'ap_health_reconcile')),
             $this->automationCheck('release_reconcile_freshness', 'Release reconcile freshness', $this->automationStatusFor($automation, 'release_reconcile')),
             $this->automationCheck('billing_post_freshness', 'Billing post freshness', $this->automationStatusFor($automation, 'billing_post')),
             $this->automationCheck('scheduler_activity', 'Scheduler activity', $this->automationStatusFor($automation, 'scheduler')),
+            $this->migrationPortabilityCheck(),
         ];
 
         $overallStatus = collect($checks)->contains(fn (array $check) => $check['status'] === self::STATUS_FAIL)
@@ -150,5 +153,28 @@ class OperationalVerificationService
     private function verificationCacheTtlSeconds(): int
     {
         return max(300, (int) config('operations.verification_cache_ttl_seconds', 86400));
+    }
+
+    private function migrationPortabilityCheck(): array
+    {
+        $result = $this->migrationPortabilityService->verify();
+
+        if (($result['status'] ?? 'fail') === 'pass') {
+            return [
+                'key' => 'migration_portability',
+                'label' => 'Migration portability',
+                'status' => self::STATUS_PASS,
+                'summary' => 'Known fragile generated-column migration pattern was not detected.',
+            ];
+        }
+
+        $firstIssue = $result['issues'][0]['summary'] ?? 'Migration portability verification failed.';
+
+        return [
+            'key' => 'migration_portability',
+            'label' => 'Migration portability',
+            'status' => self::STATUS_FAIL,
+            'summary' => $firstIssue,
+        ];
     }
 }

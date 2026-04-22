@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DeviceTransferRequestController;
 use App\Http\Controllers\Admin\OperatorController as AdminOperatorController;
 use App\Http\Controllers\Admin\PaymentController as AdminPaymentController;
+use App\Http\Controllers\Admin\PayoutExecutionAttemptController as AdminPayoutExecutionAttemptController;
 use App\Http\Controllers\Admin\PayoutRequestController as AdminPayoutRequestController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\SessionController;
@@ -172,9 +173,21 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/payout-requests', [AdminPayoutRequestController::class, 'index'])->name('payout-requests.index');
     Route::post('/payout-requests/{payoutRequest}/approve', [AdminPayoutRequestController::class, 'approve'])->name('payout-requests.approve');
     Route::post('/payout-requests/{payoutRequest}/reject', [AdminPayoutRequestController::class, 'reject'])->name('payout-requests.reject');
+    Route::post('/payout-requests/{payoutRequest}/cancel', [AdminPayoutRequestController::class, 'cancel'])->name('payout-requests.cancel');
+    Route::post('/payout-requests/{payoutRequest}/return-to-review', [AdminPayoutRequestController::class, 'returnToReview'])->name('payout-requests.return-to-review');
+    Route::post('/payout-requests/{payoutRequest}/settle', [AdminPayoutRequestController::class, 'settle'])->name('payout-requests.settle');
+    Route::post('/payout-requests/{payoutRequest}/confirm-settlement-handoff', [AdminPayoutRequestController::class, 'confirmSettlementHandoff'])->name('payout-requests.confirm-settlement-handoff');
+    Route::post('/payout-requests/{payoutRequest}/trigger-execution', [AdminPayoutRequestController::class, 'triggerExecution'])->name('payout-requests.trigger-execution');
+    Route::post('/payout-requests/{payoutRequest}/reverse-settlement', [AdminPayoutRequestController::class, 'reverseSettlement'])->name('payout-requests.reverse-settlement');
+    Route::post('/payout-requests/{payoutRequest}/cancel-and-release', [AdminPayoutRequestController::class, 'cancelAndRelease'])->name('payout-requests.cancel-and-release');
+    Route::post('/payout-requests/{payoutRequest}/resolve-return-to-review', [AdminPayoutRequestController::class, 'resolveReturnToReview'])->name('payout-requests.resolve-return-to-review');
     Route::post('/payout-requests/{payoutRequest}/processing', [AdminPayoutRequestController::class, 'markProcessing'])->name('payout-requests.processing');
     Route::post('/payout-requests/{payoutRequest}/paid', [AdminPayoutRequestController::class, 'markPaid'])->name('payout-requests.paid');
     Route::post('/payout-requests/{payoutRequest}/failed', [AdminPayoutRequestController::class, 'markFailed'])->name('payout-requests.failed');
+    Route::post('/payout-execution-attempts/{payoutExecutionAttempt}/reconcile', [AdminPayoutExecutionAttemptController::class, 'reconcile'])->name('payout-execution-attempts.reconcile');
+    Route::post('/payout-execution-attempts/{payoutExecutionAttempt}/retry', [AdminPayoutExecutionAttemptController::class, 'retry'])->name('payout-execution-attempts.retry');
+    Route::post('/payout-execution-attempts/{payoutExecutionAttempt}/mark-completed', [AdminPayoutExecutionAttemptController::class, 'markCompleted'])->name('payout-execution-attempts.mark-completed');
+    Route::post('/payout-execution-attempts/{payoutExecutionAttempt}/mark-terminal-failed', [AdminPayoutExecutionAttemptController::class, 'markTerminalFailed'])->name('payout-execution-attempts.mark-terminal-failed');
 });
 
 Route::middleware(['auth', 'can:access-operator-panel'])->prefix('operator')->name('operator.')->group(function (): void {
