@@ -43,4 +43,6 @@ if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
     php artisan migrate --force --no-interaction
 fi
 
+php-fpm --daemonize --pid /run/php/php-fpm.pid
+
 exec "$@"
