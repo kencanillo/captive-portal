@@ -43,6 +43,10 @@ if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
     php artisan migrate --force --no-interaction
 fi
 
+if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
+    php artisan db:seed --class=AdminUserSeeder --force --no-interaction
+fi
+
 php-fpm --daemonize --pid /run/php/php-fpm.pid
 
 exec "$@"
