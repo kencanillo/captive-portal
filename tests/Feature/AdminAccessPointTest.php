@@ -137,7 +137,7 @@ class AdminAccessPointTest extends TestCase
                 ->has('healthRuntime'));
     }
 
-    public function test_access_points_page_marks_automatic_sync_disabled_when_only_openapi_credentials_exist(): void
+    public function test_access_points_page_marks_automatic_sync_enabled_when_only_openapi_credentials_exist(): void
     {
         $admin = User::factory()->create(['is_admin' => true]);
         ControllerSetting::query()->create([
@@ -153,8 +153,101 @@ class AdminAccessPointTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Admin/AccessPoints')
-                ->where('syncConfigured', false)
+                ->where('syncConfigured', true)
                 ->where('webhookCapabilityVerdict', 'webhook_not_safely_supported_using_current_setup'));
+    }
+
+    public function test_admin_can_sync_access_points_from_omada_using_openapi_credentials_without_legacy_login(): void
+    {
+        Http::fake([
+            'https://localhost:8043/api/info' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
+            ]),
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'access-token',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites?page=1&pageSize=1000' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [[
+                        'siteId' => 'site-001',
+                        'name' => 'Main Branch',
+                    ]],
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/site-001/devices/all' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [[
+                    'mac' => '11-22-33-44-55-66',
+                    'name' => 'Front Gate AP',
+                    'type' => 'ap',
+                    'model' => 'EAP110',
+                    'ip' => '192.168.1.2',
+                    'sn' => 'SN123456789',
+                    'status' => 1,
+                    'lastSeen' => 1711987200000,
+                ]],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/site-001/grid/devices/pending?page=1&pageSize=1000' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'totalRows' => 1,
+                    'data' => [[
+                        'mac' => 'AA-BB-CC-DD-EE-FF',
+                        'name' => 'Back Gate AP',
+                        'type' => 'ap',
+                        'model' => 'EAP225',
+                        'ip' => '192.168.1.3',
+                        'sn' => 'SN987654321',
+                        'status' => 2,
+                    ]],
+                ],
+            ]),
+        ]);
+
+        $admin = User::factory()->create(['is_admin' => true]);
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'username' => 'wrong-local-user',
+            'password' => 'wrong-local-password',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
+            'default_session_minutes' => 60,
+        ]);
+
+        $this->actingAs($admin)
+            ->post('/admin/access-points/sync')
+            ->assertRedirect('/admin/access-points')
+            ->assertSessionHas('success', 'Omada sync finished. 2 devices scanned, 1 claimed, 1 pending, 2 created, 0 updated.');
+
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/api/v2/login'));
+
+        $this->assertDatabaseHas('access_points', [
+            'name' => 'Front Gate AP',
+            'mac_address' => '11:22:33:44:55:66',
+            'claim_status' => 'claimed',
+        ]);
+
+        $this->assertDatabaseHas('access_points', [
+            'name' => 'Back Gate AP',
+            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+            'claim_status' => 'pending',
+        ]);
     }
 
     public function test_sync_does_not_fall_back_to_global_site_name_when_device_payload_is_missing_site_details(): void

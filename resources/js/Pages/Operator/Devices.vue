@@ -69,28 +69,77 @@ const csrfToken = usePage().props.csrf_token;
 
     <section class="mt-8 space-y-6">
       <section class="app-card-strong p-7">
-        <div class="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <p class="app-kicker">Claim Workflow</p>
-            <h2 class="mt-2 app-section-title">Submit AP ownership claim</h2>
-            <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
-              Device names are noise. Claim with serial number or MAC, tie it to your intended site, then wait for admin approval before adoption.
-            </p>
+        <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr),30rem]">
+          <div class="space-y-5">
+            <div>
+              <p class="app-kicker">Claim Workflow</p>
+              <h2 class="mt-2 app-section-title">Submit AP ownership claim</h2>
+              <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
+                Device names are noise. Claim with serial number or MAC, tie it to your intended site, then wait for admin approval before adoption.
+              </p>
+            </div>
+
+            <div class="grid gap-3 md:grid-cols-3">
+              <article class="app-panel">
+                <p class="app-label">Step 1</p>
+                <p class="text-sm font-semibold text-slate-950">Target the correct site</p>
+                <p class="mt-2 text-sm leading-6 text-slate-500">Claims without the right site mapping become admin cleanup. Stop feeding bad data into the queue.</p>
+              </article>
+              <article class="app-panel">
+                <p class="app-label">Step 2</p>
+                <p class="text-sm font-semibold text-slate-950">Use serial first</p>
+                <p class="mt-2 text-sm leading-6 text-slate-500">Serial is the clean fingerprint. MAC is fallback. AP name is just a hint and not authoritative.</p>
+              </article>
+              <article class="app-panel">
+                <p class="app-label">Step 3</p>
+                <p class="text-sm font-semibold text-slate-950">Wait for approval</p>
+                <p class="mt-2 text-sm leading-6 text-slate-500">Adoption stays blocked until admin review and fresh controller inventory both agree.</p>
+              </article>
+            </div>
           </div>
-          <form method="POST" :action="route('operator.access-point-claims.store')" class="grid gap-3 rounded-[24px] border border-slate-200/80 bg-white/80 p-4 xl:min-w-[28rem] xl:max-w-[32rem]">
+
+          <form
+            method="POST"
+            :action="route('operator.access-point-claims.store')"
+            class="overflow-hidden rounded-[28px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.92))] shadow-[0_28px_70px_-44px_rgba(19,27,46,0.4)]"
+          >
             <input type="hidden" name="_token" :value="csrfToken" />
-            <select name="site_id" class="app-input" required>
-              <option value="">Select site</option>
-              <option v-for="site in claimableSites" :key="site.id" :value="site.id">
-                {{ site.name }}
-              </option>
-            </select>
-            <input name="requested_serial_number" type="text" class="app-input" placeholder="Serial number (preferred)" />
-            <input name="requested_mac_address" type="text" class="app-input" placeholder="MAC address (fallback if serial is unavailable)" />
-            <input name="requested_ap_name" type="text" class="app-input" placeholder="AP name hint only (optional)" />
-            <button type="submit" class="app-button-primary justify-center">
-              Submit claim
-            </button>
+
+            <div class="border-b border-slate-200/80 bg-slate-50/70 px-5 py-4">
+              <p class="app-kicker">Claim Console</p>
+              <p class="mt-2 text-sm leading-6 text-slate-500">Submit one clean fingerprinted claim. Sloppy input here creates stale review debt later.</p>
+            </div>
+
+            <div class="grid gap-5 p-5">
+              <div>
+                <label class="app-label">Assigned Site</label>
+                <select name="site_id" class="app-field" required>
+                  <option value="">Select site</option>
+                  <option v-for="site in claimableSites" :key="site.id" :value="site.id">
+                    {{ site.name }}
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label class="app-label">Serial Number</label>
+                <input name="requested_serial_number" type="text" class="app-field" placeholder="Serial number (preferred)" />
+              </div>
+
+              <div>
+                <label class="app-label">MAC Address</label>
+                <input name="requested_mac_address" type="text" class="app-field" placeholder="MAC address (fallback if serial is unavailable)" />
+              </div>
+
+              <div>
+                <label class="app-label">AP Name Hint</label>
+                <input name="requested_ap_name" type="text" class="app-field" placeholder="AP name hint only (optional)" />
+              </div>
+
+              <button type="submit" class="app-button-primary w-full justify-center">
+                Submit claim
+              </button>
+            </div>
           </form>
         </div>
         <div class="mt-6 space-y-3">

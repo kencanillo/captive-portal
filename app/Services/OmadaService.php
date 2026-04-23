@@ -227,12 +227,18 @@ class OmadaService
     public function syncAccessPoints(ControllerSetting $settings): array
     {
         $normalized = $this->normalizeSettings($settings);
-        $client = $this->authenticatedClient($normalized, 'AP sync');
         $syncedAt = now();
         $this->accessPointHealthService->noteSyncHeartbeat($syncedAt);
+        $adoptedDevices = [];
+        $pendingDevices = [];
 
-        $adoptedDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/adopted');
-        $pendingDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/pending');
+        if ($this->hasOpenApiCredentials($normalized)) {
+            [$adoptedDevices, $pendingDevices] = $this->fetchAccessPointsViaOpenApi($normalized);
+        } else {
+            $client = $this->authenticatedClient($normalized, 'AP sync');
+            $adoptedDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/adopted');
+            $pendingDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/pending');
+        }
 
         $created = 0;
         $updated = 0;
@@ -791,6 +797,198 @@ class OmadaService
         return is_array($result) && array_is_list($result) ? $result : [];
     }
 
+    private function fetchAccessPointsViaOpenApi(array $settings): array
+    {
+        $openApi = $this->openApiAuthenticatedClient($settings);
+        $sites = $this->fetchOpenApiSites($openApi);
+        $adoptedDevices = [];
+        $pendingDevices = [];
+        $pendingFingerprintIndex = [];
+
+        foreach ($sites as $sitePayload) {
+            $siteId = $this->resolveOmadaSiteIdentifier($sitePayload);
+            $siteName = $this->resolveOmadaSiteName($sitePayload);
+
+            if (! $siteId || ! $siteName) {
+                continue;
+            }
+
+            foreach ($this->fetchOpenApiSiteDevices($openApi, $siteId) as $device) {
+                if (! $this->isAccessPointDevice($device) || $this->isPendingOpenApiDevice($device)) {
+                    continue;
+                }
+
+                $adoptedDevices[] = $this->withDeviceSiteContext($device, $siteName, $siteId);
+            }
+
+            foreach ($this->fetchOpenApiPendingDevices($openApi, $siteId) as $device) {
+                if (! $this->isAccessPointDevice($device)) {
+                    continue;
+                }
+
+                $fingerprint = $this->deviceFingerprint($device);
+
+                if ($fingerprint && isset($pendingFingerprintIndex[$fingerprint])) {
+                    continue;
+                }
+
+                if ($fingerprint) {
+                    $pendingFingerprintIndex[$fingerprint] = true;
+                }
+
+                $pendingDevices[] = $this->withDeviceSiteContext($device, $siteName, $siteId);
+            }
+        }
+
+        return [$adoptedDevices, $pendingDevices];
+    }
+
+    private function fetchOpenApiSites(array $openApi): array
+    {
+        $payload = $this->request(
+            $openApi['client'],
+            'get',
+            "/openapi/v1/{$openApi['controller_id']}/sites",
+            [
+                'page' => 1,
+                'pageSize' => 1000,
+            ]
+        );
+
+        return $this->extractSitesFromPayload($payload);
+    }
+
+    private function fetchOpenApiSiteDevices(array $openApi, string $siteId): array
+    {
+        $payload = $this->request(
+            $openApi['client'],
+            'get',
+            "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/devices/all"
+        );
+
+        return $this->extractDevicesFromPayload($payload);
+    }
+
+    private function fetchOpenApiPendingDevices(array $openApi, string $siteId): array
+    {
+        return $this->fetchOpenApiPaginatedDeviceList(
+            $openApi,
+            "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/grid/devices/pending"
+        );
+    }
+
+    private function fetchOpenApiPaginatedDeviceList(array $openApi, string $uri): array
+    {
+        $page = 1;
+        $pageSize = 1000;
+        $devices = [];
+
+        do {
+            $payload = $this->request(
+                $openApi['client'],
+                'get',
+                $uri,
+                [
+                    'page' => $page,
+                    'pageSize' => $pageSize,
+                ]
+            );
+
+            $pageDevices = $this->extractDevicesFromPayload($payload);
+            $devices = [...$devices, ...$pageDevices];
+            $totalRows = (int) (Arr::get($payload, 'result.totalRows') ?? count($pageDevices));
+            $page++;
+        } while (count($pageDevices) === $pageSize && count($devices) < $totalRows);
+
+        return $devices;
+    }
+
+    private function extractDevicesFromPayload(array $payload): array
+    {
+        foreach ([
+            'result.data',
+            'result.rows',
+            'result.devices',
+            'result.list',
+            'data',
+            'rows',
+        ] as $path) {
+            $value = Arr::get($payload, $path);
+
+            if (is_array($value) && array_is_list($value)) {
+                return $value;
+            }
+        }
+
+        $result = Arr::get($payload, 'result');
+
+        return is_array($result) && array_is_list($result) ? $result : [];
+    }
+
+    private function withDeviceSiteContext(array $device, string $siteName, string $siteId): array
+    {
+        $device['siteName'] = $device['siteName'] ?? $siteName;
+        $device['siteId'] = $device['siteId'] ?? $siteId;
+
+        return $device;
+    }
+
+    private function deviceFingerprint(array $device): ?string
+    {
+        $mac = $this->normalizeMac($this->firstFilled($device, [
+            'mac',
+            'macAddress',
+        ]));
+
+        if ($mac) {
+            return "mac:{$mac}";
+        }
+
+        $serial = $this->stringOrNull($this->firstFilled($device, [
+            'sn',
+            'serialNumber',
+            'serial_number',
+        ]));
+
+        return $serial ? "serial:{$serial}" : null;
+    }
+
+    private function isAccessPointDevice(array $device): bool
+    {
+        $type = strtolower((string) ($this->firstFilled($device, [
+            'type',
+            'deviceType',
+        ]) ?? ''));
+        $model = strtolower((string) ($this->firstFilled($device, [
+            'model',
+            'deviceModel',
+        ]) ?? ''));
+
+        if ($type === '') {
+            return str_starts_with($model, 'eap') || $model === '';
+        }
+
+        return str_contains($type, 'ap') || str_contains($model, 'eap');
+    }
+
+    private function isPendingOpenApiDevice(array $device): bool
+    {
+        $status = $this->firstFilled($device, [
+            'status',
+            'statusCategory',
+        ]);
+        $detailStatus = $this->firstFilled($device, [
+            'detailStatus',
+            'deviceDetailStatus',
+        ]);
+
+        $normalizedStatus = is_string($status) ? strtolower($status) : $status;
+        $normalizedDetailStatus = is_string($detailStatus) ? strtolower($detailStatus) : $detailStatus;
+
+        return in_array($normalizedStatus, [2, '2', 'pending'], true)
+            || in_array($normalizedDetailStatus, [20, 21, '20', '21', 'pending'], true);
+    }
+
     private function upsertAccessPoint(array $device, string $claimStatus, array $settings, Carbon $syncedAt): ?array
     {
         $macAddress = $this->normalizeMac($this->firstFilled($device, [
@@ -826,7 +1024,11 @@ class OmadaService
             'siteName',
             'site',
         ]));
-        $site = $siteName ? $this->resolveSite($siteName) : null;
+        $siteId = $this->stringOrNull($this->firstFilled($device, [
+            'siteId',
+            'site_id',
+        ]));
+        $site = ($siteName || $siteId) ? $this->resolveSite($siteName, $siteId) : null;
 
         $accessPoint->fill([
             'site_id' => $site?->id,
@@ -885,18 +1087,29 @@ class OmadaService
         ];
     }
 
-    private function resolveSite(?string $siteName): ?Site
+    private function resolveSite(?string $siteName, ?string $omadaSiteId = null): ?Site
     {
-        if (blank($siteName)) {
+        if (blank($siteName) && blank($omadaSiteId)) {
             return null;
         }
 
-        $site = Site::query()->firstWhere('name', $siteName);
+        $site = Site::query()
+            ->when(filled($omadaSiteId), fn ($query) => $query->where('omada_site_id', $omadaSiteId))
+            ->when(blank($omadaSiteId) && filled($siteName), fn ($query) => $query->where('name', $siteName))
+            ->first();
 
         if ($site) {
+            if (filled($omadaSiteId) && $site->omada_site_id !== $omadaSiteId) {
+                $site->forceFill([
+                    'omada_site_id' => $omadaSiteId,
+                    'name' => $siteName ?: $site->name,
+                ])->save();
+            }
+
             return $site;
         }
 
+        $siteName = $siteName ?: "Omada Site {$omadaSiteId}";
         $baseSlug = Str::slug($siteName) ?: 'location';
         $slug = $baseSlug;
         $suffix = 2;
@@ -909,6 +1122,7 @@ class OmadaService
         return Site::query()->create([
             'name' => $siteName,
             'slug' => $slug,
+            'omada_site_id' => $omadaSiteId,
         ]);
     }
 

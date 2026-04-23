@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 
 const props = defineProps({
@@ -11,6 +11,8 @@ const props = defineProps({
 
 const page = usePage();
 const navOpen = ref(false);
+const accountMenuOpen = ref(false);
+const accountMenuRef = ref(null);
 
 const user = computed(() => page.props.auth?.user || null);
 const currentPath = computed(() => page.url || '');
@@ -44,6 +46,10 @@ const accountNavigation = [
 const navigation = computed(() => (isAdmin.value ? adminNavigation : operatorNavigation));
 const workspaceLabel = computed(() => (isAdmin.value ? 'Admin Authority' : 'Operator Workspace'));
 const workspaceNote = computed(() => (isAdmin.value ? 'Network control plane' : 'Site-scoped operations'));
+const userDisplayName = computed(() => user.value?.operator_business_name || user.value?.name || user.value?.email || 'Portal user');
+const userRoleLabel = computed(() => (isAdmin.value ? 'Admin' : isOperator.value ? 'Operator' : 'Portal User'));
+const logoutUrl = computed(() => (isAdmin.value ? '/admin/logout' : '/logout'));
+const logoutRedirect = computed(() => (isAdmin.value ? '/admin/login' : '/'));
 
 const isActive = (href) => {
   if (href === '/admin/dashboard' || href === '/operator/dashboard') {
@@ -57,15 +63,41 @@ const closeNav = () => {
   navOpen.value = false;
 };
 
+const closeAccountMenu = () => {
+  accountMenuOpen.value = false;
+};
+
+const toggleAccountMenu = () => {
+  accountMenuOpen.value = !accountMenuOpen.value;
+};
+
+const handleAccountMenuClick = (event) => {
+  if (! accountMenuRef.value || accountMenuRef.value.contains(event.target)) {
+    return;
+  }
+
+  closeAccountMenu();
+};
+
 const logout = () => {
-  window.axios.post('/admin/logout')
+  closeAccountMenu();
+
+  window.axios.post(logoutUrl.value)
     .then(() => {
-      window.location.href = '/admin/login';
+      window.location.href = logoutRedirect.value;
     })
     .catch((error) => {
       console.error('Logout failed:', error);
     });
 };
+
+onMounted(() => {
+  document.addEventListener('click', handleAccountMenuClick);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleAccountMenuClick);
+});
 </script>
 
 <template>
@@ -124,19 +156,6 @@ const logout = () => {
           </div>
         </div>
 
-        <div class="mt-8 rounded-[24px] border border-white/10 bg-white/6 px-4 py-4">
-          <p class="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-200/60">{{ workspaceLabel }}</p>
-          <p class="mt-2 text-sm font-semibold text-white">{{ user?.operator_business_name || user?.name || 'Portal user' }}</p>
-          <p class="mt-1 text-xs text-slate-400">{{ workspaceNote }}</p>
-        </div>
-
-        <button
-          class="mt-4 inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/8 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/14 hover:text-white"
-          @click="logout"
-        >
-          <span class="material-symbols-outlined text-[18px]">logout</span>
-          <span>Logout</span>
-        </button>
       </div>
     </aside>
 
@@ -156,13 +175,66 @@ const logout = () => {
             </div>
           </div>
 
-          <div class="hidden items-center gap-4 md:flex">
-            <div class="flex items-center gap-3 rounded-full border border-slate-200/70 bg-slate-50/80 px-4 py-2.5">
+          <div class="flex items-center gap-3 sm:gap-4">
+            <div class="hidden items-center gap-3 rounded-full border border-slate-200/70 bg-slate-50/80 px-4 py-2.5 md:flex">
               <span class="material-symbols-outlined text-[18px] text-slate-400">search</span>
               <span class="text-sm text-slate-500">Search is staged into the redesign shell.</span>
             </div>
-            <div class="rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm font-medium text-slate-600">
-              {{ user?.email || 'Authenticated user' }}
+            <div ref="accountMenuRef" class="relative">
+              <button
+                class="inline-flex items-center gap-3 rounded-full border border-slate-200/70 bg-white px-3 py-2 text-left shadow-[0_16px_40px_-28px_rgba(19,27,46,0.42)] transition hover:border-slate-300 hover:bg-white"
+                @click="toggleAccountMenu"
+              >
+                <div class="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(135deg,#131b2e_0%,#223455_100%)] text-sm font-semibold text-white">
+                  {{ userDisplayName.slice(0, 1).toUpperCase() }}
+                </div>
+                <div class="hidden min-w-0 sm:block">
+                  <p class="truncate text-sm font-semibold text-slate-950">{{ userDisplayName }}</p>
+                  <p class="truncate text-xs uppercase tracking-[0.18em] text-slate-400">{{ userRoleLabel }}</p>
+                </div>
+                <span class="material-symbols-outlined text-[18px] text-slate-400">expand_more</span>
+              </button>
+
+              <div
+                v-if="accountMenuOpen"
+                class="absolute right-0 top-[calc(100%+0.75rem)] w-[20rem] rounded-[26px] border border-white/70 bg-white/92 p-3 shadow-[0_30px_80px_-35px_rgba(19,27,46,0.42)] backdrop-blur-xl"
+              >
+                <div class="rounded-[22px] bg-[linear-gradient(160deg,#131b2e_0%,#1d2842_100%)] px-4 py-4 text-white">
+                  <p class="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-200/65">{{ workspaceLabel }}</p>
+                  <p class="mt-3 text-base font-semibold">{{ userDisplayName }}</p>
+                  <p class="mt-1 text-sm text-slate-300">{{ user?.email || 'Authenticated user' }}</p>
+                  <div class="mt-4 flex items-center justify-between gap-3">
+                    <span class="inline-flex rounded-full bg-white/12 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em] text-sky-100">
+                      {{ userRoleLabel }}
+                    </span>
+                    <span class="text-xs text-slate-300">{{ workspaceNote }}</span>
+                  </div>
+                </div>
+
+                <div class="mt-3 space-y-1">
+                  <Link
+                    v-for="item in accountNavigation"
+                    :key="item.href"
+                    :href="item.href"
+                    class="flex items-center justify-between rounded-[18px] px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                    @click="closeAccountMenu"
+                  >
+                    <span class="flex items-center gap-3">
+                      <span class="material-symbols-outlined text-[18px] text-slate-500">{{ item.icon }}</span>
+                      <span>{{ item.label }}</span>
+                    </span>
+                    <span class="material-symbols-outlined text-[18px] text-slate-400">arrow_forward</span>
+                  </Link>
+                </div>
+
+                <button
+                  class="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  @click="logout"
+                >
+                  <span class="material-symbols-outlined text-[18px]">logout</span>
+                  <span>Logout</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -65,7 +65,7 @@ class ControllerSetting extends Model
 
     public function canSyncAccessPoints(): bool
     {
-        return filled($this->base_url) && $this->hasLegacyCredentials();
+        return filled($this->base_url) && ($this->hasOpenApiCredentials() || $this->hasLegacyCredentials());
     }
 
     public function canSyncSites(): bool
