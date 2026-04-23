@@ -46,9 +46,7 @@ RUN apt-get update \
     && docker-php-ext-enable redis \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" bcmath gd intl opcache pcntl pdo_mysql zip \
-    && a2enmod headers rewrite \
-    && a2dismod mpm_event mpm_worker 2>/dev/null || true \
-    && a2enmod mpm_prefork \
+    && a2enmod headers rewrite mpm_prefork \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /var/www/html
@@ -58,6 +56,7 @@ COPY --from=composer_deps /app/vendor ./vendor
 COPY --from=frontend_deps /app/public/build ./public/build
 COPY docker/apache-vhost.conf /etc/apache2/sites-available/000-default.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-captive-portal.ini
+COPY docker/mpm-prefork.conf /etc/apache2/mods-available/mpm_prefork.conf
 COPY docker/entrypoint.sh /usr/local/bin/portal-entrypoint
 
 RUN chmod +x /usr/local/bin/portal-entrypoint \
