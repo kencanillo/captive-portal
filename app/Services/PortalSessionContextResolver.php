@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AccessPoint;
 use App\Models\Site;
+use App\Support\MacAddress;
 use Illuminate\Support\Str;
 
 class PortalSessionContextResolver
@@ -88,9 +89,7 @@ class PortalSessionContextResolver
 
     private function normalizeMac(null|string $value): ?string
     {
-        $value = strtolower(trim((string) $value));
-
-        return $value !== '' ? $value : null;
+        return MacAddress::normalizeForStorage($value);
     }
 
     private function normalizeRadioId(mixed $value): ?int

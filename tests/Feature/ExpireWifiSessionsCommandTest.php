@@ -62,10 +62,16 @@ class ExpireWifiSessionsCommandTest extends TestCase
         ]);
 
         $activeSession = WifiSession::query()->create([
-            'client_id' => $client->id,
+            'client_id' => Client::query()->create([
+                'name' => 'Maria Clara',
+                'phone_number' => '09170000001',
+                'pin' => bcrypt('1234'),
+                'mac_address' => 'AA:BB:CC:DD:EE:11',
+                'last_connected_at' => now(),
+            ])->id,
             'plan_id' => $plan->id,
             'site_id' => $site->id,
-            'mac_address' => $client->mac_address,
+            'mac_address' => 'AA:BB:CC:DD:EE:11',
             'ap_mac' => '11:22:33:44:55:67',
             'ap_name' => 'South Pole AP',
             'ssid_name' => 'KRC_Coinless_Wifi_VEndo',

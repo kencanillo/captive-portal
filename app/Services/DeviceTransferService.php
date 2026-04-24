@@ -8,6 +8,7 @@ use App\Models\ControllerSetting;
 use App\Models\DeviceTransferRequest;
 use App\Models\User;
 use App\Models\WifiSession;
+use App\Support\MacAddress;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
@@ -18,6 +19,7 @@ class DeviceTransferService
 {
     public function __construct(
         private readonly OmadaService $omadaService,
+        private readonly WifiSessionAuthorizationService $wifiSessionAuthorizationService,
     ) {
     }
 
@@ -66,7 +68,7 @@ class DeviceTransferService
                 'client_id' => $client->id,
                 'active_wifi_session_id' => $lockedActiveSession->id,
                 'from_client_device_id' => $lockedActiveSession->client_device_id,
-                'requested_mac_address' => strtolower($requestedMacAddress),
+                'requested_mac_address' => MacAddress::normalizeForStorage($requestedMacAddress) ?? strtolower($requestedMacAddress),
                 'requested_phone_number' => $requestedPhoneNumber,
                 'status' => DeviceTransferRequest::STATUS_PENDING_REVIEW,
                 'requested_at' => now(),
@@ -115,7 +117,7 @@ class DeviceTransferService
                 return $lockedRequest->refresh(['client', 'fromDevice', 'activeWifiSession', 'reviewedBy']);
             }
 
-            $targetMacAddress = strtolower($lockedRequest->requested_mac_address);
+            $targetMacAddress = MacAddress::normalizeForStorage($lockedRequest->requested_mac_address) ?? strtolower($lockedRequest->requested_mac_address);
             $targetDevice = ClientDevice::query()
                 ->whereRaw('LOWER(mac_address) = ?', [$targetMacAddress])
                 ->lockForUpdate()
@@ -185,6 +187,7 @@ class DeviceTransferService
                 ])->save();
 
                 $this->omadaService->authorizeClient($settings, $activeSession->fresh(['site', 'accessPoint', 'plan', 'client']));
+                $this->wifiSessionAuthorizationService->markSessionAuthorized($activeSession, 'device_transfer');
 
                 if ($lockedRequest->fromDevice) {
                     $lockedRequest->fromDevice->forceFill([

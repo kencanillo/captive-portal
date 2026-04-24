@@ -3,18 +3,16 @@
 namespace App\Services;
 
 use App\Models\Client;
-use App\Models\ControllerSetting;
-use App\Models\WifiSession;
+use App\Support\MacAddress;
 use App\Support\PortalTokenService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class PortalDeviceContextService
 {
     public function __construct(
-        private readonly OmadaService $omadaService,
+        private readonly WifiSessionAuthorizationService $wifiSessionAuthorizationService,
         private readonly PortalTokenService $portalTokenService,
     ) {
     }
@@ -38,75 +36,24 @@ class PortalDeviceContextService
         $startedAt = microtime(true);
         $requestId = $this->requestId($request);
         $portalContext = $this->buildInitialContext($request);
-        $resolvedClientIp = Arr::get($portalContext, 'client_ip');
-        $queryMacAddress = $this->normalizeMac(
-            $this->firstFilled($request, ['clientMac', 'client_mac', 'mac_address', 'mac'])
-        );
-        $macAddress = null;
+        $sourceIp = $request->ip();
+        $trustedResolution = $this->resolveTrustedClientMacFromRequest($request);
+        $macAddress = $trustedResolution['mac_address'];
         $existingClient = null;
         $activeSession = null;
-        $resolutionSource = 'none';
-        $status = 'pending';
-        $errorCode = null;
-        $retryAfterMs = $this->defaultRetryAfterMs();
-        $deviceContextCacheHit = false;
+        $resolutionSource = $trustedResolution['resolution_source'];
+        $status = $trustedResolution['trusted'] ? 'resolved' : 'failed';
+        $errorCode = $trustedResolution['error_code'];
+        $retryAfterMs = 0;
 
-        $phase1Start = microtime(true);
-        if ($queryMacAddress) {
-            $existingClient = Client::findByMacAddress($queryMacAddress);
-            $activeSession = $this->findActiveSession($queryMacAddress);
-
-            if ($existingClient) {
-                $macAddress = $existingClient->mac_address;
-                $resolutionSource = 'known_client_db';
-                $status = 'resolved';
-            } elseif ($activeSession) {
-                $macAddress = strtoupper($activeSession->mac_address);
-                $resolutionSource = 'active_session_query_mac';
-                $status = 'resolved';
-            } elseif (config('portal.allow_query_mac_fallback', false)) {
-                $macAddress = $queryMacAddress;
-                $resolutionSource = 'query_mac';
-                $status = 'resolved';
-            }
-        }
-
-        $phase1DurationMs = $this->elapsedMilliseconds($phase1Start);
-
-        $phase2Start = microtime(true);
-        if (! $macAddress) {
-            $controllerSettings = ControllerSetting::singleton();
-
-            if ($controllerSettings->canTestConnection()) {
-                $omadaLookup = $this->omadaService->lookupPortalClientContext(
-                    $controllerSettings,
-                    $resolvedClientIp,
-                    $requestId
-                );
-
-                $macAddress = $omadaLookup['mac_address'];
-                $resolutionSource = $omadaLookup['resolution_source'];
-                $status = $omadaLookup['status'];
-                $errorCode = $omadaLookup['error_code'];
-                $retryAfterMs = $omadaLookup['retry_after_ms'];
-            } else {
-                $status = 'failed';
-                $resolutionSource = 'controller_unavailable';
-                $errorCode = 'controller_unavailable';
-            }
-        }
-        $phase2DurationMs = $this->elapsedMilliseconds($phase2Start);
-
-        $phase3Start = microtime(true);
+        $lookupStart = microtime(true);
         if ($macAddress) {
             $portalContext['mac_address'] = $macAddress;
             $existingClient ??= Client::findByMacAddress($macAddress);
-            $activeSession ??= $this->findActiveSession($macAddress);
+            $activeSession ??= $this->wifiSessionAuthorizationService->findActiveSessionForMac($macAddress, $portalContext);
             $status = 'resolved';
-
-            $deviceContextCacheHit = false;
         }
-        $phase3DurationMs = $this->elapsedMilliseconds($phase3Start);
+        $lookupDurationMs = $this->elapsedMilliseconds($lookupStart);
 
         $response = [
             'status' => $status,
@@ -142,34 +89,49 @@ class PortalDeviceContextService
 
         Log::info('Portal device context resolved.', [
             'request_id' => $requestId,
-            'client_ip' => $resolvedClientIp,
-            'query_mac_present' => filled($queryMacAddress),
+            'source_ip' => $sourceIp,
+            'client_ip' => $portalContext['client_ip'],
+            'captive_context_present' => $trustedResolution['captive_context_present'],
+            'resolution_trusted' => $trustedResolution['trusted'],
             'resolution_source' => $resolutionSource,
+            'resolved_mac' => $macAddress,
+            'rejected_reason' => $trustedResolution['rejected_reason'],
             'status' => $status,
             'error_code' => $errorCode,
-            'cache_hit' => $deviceContextCacheHit,
             'has_mac_address' => filled($macAddress),
             'has_existing_client' => $existingClient !== null,
             'has_active_session' => $activeSession !== null,
-            'phase1_db_lookup_ms' => $phase1DurationMs,
-            'phase2_omada_lookup_ms' => $phase2DurationMs,
-            'phase3_session_lookup_ms' => $phase3DurationMs,
+            'active_session_lookup_ms' => $lookupDurationMs,
             'total_duration_ms' => $this->elapsedMilliseconds($startedAt),
         ]);
 
         return $response;
     }
 
-    private function findActiveSession(string $macAddress): ?WifiSession
+    public function resolveTrustedClientMacFromRequest(Request $request): array
     {
-        return WifiSession::query()
-            ->with(['client:id,name,phone_number', 'plan:id,name,duration_minutes'])
-            ->whereRaw('LOWER(mac_address) = ?', [strtolower($macAddress)])
-            ->where('is_active', true)
-            ->whereNotNull('end_time')
-            ->where('end_time', '>', now())
-            ->latest('end_time')
-            ->first();
+        $providedQueryMac = $this->firstFilled($request, ['clientMac', 'client_mac']);
+        $normalizedMac = MacAddress::normalizeForDisplay($providedQueryMac);
+
+        if ($normalizedMac !== null) {
+            return [
+                'trusted' => true,
+                'captive_context_present' => true,
+                'mac_address' => $normalizedMac,
+                'resolution_source' => 'trusted_query_client_mac',
+                'error_code' => null,
+                'rejected_reason' => null,
+            ];
+        }
+
+        return [
+            'trusted' => false,
+            'captive_context_present' => false,
+            'mac_address' => null,
+            'resolution_source' => 'trusted_captive_context_missing',
+            'error_code' => $providedQueryMac !== null ? 'invalid_client_mac' : 'missing_captive_context',
+            'rejected_reason' => $providedQueryMac !== null ? 'invalid_client_mac' : 'missing_captive_context',
+        ];
     }
 
     private function requestId(Request $request): string
@@ -208,22 +170,6 @@ class PortalDeviceContextService
         }
 
         return null;
-    }
-
-    private function normalizeMac(?string $value): ?string
-    {
-        $mac = strtoupper(preg_replace('/[^A-Fa-f0-9]/', '', (string) $value) ?? '');
-
-        if (strlen($mac) !== 12) {
-            return null;
-        }
-
-        return implode(':', str_split($mac, 2));
-    }
-
-    private function defaultRetryAfterMs(): int
-    {
-        return max(250, (int) config('portal.device_context_retry_after_ms', 1500));
     }
 
     private function elapsedMilliseconds(float $startedAt): int

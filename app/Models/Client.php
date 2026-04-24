@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\MacAddress;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -42,7 +43,11 @@ class Client extends Model
 
     public static function findByMacAddress(string $macAddress): ?self
     {
-        $normalizedMacAddress = strtolower($macAddress);
+        $normalizedMacAddress = MacAddress::normalizeForStorage($macAddress);
+
+        if ($normalizedMacAddress === null) {
+            return null;
+        }
 
         $device = ClientDevice::query()
             ->with('client')

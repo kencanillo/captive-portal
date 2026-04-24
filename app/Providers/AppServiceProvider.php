@@ -10,7 +10,6 @@ use App\Policies\PlanPolicy;
 use App\Policies\WifiSessionPolicy;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -51,7 +50,5 @@ class AppServiceProvider extends ServiceProvider
             && $user->operator()->where('status', Operator::STATUS_APPROVED)->exists());
         Gate::policy(Plan::class, PlanPolicy::class);
         Gate::policy(WifiSession::class, WifiSessionPolicy::class);
-
-        Vite::prefetch(concurrency: 3);
     }
 }

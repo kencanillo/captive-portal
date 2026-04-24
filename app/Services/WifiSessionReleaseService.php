@@ -180,6 +180,10 @@ class WifiSessionReleaseService
                     'release_stuck_at' => null,
                     'released_at' => $lockedSession->released_at ?? now(),
                     'released_by_path' => $path,
+                    'authorized_at' => $lockedSession->authorized_at ?? now(),
+                    'deauthorized_at' => null,
+                    'authorization_source' => $path,
+                    'last_controller_seen_at' => now(),
                     'release_metadata' => $this->mergeReleaseMetadata($lockedSession->release_metadata, [
                         'last_success' => [
                             'path' => $path,
@@ -343,6 +347,10 @@ class WifiSessionReleaseService
                         'release_stuck_at' => null,
                         'released_at' => $lockedSession->released_at ?? now(),
                         'released_by_path' => 'reconcile_confirmed',
+                        'authorized_at' => $lockedSession->authorized_at ?? now(),
+                        'deauthorized_at' => null,
+                        'authorization_source' => 'reconcile_confirmed',
+                        'last_controller_seen_at' => now(),
                         'last_reconcile_result' => 'authorized_in_controller',
                         'release_metadata' => $this->mergeReleaseMetadata($lockedSession->release_metadata, [
                             'last_reconcile' => [
@@ -558,6 +566,10 @@ class WifiSessionReleaseService
             'release_stuck_at' => null,
             'released_at' => $session->released_at ?? now(),
             'released_by_path' => $path,
+            'authorized_at' => $session->authorized_at ?? now(),
+            'deauthorized_at' => null,
+            'authorization_source' => $path,
+            'last_controller_seen_at' => now(),
             'release_metadata' => $this->mergeReleaseMetadata($session->release_metadata, [
                 'last_success' => [
                     'path' => $path,
@@ -601,6 +613,8 @@ class WifiSessionReleaseService
                     ? ($lockedSession->release_stuck_at ?? now())
                     : $lockedSession->release_stuck_at,
                 'released_by_path' => null,
+                'deauthorized_at' => $lockedSession->authorized_at ? now() : $lockedSession->deauthorized_at,
+                'authorization_source' => $lockedSession->authorized_at ? $path : $lockedSession->authorization_source,
                 'last_reconcile_result' => $reconcileResult ?? $lockedSession->last_reconcile_result,
                 'release_metadata' => $this->mergeReleaseMetadata($lockedSession->release_metadata, [
                     'last_failure' => array_merge([

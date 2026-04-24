@@ -8,6 +8,7 @@ use App\Models\ClientDevice;
 use App\Models\ControllerSetting;
 use App\Models\Plan;
 use App\Models\WifiSession;
+use App\Support\MacAddress;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -18,6 +19,7 @@ class WifiSessionService
     public function __construct(
         private readonly PortalSessionContextResolver $portalSessionContextResolver,
         private readonly OmadaService $omadaService,
+        private readonly WifiSessionAuthorizationService $wifiSessionAuthorizationService,
     ) {
     }
 
@@ -119,7 +121,9 @@ class WifiSessionService
                 'release_stuck_at' => null,
             ])->save();
 
-            return $lockedSession->refresh();
+            return $this->wifiSessionAuthorizationService
+                ->markSessionAuthorized($lockedSession, 'legacy_activate_session')
+                ->refresh();
         });
     }
 
@@ -147,10 +151,12 @@ class WifiSessionService
     {
         $settings ??= ControllerSetting::query()->first();
         $session->loadMissing(['site', 'accessPoint', 'plan', 'client']);
+        $deauthorizedInController = false;
 
         if ($settings) {
             try {
                 $this->omadaService->deauthorizeClient($settings, $session);
+                $deauthorizedInController = true;
             } catch (\Throwable $exception) {
                 Log::warning('Failed to deauthorize expired WiFi session in Omada.', [
                     'wifi_session_id' => $session->id,
@@ -166,7 +172,20 @@ class WifiSessionService
             'session_status' => WifiSession::SESSION_STATUS_EXPIRED,
         ])->save();
 
-        return $session->refresh();
+        $expiredSession = $this->wifiSessionAuthorizationService->markSessionDeauthorized(
+            $session,
+            $deauthorizedInController ? 'session_expired' : 'session_expired_local_only'
+        );
+
+        Log::info('WiFi session expired.', [
+            'wifi_session_id' => $expiredSession->id,
+            'client_id' => $expiredSession->client_id,
+            'mac_address' => $expiredSession->mac_address,
+            'controller_deauth_attempted' => $settings !== null,
+            'controller_deauth_succeeded' => $deauthorizedInController,
+        ]);
+
+        return $expiredSession;
     }
 
     public function checkIfExpired(WifiSession $session): bool
@@ -196,6 +215,11 @@ class WifiSessionService
             ->orderBy('id')
             ->chunkById(100, function ($sessions) use (&$expiredCount, $settings): void {
                 foreach ($sessions as $session) {
+                    Log::info('Expiring due WiFi session.', [
+                        'wifi_session_id' => $session->id,
+                        'client_id' => $session->client_id,
+                        'mac_address' => $session->mac_address,
+                    ]);
                     $this->expireSession($session, $settings);
                     $expiredCount++;
                 }
@@ -228,6 +252,7 @@ class WifiSessionService
             'release_outcome_type' => WifiSession::RELEASE_OUTCOME_SUCCESS,
             'release_stuck_at' => null,
         ])->save();
+        $this->wifiSessionAuthorizationService->markSessionAuthorized($activeSession, 'renewal_merge');
 
         $renewalSession->forceFill([
             'start_time' => $activeSession->start_time ?? Carbon::now(),
@@ -443,16 +468,18 @@ class WifiSessionService
 
     private function normalizeMacAddress(string $macAddress): string
     {
-        return strtolower($macAddress);
+        $normalized = MacAddress::normalizeForStorage($macAddress);
+
+        if ($normalized === null) {
+            throw new \RuntimeException('A valid client MAC address is required.');
+        }
+
+        return $normalized;
     }
 
     private function macAddressesMatch(?string $left, ?string $right): bool
     {
-        if ($left === null || $right === null) {
-            return false;
-        }
-
-        return strtolower($left) === strtolower($right);
+        return MacAddress::equals($left, $right);
     }
 
     private function phoneNumbersMatch(string $left, string $right): bool

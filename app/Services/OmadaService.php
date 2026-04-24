@@ -7,14 +7,14 @@ use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
 use App\Models\Site;
 use App\Models\WifiSession;
+use App\Support\MacAddress;
 use GuzzleHttp\Cookie\CookieJar;
-use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
@@ -60,124 +60,30 @@ class OmadaService
         ];
     }
 
-    public function getClientMacAddress(ControllerSetting $settings, string $clientIp): ?string
+    public function listAuthorizedClients(ControllerSetting $settings): array
     {
-        return $this->lookupPortalClientContext($settings, $clientIp)['mac_address'];
-    }
-
-    public function lookupPortalClientContext(ControllerSetting $settings, ?string $clientIp, ?string $requestId = null): array
-    {
-        $lookupStartedAt = microtime(true);
         $normalized = $this->normalizeSettings($settings);
-        $positiveCacheSeconds = max(0, (int) config('portal.omada_mac_lookup_cache_seconds', 45));
-        $missCacheSeconds = max(0, (int) config('portal.device_context_miss_cache_seconds', 3));
-        $snapshotCacheSeconds = max(0, (int) config('portal.omada_clients_snapshot_cache_seconds', 5));
-        $retryAfterMs = max(250, (int) config('portal.device_context_retry_after_ms', 1500));
-        $loginDurationMs = null;
-        $clientsFetchDurationMs = null;
 
-        if (blank($clientIp)) {
-            return [
-                'status' => 'failed',
-                'resolution_source' => 'omada_unavailable',
-                'mac_address' => null,
-                'error_code' => 'missing_client_ip',
-                'retry_after_ms' => $retryAfterMs,
-            ];
+        if (! $this->hasLegacyCredentials($normalized)) {
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'Legacy controller credentials are required to list authorized Omada clients for reconciliation.'
+            );
         }
 
-        $cacheKey = $this->portalMacLookupCacheKey($normalized['request_base_url'], $clientIp);
-        $cachedLookup = $this->safeCacheGet($cacheKey);
+        $client = $this->authenticatedClient($normalized, 'authorized client reconciliation', $this->portalMacLookupTimeoutProfile());
+        $payload = $this->request($client, 'get', '/api/v2/controller/clients');
+        $clients = $this->extractClientsFromPayload($payload);
 
-        if (is_array($cachedLookup) && array_key_exists('mac_address', $cachedLookup)) {
-            Log::info('Portal Omada MAC lookup cache hit.', [
-                'request_id' => $requestId,
-                'client_ip' => $clientIp,
-                'matched' => filled($cachedLookup['mac_address']),
-                'cache_type' => 'ip_lookup',
-                'duration_ms' => $this->elapsedMilliseconds($lookupStartedAt),
-            ]);
+        return array_values(array_filter(array_map(function (array $client): ?array {
+            $normalizedClient = $this->normalizeControllerClient($client);
 
-            return [
-                'status' => filled($cachedLookup['mac_address']) ? 'resolved' : 'retryable',
-                'resolution_source' => 'omada_ip_cache',
-                'mac_address' => $cachedLookup['mac_address'] ?: null,
-                'error_code' => $cachedLookup['error_code'] ?? (filled($cachedLookup['mac_address']) ? null : 'not_found'),
-                'retry_after_ms' => filled($cachedLookup['mac_address']) ? 0 : $retryAfterMs,
-            ];
-        }
-
-        try {
-            $clientSnapshot = $this->safeCacheGet($this->portalClientsSnapshotCacheKey($normalized['request_base_url']));
-            $snapshotCacheHit = is_array($clientSnapshot);
-
-            if (! $snapshotCacheHit) {
-                $loginStartedAt = microtime(true);
-                $client = $this->authenticatedClient($normalized, 'client MAC lookup', $this->portalMacLookupTimeoutProfile());
-                $loginDurationMs = $this->elapsedMilliseconds($loginStartedAt);
-
-                $clientsFetchStartedAt = microtime(true);
-                $payload = $this->request($client, 'get', '/api/v2/controller/clients');
-                $clientsFetchDurationMs = $this->elapsedMilliseconds($clientsFetchStartedAt);
-                $clientSnapshot = $this->extractClientsFromPayload($payload);
-
-                $this->safeCachePut(
-                    $this->portalClientsSnapshotCacheKey($normalized['request_base_url']),
-                    $clientSnapshot,
-                    $snapshotCacheSeconds
-                );
+            if (! $normalizedClient || ! $normalizedClient['authorized']) {
+                return null;
             }
 
-            $resolvedMacAddress = $this->matchClientMacFromSnapshot($clientSnapshot, $clientIp);
-            $matched = filled($resolvedMacAddress);
-
-            $this->safeCachePut($cacheKey, [
-                'mac_address' => $resolvedMacAddress,
-                'error_code' => $matched ? null : 'not_found',
-            ], $matched ? $positiveCacheSeconds : $missCacheSeconds);
-
-            Log::info('Portal Omada MAC lookup completed.', [
-                'request_id' => $requestId,
-                'client_ip' => $clientIp,
-                'matched' => $matched,
-                'cache_hit' => $snapshotCacheHit,
-                'cache_type' => $snapshotCacheHit ? 'client_snapshot' : 'miss',
-                'login_ms' => $loginDurationMs,
-                'clients_fetch_ms' => $clientsFetchDurationMs,
-                'client_count' => is_countable($clientSnapshot) ? count($clientSnapshot) : null,
-                'total_ms' => $this->elapsedMilliseconds($lookupStartedAt),
-            ]);
-
-            return [
-                'status' => $matched ? 'resolved' : 'retryable',
-                'resolution_source' => $matched
-                    ? ($snapshotCacheHit ? 'omada_snapshot' : 'omada')
-                    : 'omada_not_found',
-                'mac_address' => $resolvedMacAddress,
-                'error_code' => $matched ? null : 'not_found',
-                'retry_after_ms' => $matched ? 0 : $retryAfterMs,
-            ];
-        } catch (Throwable $exception) {
-            $errorCode = $this->classifyOmadaException($exception);
-
-            Log::warning('Portal Omada MAC lookup failed.', [
-                'request_id' => $requestId,
-                'client_ip' => $clientIp,
-                'login_ms' => $loginDurationMs,
-                'clients_fetch_ms' => $clientsFetchDurationMs,
-                'total_ms' => $this->elapsedMilliseconds($lookupStartedAt),
-                'error_code' => $errorCode,
-                'error' => $exception->getMessage(),
-            ]);
-
-            return [
-                'status' => in_array($errorCode, ['timeout', 'not_found'], true) ? 'retryable' : 'failed',
-                'resolution_source' => 'omada_error',
-                'mac_address' => null,
-                'error_code' => $errorCode,
-                'retry_after_ms' => $retryAfterMs,
-            ];
-        }
+            return $normalizedClient;
+        }, $clients)));
     }
 
     private function extractClientsFromPayload(array $payload): array
@@ -228,9 +134,6 @@ class OmadaService
     {
         $normalized = $this->normalizeSettings($settings);
         $syncedAt = now();
-        $this->accessPointHealthService->noteSyncHeartbeat($syncedAt);
-        $adoptedDevices = [];
-        $pendingDevices = [];
 
         if ($this->hasOpenApiCredentials($normalized)) {
             [$adoptedDevices, $pendingDevices] = $this->fetchAccessPointsViaOpenApi($normalized);
@@ -408,9 +311,15 @@ class OmadaService
 
     public function deauthorizeClient(ControllerSetting $settings, WifiSession $session): array
     {
-        $normalized = $this->normalizeSettings($settings);
         $siteId = $this->resolveOpenApiSiteIdentifier($settings, $session);
-        $clientMac = $this->normalizeMacForPath($session->mac_address);
+        return $this->deauthorizeClientByMac($settings, $session->mac_address, $siteId);
+    }
+
+    public function deauthorizeClientByMac(ControllerSetting $settings, string $macAddress, ?string $siteIdentifier = null): array
+    {
+        $normalized = $this->normalizeSettings($settings);
+        $siteId = $this->resolveOpenApiSiteIdentifierFromValue($settings, $siteIdentifier);
+        $clientMac = $this->normalizeMacForPath($macAddress);
 
         if (blank($siteId)) {
             throw new OmadaOperationException(
@@ -428,25 +337,43 @@ class OmadaService
 
         $openApi = $this->openApiAuthenticatedClient($normalized);
 
+        Log::info('Omada client deauthorization requested.', [
+            'site_identifier' => $siteId,
+            'mac_address' => MacAddress::normalizeForStorage($macAddress),
+        ]);
+
         $unauthResponse = $this->request(
             $openApi['client'],
             'post',
             "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/hotspot/clients/{$clientMac}/unauth"
         );
 
-        try {
-            $this->request(
-                $openApi['client'],
-                'post',
-                "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/clients/{$clientMac}/disconnect"
-            );
-        } catch (RuntimeException $exception) {
-            if (! str_contains($exception->getMessage(), 'This client does not exist')) {
-                throw $exception;
-            }
-        }
+        $this->disconnectClientWithOpenApiSession($openApi, $siteId, $clientMac);
 
         return $unauthResponse;
+    }
+
+    public function disconnectClient(ControllerSetting $settings, string $macAddress, ?string $siteIdentifier = null): array
+    {
+        $normalized = $this->normalizeSettings($settings);
+        $siteId = $this->resolveOpenApiSiteIdentifierFromValue($settings, $siteIdentifier);
+        $clientMac = $this->normalizeMacForPath($macAddress);
+
+        if (blank($siteId)) {
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_VALIDATION,
+                'Omada disconnect requires a site identifier.'
+            );
+        }
+
+        if (! $this->hasOpenApiCredentials($normalized)) {
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'Omada disconnect requires OpenAPI client credentials.'
+            );
+        }
+
+        return $this->disconnectClientWithOpenApiSession($this->openApiAuthenticatedClient($normalized), $siteId, $clientMac);
     }
 
     public function inspectClientAuthorization(ControllerSetting $settings, WifiSession $session): array
@@ -485,34 +412,25 @@ class OmadaService
             ];
         }
 
-        $rawStatus = strtolower((string) ($this->firstFilled($matchedClient, [
-            'status',
-            'state',
-            'statusText',
-            'wireless.status',
-        ]) ?? ''));
-        $rawPortalStatus = strtolower((string) ($this->firstFilled($matchedClient, [
-            'portalAuthStatus',
-            'portalStatus',
-            'authenticationStatus',
-        ]) ?? ''));
+        $normalizedClient = $this->normalizeControllerClient($matchedClient);
 
-        $authorized = in_array($this->firstFilled($matchedClient, [
-            'authorized',
-            'isAuthorized',
-            'portalAuthorized',
-        ]), [true, 1, '1', 'true', 'authorized'], true)
-            || in_array($rawPortalStatus, ['authorized', 'authenticated', 'success'], true)
-            || ($rawPortalStatus === '' && in_array($rawStatus, ['authorized', 'authenticated'], true));
-
-        $connected = in_array($rawStatus, ['connected', 'online', 'normal', 'up'], true);
+        if (! $normalizedClient) {
+            return [
+                'found' => false,
+                'authorized' => false,
+                'connected' => false,
+                'raw_status' => null,
+                'raw_portal_status' => null,
+                'source' => 'controller_clients',
+            ];
+        }
 
         return [
             'found' => true,
-            'authorized' => $authorized,
-            'connected' => $connected,
-            'raw_status' => $rawStatus !== '' ? $rawStatus : null,
-            'raw_portal_status' => $rawPortalStatus !== '' ? $rawPortalStatus : null,
+            'authorized' => $normalizedClient['authorized'],
+            'connected' => $normalizedClient['connected'],
+            'raw_status' => $normalizedClient['raw_status'],
+            'raw_portal_status' => $normalizedClient['raw_portal_status'],
             'source' => 'controller_clients',
         ];
     }
@@ -1231,13 +1149,7 @@ class OmadaService
 
     private function normalizeMac(mixed $value): ?string
     {
-        $mac = strtoupper(preg_replace('/[^A-Fa-f0-9]/', '', (string) $value) ?? '');
-
-        if (strlen($mac) !== 12) {
-            return null;
-        }
-
-        return implode(':', str_split($mac, 2));
+        return MacAddress::normalizeForDisplay($value);
     }
 
     private function firstFilled(array $payload, array $keys): mixed
@@ -1286,8 +1198,33 @@ class OmadaService
 
     private function resolveOpenApiSiteIdentifier(ControllerSetting $settings, WifiSession $session): ?string
     {
-        return $this->stringOrNull($session->site?->slug)
+        return $this->resolveOpenApiSiteIdentifierFromValue(
+            $settings,
+            $this->stringOrNull($session->site?->slug)
             ?? $this->stringOrNull($session->site?->name)
+            ?? $this->stringOrNull($settings->site_identifier)
+        );
+    }
+
+    private function resolveOpenApiSiteIdentifierFromValue(ControllerSetting $settings, ?string $siteIdentifier): ?string
+    {
+        $siteIdentifier = $this->stringOrNull($siteIdentifier);
+
+        if ($siteIdentifier === null) {
+            return $this->stringOrNull($settings->site_identifier);
+        }
+
+        $site = Schema::hasTable('sites')
+            ? Site::query()
+                ->where('slug', $siteIdentifier)
+                ->orWhere('name', $siteIdentifier)
+                ->orWhere('omada_site_id', $siteIdentifier)
+                ->first()
+            : null;
+
+        return $this->stringOrNull($site?->slug)
+            ?? $this->stringOrNull($site?->omada_site_id)
+            ?? $siteIdentifier
             ?? $this->stringOrNull($settings->site_identifier);
     }
 
@@ -1299,41 +1236,10 @@ class OmadaService
         ];
     }
 
-    private function portalMacLookupCacheKey(string $baseUrl, string $clientIp): string
-    {
-        return 'portal:omada:mac_lookup:' . sha1($baseUrl . '|' . $clientIp);
-    }
-
-    private function portalClientsSnapshotCacheKey(string $baseUrl): string
-    {
-        return 'portal:omada:clients_snapshot:' . sha1($baseUrl);
-    }
-
-    private function matchClientMacFromSnapshot(array $clientSnapshot, string $clientIp): ?string
-    {
-        foreach ($clientSnapshot as $clientData) {
-            $clientIpFromApi = $this->firstFilled($clientData, [
-                'ip',
-                'ipAddress',
-                'clientIp',
-            ]);
-
-            if ($clientIpFromApi && $clientIpFromApi === $clientIp) {
-                return $this->normalizeMac($this->firstFilled($clientData, [
-                    'mac',
-                    'macAddress',
-                    'clientMac',
-                ]));
-            }
-        }
-
-        return null;
-    }
-
     private function matchClientRecordByMac(array $clientSnapshot, string $normalizedMac): ?array
     {
         foreach ($clientSnapshot as $clientData) {
-            $clientMac = $this->normalizeMac($this->firstFilled($clientData, [
+            $clientMac = MacAddress::normalizeForDisplay($this->firstFilled($clientData, [
                 'mac',
                 'macAddress',
                 'clientMac',
@@ -1421,49 +1327,82 @@ class OmadaService
         return new OmadaOperationException($category, $message, $status);
     }
 
-    private function cacheStore(): CacheRepository
-    {
-        return Cache::store((string) config('portal.cache_store', config('cache.default', 'database')));
-    }
-
-    private function safeCacheGet(string $key): mixed
-    {
-        try {
-            return $this->cacheStore()->get($key);
-        } catch (Throwable $exception) {
-            Log::warning('Portal Omada cache read failed.', [
-                'cache_key' => $key,
-                'error' => $exception->getMessage(),
-            ]);
-
-            return null;
-        }
-    }
-
-    private function safeCachePut(string $key, mixed $value, int $seconds): void
-    {
-        if ($seconds < 1) {
-            return;
-        }
-
-        try {
-            $this->cacheStore()->put($key, $value, now()->addSeconds($seconds));
-        } catch (Throwable $exception) {
-            Log::warning('Portal Omada cache write failed.', [
-                'cache_key' => $key,
-                'error' => $exception->getMessage(),
-            ]);
-        }
-    }
-
     private function elapsedMilliseconds(float $startedAt): int
     {
         return (int) round((microtime(true) - $startedAt) * 1000);
     }
 
+    private function disconnectClientWithOpenApiSession(array $openApi, string $siteId, string $clientMac): array
+    {
+        try {
+            return $this->request(
+                $openApi['client'],
+                'post',
+                "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/clients/{$clientMac}/disconnect"
+            );
+        } catch (RuntimeException $exception) {
+            if (! str_contains($exception->getMessage(), 'This client does not exist')) {
+                throw $exception;
+            }
+
+            return [
+                'errorCode' => 0,
+                'msg' => 'Client already absent from controller.',
+            ];
+        }
+    }
+
+    public function normalizeControllerClient(array $client): ?array
+    {
+        $macAddress = MacAddress::normalizeForStorage($this->firstFilled($client, [
+            'mac',
+            'macAddress',
+            'clientMac',
+        ]));
+
+        if ($macAddress === null) {
+            return null;
+        }
+
+        $rawStatus = strtolower((string) ($this->firstFilled($client, [
+            'status',
+            'state',
+            'statusText',
+            'wireless.status',
+        ]) ?? ''));
+        $rawPortalStatus = strtolower((string) ($this->firstFilled($client, [
+            'portalAuthStatus',
+            'portalStatus',
+            'authenticationStatus',
+        ]) ?? ''));
+
+        $authorized = in_array($this->firstFilled($client, [
+            'authorized',
+            'isAuthorized',
+            'portalAuthorized',
+        ]), [true, 1, '1', 'true', 'authorized'], true)
+            || in_array($rawPortalStatus, ['authorized', 'authenticated', 'success'], true)
+            || ($rawPortalStatus === '' && in_array($rawStatus, ['authorized', 'authenticated'], true));
+
+        $connected = in_array($rawStatus, ['connected', 'online', 'normal', 'up'], true);
+
+        return [
+            'controller_client_id' => $this->stringOrNull($this->firstFilled($client, ['id', 'clientId'])),
+            'mac_address' => $macAddress,
+            'site_identifier' => $this->stringOrNull($this->firstFilled($client, ['siteId', 'site_id', 'site.id'])),
+            'site_name' => $this->stringOrNull($this->firstFilled($client, ['siteName', 'site_name', 'site', 'site.name'])),
+            'ssid_name' => $this->stringOrNull($this->firstFilled($client, ['ssidName', 'ssid_name', 'ssid', 'wlan'])),
+            'client_ip' => filter_var($this->firstFilled($client, ['ip', 'ipAddress', 'clientIp']), FILTER_VALIDATE_IP) ?: null,
+            'authorized' => $authorized,
+            'connected' => $connected,
+            'raw_status' => $rawStatus !== '' ? $rawStatus : null,
+            'raw_portal_status' => $rawPortalStatus !== '' ? $rawPortalStatus : null,
+        ];
+    }
+
     private function normalizeMacForPath(?string $macAddress): string
     {
-        $normalized = $this->normalizeMac($macAddress);
+        $normalized = MacAddress::normalizeForDisplay($macAddress);
 
         if ($normalized === null) {
             throw new RuntimeException('Omada deauthorization requires a valid client MAC address.');
