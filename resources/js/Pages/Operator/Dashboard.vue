@@ -1,5 +1,6 @@
 <script setup>
 import { Head } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatCurrency, formatNumber } from '@/utils/formatters';
 
@@ -21,7 +22,7 @@ defineProps({
     <section class="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
       <div class="app-card-dark p-7 sm:p-9">
         <p class="app-top-stat">
-          <span class="material-symbols-outlined text-[16px]">domain</span>
+          <SvgIcon name="domain" class="h-4 w-4" />
           Operator overview
         </p>
         <h1 class="mt-5 text-4xl font-extrabold tracking-[-0.06em] text-white sm:text-5xl">

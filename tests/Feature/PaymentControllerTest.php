@@ -115,6 +115,36 @@ class PaymentControllerTest extends TestCase
             ->assertJsonPath('data.next_step', 'keep_waiting');
     }
 
+    public function test_payment_page_exposes_qr_download_endpoint(): void
+    {
+        $payment = $this->createPendingPayment();
+        $paymentToken = $this->issuePaymentToken($payment);
+
+        $this->get("/payments/{$paymentToken}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Public/PaymentStatus')
+                ->where('qrDownloadEndpoint', route('payments.qr.download', [
+                    'paymentToken' => $paymentToken,
+                ]))
+            );
+    }
+
+    public function test_qr_download_endpoint_streams_data_url_as_attachment(): void
+    {
+        $payment = $this->createPendingPayment([
+            'qr_reference' => 'qr-download-test',
+            'qr_image_url' => 'data:image/png;base64,'.base64_encode('qr-image-bytes'),
+        ]);
+
+        $response = $this->get("/payments/{$this->issuePaymentToken($payment)}/download-qr");
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'image/png');
+        $response->assertHeader('Content-Disposition', 'attachment; filename="brucke-qr-'.$payment->id.'.png"');
+        $this->assertSame('qr-image-bytes', $response->getContent());
+    }
+
     public function test_paymongo_payment_paid_webhook_updates_payment_and_session_and_dispatches_release_job(): void
     {
         Bus::fake();

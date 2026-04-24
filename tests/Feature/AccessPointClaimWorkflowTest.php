@@ -95,6 +95,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $claim = AccessPointClaim::query()->create([
@@ -151,6 +153,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $accessPoint = AccessPoint::query()->create([
@@ -222,6 +226,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $claim = AccessPointClaim::query()->create([
@@ -262,6 +268,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $accessPoint = AccessPoint::query()->create([
@@ -316,6 +324,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $accessPoint = AccessPoint::query()->create([
@@ -433,6 +443,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $claim = AccessPointClaim::query()->create([
@@ -483,6 +495,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $accessPoint = AccessPoint::query()->create([
@@ -550,6 +564,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $accessPoint = AccessPoint::query()->create([
@@ -620,6 +636,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $claim = AccessPointClaim::query()->create([
@@ -672,6 +690,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $serialClaim = AccessPointClaim::query()->create([
@@ -737,6 +757,8 @@ class AccessPointClaimWorkflowTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'secret',
+            'api_client_id' => 'test-client-id',
+            'api_client_secret' => 'test-client-secret',
         ]);
 
         $accessPoint = AccessPoint::query()->create([

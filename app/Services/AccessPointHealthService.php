@@ -243,6 +243,19 @@ class AccessPointHealthService
                 : AccessPoint::HEALTH_STATE_DISCONNECTED;
         }
 
+        $numericStatus = $this->firstFilled($device, [
+            'status',
+            'statusCategory',
+        ]);
+
+        if (is_numeric($numericStatus)) {
+            return match ((int) $numericStatus) {
+                1 => AccessPoint::HEALTH_STATE_CONNECTED,
+                2 => AccessPoint::HEALTH_STATE_PENDING,
+                default => AccessPoint::HEALTH_STATE_DISCONNECTED,
+            };
+        }
+
         $rawStatus = $this->resolveRawStatus($device);
 
         if (in_array($rawStatus, ['heartbeat_missed', 'heartbeat missed', 'isolated'], true)) {
@@ -267,6 +280,18 @@ class AccessPointHealthService
 
         if ($status === null || $status === '') {
             return null;
+        }
+
+        if (is_bool($status)) {
+            return $status ? 'connected' : 'disconnected';
+        }
+
+        if (is_numeric($status)) {
+            return match ((int) $status) {
+                1 => 'connected',
+                2 => 'pending',
+                default => 'disconnected',
+            };
         }
 
         $normalized = strtolower(trim((string) $status));

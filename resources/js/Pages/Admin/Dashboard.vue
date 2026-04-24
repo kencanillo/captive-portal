@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatCurrency, formatNumber } from '@/utils/formatters';
 
@@ -83,7 +84,7 @@ function runtimeBadgeClass(status) {
         <div class="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div class="max-w-3xl">
             <p class="app-top-stat">
-              <span class="material-symbols-outlined text-[16px]">monitoring</span>
+              <SvgIcon name="monitoring" class="h-4 w-4" />
               Revenue command center
             </p>
             <h1 class="mt-5 text-4xl font-extrabold tracking-[-0.06em] text-white sm:text-5xl">
@@ -130,7 +131,7 @@ function runtimeBadgeClass(status) {
                 'bg-slate-100 text-slate-700': stat.tone === 'slate',
               }"
             >
-              <span class="material-symbols-outlined">{{ stat.icon }}</span>
+              <SvgIcon :name="stat.icon" class="h-6 w-6" />
             </div>
           </div>
         </article>
@@ -180,7 +181,7 @@ function runtimeBadgeClass(status) {
               <p class="app-kicker">Operational Runtime</p>
               <h3 class="mt-2 text-xl font-semibold tracking-[-0.04em] text-slate-950">Critical automation status</h3>
               <p class="mt-2 text-sm text-slate-500">
-                This is the real runtime picture for scheduler, release, AP sync, reconcile, and billing automation.
+                This is the real runtime picture for scheduler, access activation, AP sync, recovery checks, and billing automation.
               </p>
             </div>
             <div class="flex items-center gap-3">
@@ -221,7 +222,7 @@ function runtimeBadgeClass(status) {
 
           <div class="mt-5 grid gap-4 sm:grid-cols-3">
             <div class="app-panel">
-              <p class="app-metric-label">Outstanding Releases</p>
+              <p class="app-metric-label">Activation Backlog</p>
               <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
                 {{ formatNumber(props.automationStatus?.incident_counts?.outstanding_release_count || 0) }}
               </p>
@@ -438,19 +439,19 @@ function runtimeBadgeClass(status) {
 
     <section class="mt-8 flex flex-wrap gap-3">
       <Link href="/admin/controller" class="app-button-primary">
-        <span class="material-symbols-outlined text-[18px]">settings_input_component</span>
+        <SvgIcon name="settings_input_component" class="h-[18px] w-[18px]" />
         Controller Settings
       </Link>
       <Link href="/admin/operators" class="app-button-secondary">
-        <span class="material-symbols-outlined text-[18px]">groups</span>
+        <SvgIcon name="groups" class="h-[18px] w-[18px]" />
         Manage Operators
       </Link>
       <Link href="/admin/payout-requests" class="app-button-secondary">
-        <span class="material-symbols-outlined text-[18px]">payments</span>
+        <SvgIcon name="payments" class="h-[18px] w-[18px]" />
         Review Payouts
       </Link>
       <Link href="/admin/plans" class="app-button-secondary">
-        <span class="material-symbols-outlined text-[18px]">sell</span>
+        <SvgIcon name="sell" class="h-[18px] w-[18px]" />
         Manage Promos
       </Link>
     </section>

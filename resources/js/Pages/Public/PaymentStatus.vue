@@ -32,6 +32,10 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  qrDownloadEndpoint: {
+    type: String,
+    required: true,
+  },
   backToPlansUrl: {
     type: String,
     required: true,
@@ -48,6 +52,7 @@ const humanMessage = ref('You may leave this page to complete payment. This page
 const uiState = ref('loading');
 const requestInFlight = ref(false);
 const generatingNewQr = ref(false);
+const downloadingQr = ref(false);
 const errorMessage = ref('');
 const remainingSeconds = ref(0);
 const sessionRemainingSeconds = ref(0);
@@ -288,6 +293,44 @@ async function generateNewQr() {
   }
 }
 
+async function downloadQr() {
+  if (downloadingQr.value) {
+    return;
+  }
+
+  downloadingQr.value = true;
+  errorMessage.value = '';
+
+  let downloadUrl = null;
+
+  try {
+    const response = await window.axios.get(props.qrDownloadEndpoint, {
+      responseType: 'blob',
+    });
+
+    const blob = response.data instanceof Blob
+      ? response.data
+      : new Blob([response.data], { type: response.headers['content-type'] || 'image/png' });
+
+    downloadUrl = window.URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `brucke-qr-${props.payment.qr_reference || 'payment'}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } catch (error) {
+    errorMessage.value = error?.response?.data?.message || 'Unable to download the QR right now.';
+  } finally {
+    downloadingQr.value = false;
+
+    if (downloadUrl) {
+      window.setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 1000);
+    }
+  }
+}
+
 function startPolling() {
   if (pollTimer || !['awaiting_payment', 'checking_status', 'enabling_access'].includes(uiState.value)) {
     return;
@@ -414,6 +457,16 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="mt-6 flex flex-wrap gap-3">
+          <button
+            v-if="showQr"
+            type="button"
+            class="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="downloadingQr"
+            @click="downloadQr"
+          >
+            {{ downloadingQr ? 'Preparing download...' : 'Download QR' }}
+          </button>
+
           <button
             v-if="showCheckButton"
             type="button"

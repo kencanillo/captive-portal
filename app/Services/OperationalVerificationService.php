@@ -32,7 +32,7 @@ class OperationalVerificationService
             $this->automationCheck('queue_worker_freshness', 'Queue worker freshness', $this->automationStatusFor($automation, 'queue_worker')),
             $this->automationCheck('ap_sync_freshness', 'AP sync freshness', $this->automationStatusFor($automation, 'ap_sync')),
             $this->automationCheck('ap_health_reconcile_freshness', 'AP health reconcile freshness', $this->automationStatusFor($automation, 'ap_health_reconcile')),
-            $this->automationCheck('release_reconcile_freshness', 'Release reconcile freshness', $this->automationStatusFor($automation, 'release_reconcile')),
+            $this->automationCheck('release_reconcile_freshness', 'Access activation recovery freshness', $this->automationStatusFor($automation, 'release_reconcile')),
             $this->automationCheck('billing_post_freshness', 'Billing post freshness', $this->automationStatusFor($automation, 'billing_post')),
             $this->automationCheck('scheduler_activity', 'Scheduler activity', $this->automationStatusFor($automation, 'scheduler')),
             $this->migrationPortabilityCheck(),

@@ -40,41 +40,62 @@ class AdminAccessPointTest extends TestCase
     public function test_admin_can_sync_access_points_from_omada(): void
     {
         Http::fake([
-            'https://localhost:8043/api/v2/login' => Http::response([
+            'https://localhost:8043/api/info' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
-                'result' => ['token' => 'abc123'],
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
             ]),
-            'https://localhost:8043/api/v2/grid/devices/adopted' => Http::response([
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'access-token',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites?page=1&pageSize=1000' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
                 'result' => [
                     'data' => [[
-                        'id' => 'device-001',
-                        'name' => 'Front Gate AP',
-                        'mac' => '11-22-33-44-55-66',
-                        'sn' => 'SN123456789',
-                        'model' => 'EAP110',
-                        'ip' => '192.168.1.2',
-                        'siteName' => 'Main Branch',
-                        'statusCategory' => 'connected',
-                        'lastSeen' => 1711987200000,
+                        'siteId' => 'site-001',
+                        'name' => 'Main Branch',
                     ]],
                 ],
             ]),
-            'https://localhost:8043/api/v2/grid/devices/pending' => Http::response([
+            'https://localhost:8043/openapi/v1/controller-id/sites/site-001/devices/all' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [[
+                    'id' => 'device-001',
+                    'name' => 'Front Gate AP',
+                    'mac' => '11-22-33-44-55-66',
+                    'sn' => 'SN123456789',
+                    'type' => 'ap',
+                    'model' => 'EAP110',
+                    'ip' => '192.168.1.2',
+                    'status' => 1,
+                    'lastSeen' => 1711987200000,
+                ]],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/site-001/grid/devices/pending?page=1&pageSize=1000' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
                 'result' => [
+                    'totalRows' => 1,
                     'data' => [[
                         'id' => 'device-002',
                         'name' => 'Back Gate AP',
                         'mac' => 'AA-BB-CC-DD-EE-FF',
                         'sn' => 'SN987654321',
+                        'type' => 'ap',
                         'model' => 'EAP225',
                         'ip' => '192.168.1.3',
-                        'siteName' => 'Main Branch',
-                        'statusCategory' => 'pending',
+                        'status' => 2,
                     ]],
                 ],
             ]),
@@ -84,8 +105,8 @@ class AdminAccessPointTest extends TestCase
         ControllerSetting::query()->create([
             'controller_name' => 'Pilot Controller',
             'base_url' => 'https://localhost:8043',
-            'username' => 'admin',
-            'password' => 'super-secret',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
             'site_name' => 'Main Branch',
             'default_session_minutes' => 60,
         ]);
@@ -109,14 +130,14 @@ class AdminAccessPointTest extends TestCase
 
         $this->assertDatabaseHas('access_points', [
             'name' => 'Back Gate AP',
-            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+            'mac_address' => 'aa:bb:cc:dd:ee:ff',
             'claim_status' => 'pending',
             'block_tethering' => true,
             'allow_client_pause' => true,
         ]);
     }
 
-    public function test_access_points_page_marks_automatic_sync_enabled_when_legacy_sync_credentials_exist(): void
+    public function test_access_points_page_keeps_automatic_sync_disabled_when_only_legacy_sync_credentials_exist(): void
     {
         $admin = User::factory()->create(['is_admin' => true]);
         ControllerSetting::query()->create([
@@ -132,7 +153,7 @@ class AdminAccessPointTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Admin/AccessPoints')
-                ->where('syncConfigured', true)
+                ->where('syncConfigured', false)
                 ->where('webhookCapabilityVerdict', 'webhook_not_safely_supported_using_current_setup')
                 ->has('healthRuntime'));
     }
@@ -245,38 +266,60 @@ class AdminAccessPointTest extends TestCase
 
         $this->assertDatabaseHas('access_points', [
             'name' => 'Back Gate AP',
-            'mac_address' => 'AA:BB:CC:DD:EE:FF',
+            'mac_address' => 'aa:bb:cc:dd:ee:ff',
             'claim_status' => 'pending',
         ]);
     }
 
-    public function test_sync_does_not_fall_back_to_global_site_name_when_device_payload_is_missing_site_details(): void
+    public function test_sync_uses_openapi_site_context_even_when_device_payload_is_missing_site_details(): void
     {
         Http::fake([
-            'https://localhost:8043/api/v2/login' => Http::response([
-                'errorCode' => 0,
-                'msg' => 'Success.',
-                'result' => ['token' => 'abc123'],
-            ]),
-            'https://localhost:8043/api/v2/grid/devices/adopted' => Http::response([
+            'https://localhost:8043/api/info' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
                 'result' => [
-                    'data' => [],
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
                 ],
             ]),
-            'https://localhost:8043/api/v2/grid/devices/pending' => Http::response([
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'access-token',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites?page=1&pageSize=1000' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
                 'result' => [
+                    'data' => [[
+                        'siteId' => 'site-001',
+                        'name' => 'Main Branch',
+                    ]],
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/site-001/devices/all' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/site-001/grid/devices/pending?page=1&pageSize=1000' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'totalRows' => 1,
                     'data' => [[
                         'id' => 'device-002',
                         'name' => 'Back Gate AP',
                         'mac' => 'AA-BB-CC-DD-EE-FF',
                         'sn' => 'SN987654321',
+                        'type' => 'ap',
                         'model' => 'EAP225',
                         'ip' => '192.168.1.3',
-                        'statusCategory' => 'pending',
+                        'status' => 2,
                     ]],
                 ],
             ]),
@@ -286,8 +329,8 @@ class AdminAccessPointTest extends TestCase
         ControllerSetting::query()->create([
             'controller_name' => 'Pilot Controller',
             'base_url' => 'https://localhost:8043',
-            'username' => 'admin',
-            'password' => 'super-secret',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
             'site_name' => 'Main Branch',
             'default_session_minutes' => 60,
         ]);
@@ -298,11 +341,11 @@ class AdminAccessPointTest extends TestCase
 
         $this->assertDatabaseHas('access_points', [
             'name' => 'Back Gate AP',
-            'mac_address' => 'AA:BB:CC:DD:EE:FF',
-            'site_id' => null,
+            'mac_address' => 'aa:bb:cc:dd:ee:ff',
+            'site_id' => 1,
         ]);
 
-        $this->assertDatabaseMissing('sites', [
+        $this->assertDatabaseHas('sites', [
             'name' => 'Main Branch',
         ]);
     }

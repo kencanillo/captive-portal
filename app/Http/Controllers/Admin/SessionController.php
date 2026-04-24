@@ -103,7 +103,7 @@ class SessionController extends Controller
 
         return redirect()
             ->route('admin.sessions.index')
-            ->with('success', 'WiFi release retry queued.');
+            ->with('success', 'WiFi access activation retry queued.');
     }
 
     public function reconcileRelease(
@@ -126,7 +126,7 @@ class SessionController extends Controller
 
         return redirect()
             ->route('admin.sessions.index')
-            ->with('success', 'WiFi release reconciliation completed.');
+            ->with('success', 'WiFi controller access check completed.');
     }
 
     private function formatRemainingTime(WifiSession $session): string

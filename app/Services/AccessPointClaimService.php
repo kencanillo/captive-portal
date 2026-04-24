@@ -756,7 +756,7 @@ class AccessPointClaimService
     private function assertControllerSyncAvailable(ControllerSetting $settings): void
     {
         if (! $settings->exists || ! $settings->canSyncAccessPoints()) {
-            throw new RuntimeException('Controller sync credentials are required before AP ownership actions can run. Save either working OpenAPI client credentials or local controller login credentials first.');
+            throw new RuntimeException('OpenAPI client credentials are required before AP ownership actions can run.');
         }
     }
 

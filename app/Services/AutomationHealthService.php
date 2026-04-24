@@ -76,18 +76,18 @@ class AutomationHealthService
                 degradedAfterSeconds: $this->queueWorkerDegradedAfterSeconds(),
                 required: true,
                 summary: ((int) ($releaseRuntime['outstanding_release_count'] ?? 0)) > 0
-                    ? sprintf('%d paid sessions still need release delivery.', (int) $releaseRuntime['outstanding_release_count'])
+                    ? sprintf('%d paid sessions still need internet activation.', (int) $releaseRuntime['outstanding_release_count'])
                     : 'Worker health is tracked explicitly with a queued heartbeat, not inferred from business traffic.'
             ),
             $this->buildHeartbeatStatus(
                 key: 'release_reconcile',
-                label: 'Release reconcile',
+                label: 'Access activation recovery',
                 heartbeat: $releaseRuntime['reconcile_heartbeat_at'] ?? null,
                 degradedAfterSeconds: $this->releaseRuntimeDegradedAfterSeconds(),
                 required: ((int) ($releaseRuntime['outstanding_release_count'] ?? 0)) > 0,
                 summary: ((int) ($releaseRuntime['outstanding_release_count'] ?? 0)) > 0
-                    ? 'Needed to recover uncertain or stuck paid-session releases.'
-                    : 'No outstanding release backlog to reconcile right now.'
+                    ? 'Needed to recover uncertain or stuck internet activation attempts.'
+                    : 'No outstanding internet activation backlog to recover right now.'
             ),
             $this->buildHeartbeatStatus(
                 key: 'billing_post',

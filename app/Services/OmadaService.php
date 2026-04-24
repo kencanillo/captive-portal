@@ -29,32 +29,19 @@ class OmadaService
     public function testConnection(ControllerSetting $settings): array
     {
         $normalized = $this->normalizeSettings($settings);
+
+        if (! $this->hasOpenApiCredentials($normalized)) {
+            throw new RuntimeException('OpenAPI client credentials are required before testing the controller connection.');
+        }
+
         $info = $this->extractControllerInfo(
             $this->request($this->client($normalized), 'get', '/api/info')
         );
 
-        if ($this->hasOpenApiCredentials($normalized)) {
-            $this->requestOpenApiAccessToken($normalized, $info['omadac_id']);
-
-            return [
-                'controller_name' => $info['controller_name'] ?? $normalized['controller_name'],
-                'version' => $info['version'],
-                'api_version' => $info['api_version'],
-            ];
-        }
-
-        if (! $this->hasLegacyCredentials($normalized)) {
-            throw new RuntimeException('Add either a local controller username/password or an OpenAPI client ID/secret before testing the connection.');
-        }
-
-        $client = $this->authenticatedClient($normalized, 'connection testing');
-        $controllerSettings = $this->request($client, 'get', '/api/v2/controller/setting');
+        $this->requestOpenApiAccessToken($normalized, $info['omadac_id']);
 
         return [
-            'controller_name' => Arr::get($controllerSettings, 'result.name')
-                ?? Arr::get($controllerSettings, 'result.controllerName')
-                ?? $info['controller_name']
-                ?? $normalized['controller_name'],
+            'controller_name' => $info['controller_name'] ?? $normalized['controller_name'],
             'version' => $info['version'],
             'api_version' => $info['api_version'],
         ];
@@ -64,16 +51,14 @@ class OmadaService
     {
         $normalized = $this->normalizeSettings($settings);
 
-        if (! $this->hasLegacyCredentials($normalized)) {
+        if (! $this->hasOpenApiCredentials($normalized)) {
             throw new OmadaOperationException(
                 OmadaOperationException::CATEGORY_CONFIGURATION,
-                'Legacy controller credentials are required to list authorized Omada clients for reconciliation.'
+                'OpenAPI client credentials are required to list authorized Omada clients for reconciliation.'
             );
         }
 
-        $client = $this->authenticatedClient($normalized, 'authorized client reconciliation', $this->portalMacLookupTimeoutProfile());
-        $payload = $this->request($client, 'get', '/api/v2/controller/clients');
-        $clients = $this->extractClientsFromPayload($payload);
+        $clients = $this->fetchOpenApiClientsAcrossSites($normalized);
 
         return array_values(array_filter(array_map(function (array $client): ?array {
             $normalizedClient = $this->normalizeControllerClient($client);
@@ -135,13 +120,14 @@ class OmadaService
         $normalized = $this->normalizeSettings($settings);
         $syncedAt = now();
 
-        if ($this->hasOpenApiCredentials($normalized)) {
-            [$adoptedDevices, $pendingDevices] = $this->fetchAccessPointsViaOpenApi($normalized);
-        } else {
-            $client = $this->authenticatedClient($normalized, 'AP sync');
-            $adoptedDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/adopted');
-            $pendingDevices = $this->fetchDeviceList($client, '/api/v2/grid/devices/pending');
+        if (! $this->hasOpenApiCredentials($normalized)) {
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'OpenAPI client credentials are required for Omada AP sync.'
+            );
         }
+
+        [$adoptedDevices, $pendingDevices] = $this->fetchAccessPointsViaOpenApi($normalized);
 
         $created = 0;
         $updated = 0;
@@ -169,6 +155,8 @@ class OmadaService
             $pending++;
             $result['was_created'] ? $created++ : $updated++;
         }
+
+        $this->accessPointHealthService->noteSyncHeartbeat($syncedAt);
 
         return [
             'created' => $created,
@@ -237,44 +225,20 @@ class OmadaService
     {
         $normalized = $this->normalizeSettings($settings);
 
-        // Try OpenAPI first if credentials are available
-        if ($this->hasOpenApiCredentials($normalized)) {
-            try {
-                $this->requestOpenApiAccessToken($normalized, $this->extractControllerInfo(
-                    $this->request($this->client($normalized), 'get', '/api/info')
-                )['omadac_id']);
-
-                $openApi = $this->openApiAuthenticatedClient($normalized);
-                $payload = $this->request($openApi['client'], 'get', "/openapi/v1/{$openApi['controller_id']}/sites", [
-                    'page' => 1,
-                    'pageSize' => 1000,
-                ]);
-                return $this->extractSitesFromPayload($payload);
-            } catch (Throwable $e) {
-                Log::warning('Omada getSites OpenAPI failed, trying legacy', ['error' => $e->getMessage()]);
-            }
+        if (! $this->hasOpenApiCredentials($normalized)) {
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_CONFIGURATION,
+                'OpenAPI client credentials are required to fetch Omada sites.'
+            );
         }
 
-        // Fallback to legacy API
-        $client = $this->authenticatedClient($normalized, 'sites fetch');
+        $openApi = $this->openApiAuthenticatedClient($normalized);
+        $payload = $this->request($openApi['client'], 'get', "/openapi/v1/{$openApi['controller_id']}/sites", [
+            'page' => 1,
+            'pageSize' => 1000,
+        ]);
 
-        try {
-            $payload = $this->request($client, 'get', '/api/v2/controller/sites');
-            return $this->extractSitesFromPayload($payload);
-        } catch (Throwable $e) {
-            // Try alternative endpoint
-            try {
-                $payload = $this->request($client, 'get', '/api/v2/sites');
-                return $this->extractSitesFromPayload($payload);
-            } catch (Throwable $e2) {
-                Log::error('Omada getSites failed on both legacy endpoints', [
-                    'error1' => $e->getMessage(),
-                    'error2' => $e2->getMessage(),
-                    'controller_url' => $normalized['base_url'],
-                ]);
-                throw $e2;
-            }
-        }
+        return $this->extractSitesFromPayload($payload);
     }
 
     public function adoptDevice(ControllerSetting $settings, string $deviceMac): array
@@ -318,7 +282,8 @@ class OmadaService
     public function deauthorizeClientByMac(ControllerSetting $settings, string $macAddress, ?string $siteIdentifier = null): array
     {
         $normalized = $this->normalizeSettings($settings);
-        $siteId = $this->resolveOpenApiSiteIdentifierFromValue($settings, $siteIdentifier);
+        $siteContext = $this->resolveOpenApiSiteContextFromValue($settings, $siteIdentifier);
+        $siteId = $siteContext['site_id'];
         $clientMac = $this->normalizeMacForPath($macAddress);
 
         if (blank($siteId)) {
@@ -342,15 +307,29 @@ class OmadaService
             'mac_address' => MacAddress::normalizeForStorage($macAddress),
         ]);
 
-        $unauthResponse = $this->request(
-            $openApi['client'],
-            'post',
-            "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/hotspot/clients/{$clientMac}/unauth"
-        );
+        try {
+            return $this->deauthorizeClientWithOpenApiSession($openApi, $siteId, $clientMac);
+        } catch (OmadaOperationException $exception) {
+            $refreshedSiteId = $this->resolveAccessibleOpenApiSiteIdentifier(
+                $settings,
+                $siteContext['site'],
+                $siteContext['requested_identifier']
+            );
 
-        $this->disconnectClientWithOpenApiSession($openApi, $siteId, $clientMac);
+            if (! $this->shouldRetryDeauthorizationWithRefreshedSiteId($exception, $siteId, $refreshedSiteId)) {
+                throw $exception;
+            }
 
-        return $unauthResponse;
+            $this->persistResolvedOmadaSiteIdentifier($siteContext['site'], $refreshedSiteId);
+
+            Log::warning('Omada deauthorization retried after refreshing site identifier.', [
+                'mac_address' => MacAddress::normalizeForStorage($macAddress),
+                'stale_site_identifier' => $siteId,
+                'refreshed_site_identifier' => $refreshedSiteId,
+            ]);
+
+            return $this->deauthorizeClientWithOpenApiSession($openApi, $refreshedSiteId, $clientMac);
+        }
     }
 
     public function disconnectClient(ControllerSetting $settings, string $macAddress, ?string $siteIdentifier = null): array
@@ -380,10 +359,10 @@ class OmadaService
     {
         $normalized = $this->normalizeSettings($settings);
 
-        if (! $this->hasLegacyCredentials($normalized)) {
+        if (! $this->hasOpenApiCredentials($normalized)) {
             throw new OmadaOperationException(
                 OmadaOperationException::CATEGORY_CONFIGURATION,
-                'Legacy controller credentials are required to inspect client authorization state.'
+                'OpenAPI client credentials are required to inspect client authorization state.'
             );
         }
 
@@ -396,10 +375,18 @@ class OmadaService
             );
         }
 
-        $client = $this->authenticatedClient($normalized, 'client authorization inspection', $this->portalMacLookupTimeoutProfile());
-        $payload = $this->request($client, 'get', '/api/v2/controller/clients');
-        $clients = $this->extractClientsFromPayload($payload);
-        $matchedClient = $this->matchClientRecordByMac($clients, $normalizedMac);
+        $openApi = $this->openApiAuthenticatedClient($normalized);
+        $siteId = $this->resolveOpenApiSiteIdentifier($settings, $session);
+        $matchedClient = $siteId
+            ? $this->fetchOpenApiClientByMac($openApi, $siteId, $normalizedMac)
+            : null;
+
+        if (! $matchedClient) {
+            $matchedClient = $this->matchClientRecordByMac(
+                $this->fetchOpenApiClientsAcrossSites($normalized),
+                $normalizedMac
+            );
+        }
 
         if (! $matchedClient) {
             return [
@@ -433,6 +420,85 @@ class OmadaService
             'raw_portal_status' => $normalizedClient['raw_portal_status'],
             'source' => 'controller_clients',
         ];
+    }
+
+    private function fetchOpenApiClientsAcrossSites(array $settings): array
+    {
+        $openApi = $this->openApiAuthenticatedClient($settings);
+        $clients = [];
+
+        foreach ($this->fetchOpenApiSites($openApi) as $sitePayload) {
+            $siteId = $this->resolveOmadaSiteIdentifier($sitePayload);
+            $siteName = $this->resolveOmadaSiteName($sitePayload);
+
+            if (! $siteId || ! $siteName) {
+                continue;
+            }
+
+            foreach ($this->fetchOpenApiSiteClients($openApi, $siteId) as $client) {
+                $clients[] = $this->withClientSiteContext($client, $siteName, $siteId);
+            }
+        }
+
+        return $clients;
+    }
+
+    private function fetchOpenApiSiteClients(array $openApi, string $siteId): array
+    {
+        return $this->fetchOpenApiPaginatedClientList(
+            $openApi,
+            "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/clients"
+        );
+    }
+
+    private function fetchOpenApiClientByMac(array $openApi, string $siteId, string $macAddress): ?array
+    {
+        try {
+            $payload = $this->request(
+                $openApi['client'],
+                'get',
+                "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/clients/{$this->normalizeMacForPath($macAddress)}"
+            );
+        } catch (OmadaOperationException $exception) {
+            if ($exception->category === OmadaOperationException::CATEGORY_CONTROLLER
+                && str_contains(strtolower($exception->getMessage()), 'does not exist')) {
+                return null;
+            }
+
+            throw $exception;
+        }
+
+        $client = Arr::get($payload, 'result');
+
+        return is_array($client)
+            ? $this->withClientSiteContext($client, $this->resolveSiteNameByIdentifier($siteId), $siteId)
+            : null;
+    }
+
+    private function fetchOpenApiPaginatedClientList(array $openApi, string $uri): array
+    {
+        $page = 1;
+        $pageSize = 1000;
+        $clients = [];
+
+        do {
+            $payload = $this->request(
+                $openApi['client'],
+                'get',
+                $uri,
+                [
+                    'page' => $page,
+                    'pageSize' => $pageSize,
+                ]
+            );
+
+            $pageClients = $this->extractClientsFromPayload($payload);
+            $clients = [...$clients, ...$pageClients];
+            $totalRows = (int) (Arr::get($payload, 'result.totalRows') ?? count($pageClients));
+            $page++;
+        } while (count($pageClients) === $pageSize && count($clients) < $totalRows);
+
+        return $clients;
     }
 
     private function authenticatedClient(array $settings, string $purpose, ?array $timeoutProfile = null): PendingRequest
@@ -851,6 +917,17 @@ class OmadaService
         return $device;
     }
 
+    private function withClientSiteContext(array $client, ?string $siteName, string $siteId): array
+    {
+        if ($siteName) {
+            $client['siteName'] = $client['siteName'] ?? $siteName;
+        }
+
+        $client['siteId'] = $client['siteId'] ?? $siteId;
+
+        return $client;
+    }
+
     private function deviceFingerprint(array $device): ?string
     {
         $mac = $this->normalizeMac($this->firstFilled($device, [
@@ -928,12 +1005,20 @@ class OmadaService
             ->where(function ($query) use ($omadaDeviceId, $macAddress): void {
                 if ($omadaDeviceId) {
                     $query->where('omada_device_id', $omadaDeviceId)
-                        ->orWhere('mac_address', $macAddress);
+                        ->orWhere('mac_address', $macAddress)
+                        ->orWhereRaw(
+                            "LOWER(REPLACE(REPLACE(mac_address, ':', ''), '-', '')) = ?",
+                            [$this->macLookupFingerprint($macAddress)]
+                        );
 
                     return;
                 }
 
-                $query->where('mac_address', $macAddress);
+                $query->where('mac_address', $macAddress)
+                    ->orWhereRaw(
+                        "LOWER(REPLACE(REPLACE(mac_address, ':', ''), '-', '')) = ?",
+                        [$this->macLookupFingerprint($macAddress)]
+                    );
             })
             ->first() ?? new AccessPoint;
 
@@ -1149,7 +1234,7 @@ class OmadaService
 
     private function normalizeMac(mixed $value): ?string
     {
-        return MacAddress::normalizeForDisplay($value);
+        return MacAddress::normalizeForStorage($value);
     }
 
     private function firstFilled(array $payload, array $keys): mixed
@@ -1208,10 +1293,22 @@ class OmadaService
 
     private function resolveOpenApiSiteIdentifierFromValue(ControllerSetting $settings, ?string $siteIdentifier): ?string
     {
+        return $this->resolveOpenApiSiteContextFromValue($settings, $siteIdentifier)['site_id'];
+    }
+
+    /**
+     * @return array{site_id:?string, site:?Site, requested_identifier:?string}
+     */
+    private function resolveOpenApiSiteContextFromValue(ControllerSetting $settings, ?string $siteIdentifier): array
+    {
         $siteIdentifier = $this->stringOrNull($siteIdentifier);
 
         if ($siteIdentifier === null) {
-            return $this->stringOrNull($settings->site_identifier);
+            return [
+                'site_id' => $this->stringOrNull($settings->site_identifier),
+                'site' => null,
+                'requested_identifier' => null,
+            ];
         }
 
         $site = Schema::hasTable('sites')
@@ -1222,10 +1319,93 @@ class OmadaService
                 ->first()
             : null;
 
-        return $this->stringOrNull($site?->slug)
-            ?? $this->stringOrNull($site?->omada_site_id)
+        return [
+            'site_id' => $this->stringOrNull($site?->omada_site_id)
+            ?? $this->stringOrNull($site?->slug)
             ?? $siteIdentifier
-            ?? $this->stringOrNull($settings->site_identifier);
+            ?? $this->stringOrNull($settings->site_identifier),
+            'site' => $site,
+            'requested_identifier' => $siteIdentifier,
+        ];
+    }
+
+    private function resolveAccessibleOpenApiSiteIdentifier(
+        ControllerSetting $settings,
+        ?Site $site,
+        ?string $requestedIdentifier
+    ): ?string {
+        $candidates = array_values(array_filter(array_unique([
+            $this->stringOrNull($site?->name),
+            $this->stringOrNull($site?->slug),
+            $this->stringOrNull($site?->omada_site_id),
+            $this->stringOrNull($requestedIdentifier),
+        ])));
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        foreach ($this->getSites($settings) as $controllerSite) {
+            $liveSiteId = $this->stringOrNull($this->firstFilled($controllerSite, ['siteId', 'id']));
+            $liveSiteName = $this->stringOrNull($this->firstFilled($controllerSite, ['name', 'siteName']));
+            $liveSiteSlug = $liveSiteName ? Str::slug($liveSiteName) : null;
+
+            if (in_array($liveSiteId, $candidates, true)
+                || in_array($liveSiteName, $candidates, true)
+                || in_array($liveSiteSlug, $candidates, true)) {
+                return $liveSiteId;
+            }
+        }
+
+        return null;
+    }
+
+    private function persistResolvedOmadaSiteIdentifier(?Site $site, ?string $siteIdentifier): void
+    {
+        if (! $site || blank($siteIdentifier) || $site->omada_site_id === $siteIdentifier) {
+            return;
+        }
+
+        $previous = $site->omada_site_id;
+        $site->forceFill([
+            'omada_site_id' => $siteIdentifier,
+        ])->save();
+
+        Log::warning('Local Omada site identifier refreshed from controller metadata.', [
+            'site_id' => $site->id,
+            'site_name' => $site->name,
+            'previous_omada_site_id' => $previous,
+            'refreshed_omada_site_id' => $siteIdentifier,
+        ]);
+    }
+
+    private function shouldRetryDeauthorizationWithRefreshedSiteId(
+        OmadaOperationException $exception,
+        ?string $currentSiteId,
+        ?string $refreshedSiteId
+    ): bool {
+        if (blank($refreshedSiteId) || $refreshedSiteId === $currentSiteId) {
+            return false;
+        }
+
+        $message = strtolower($exception->getMessage());
+
+        return str_contains($message, 'permissions to access this site')
+            || str_contains($message, 'site does not exist')
+            || str_contains($message, 'invalid site');
+    }
+
+    private function deauthorizeClientWithOpenApiSession(array $openApi, string $siteId, string $clientMac): array
+    {
+        $unauthResponse = $this->request(
+            $openApi['client'],
+            'post',
+            "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/hotspot/clients/{$clientMac}/unauth"
+        );
+
+        $this->disconnectClientWithOpenApiSession($openApi, $siteId, $clientMac);
+
+        return $unauthResponse;
     }
 
     private function portalMacLookupTimeoutProfile(): array
@@ -1364,17 +1544,22 @@ class OmadaService
             return null;
         }
 
-        $rawStatus = strtolower((string) ($this->firstFilled($client, [
+        $statusValue = $this->firstFilled($client, [
             'status',
             'state',
             'statusText',
             'wireless.status',
-        ]) ?? ''));
-        $rawPortalStatus = strtolower((string) ($this->firstFilled($client, [
+            'active',
+            'isActive',
+        ]);
+        $rawStatus = $this->normalizeClientStatus($statusValue);
+        $portalStatusValue = $this->firstFilled($client, [
             'portalAuthStatus',
             'portalStatus',
             'authenticationStatus',
-        ]) ?? ''));
+            'authStatus',
+        ]);
+        $rawPortalStatus = $this->normalizeClientPortalStatus($portalStatusValue);
 
         $authorized = in_array($this->firstFilled($client, [
             'authorized',
@@ -1382,9 +1567,15 @@ class OmadaService
             'portalAuthorized',
         ]), [true, 1, '1', 'true', 'authorized'], true)
             || in_array($rawPortalStatus, ['authorized', 'authenticated', 'success'], true)
-            || ($rawPortalStatus === '' && in_array($rawStatus, ['authorized', 'authenticated'], true));
+            || ($rawPortalStatus === null && in_array($rawStatus, ['authorized', 'authenticated'], true));
 
-        $connected = in_array($rawStatus, ['connected', 'online', 'normal', 'up'], true);
+        $connected = in_array($this->firstFilled($client, [
+            'active',
+            'isActive',
+            'connected',
+            'isOnline',
+        ]), [true, 1, '1', 'true'], true)
+            || in_array($rawStatus, ['connected', 'online', 'normal', 'up'], true);
 
         return [
             'controller_client_id' => $this->stringOrNull($this->firstFilled($client, ['id', 'clientId'])),
@@ -1396,8 +1587,63 @@ class OmadaService
             'authorized' => $authorized,
             'connected' => $connected,
             'raw_status' => $rawStatus !== '' ? $rawStatus : null,
-            'raw_portal_status' => $rawPortalStatus !== '' ? $rawPortalStatus : null,
+            'raw_portal_status' => $rawPortalStatus,
         ];
+    }
+
+    private function normalizeClientStatus(mixed $statusValue): ?string
+    {
+        if ($statusValue === null || $statusValue === '') {
+            return null;
+        }
+
+        if (is_bool($statusValue)) {
+            return $statusValue ? 'connected' : 'disconnected';
+        }
+
+        if (is_numeric($statusValue)) {
+            return match ((int) $statusValue) {
+                1 => 'connected',
+                0 => 'disconnected',
+                2 => 'pending',
+                default => (string) $statusValue,
+            };
+        }
+
+        return strtolower((string) $statusValue);
+    }
+
+    private function normalizeClientPortalStatus(mixed $statusValue): ?string
+    {
+        if ($statusValue === null || $statusValue === '') {
+            return null;
+        }
+
+        if (is_bool($statusValue)) {
+            return $statusValue ? 'authorized' : 'unauthorized';
+        }
+
+        if (is_numeric($statusValue)) {
+            return match ((int) $statusValue) {
+                1 => 'authorized',
+                2 => 'unauthorized',
+                default => (string) $statusValue,
+            };
+        }
+
+        return strtolower((string) $statusValue);
+    }
+
+    private function resolveSiteNameByIdentifier(string $siteId): ?string
+    {
+        return Site::query()
+            ->where('omada_site_id', $siteId)
+            ->value('name');
+    }
+
+    private function macLookupFingerprint(string $macAddress): string
+    {
+        return strtolower(str_replace(':', '', $macAddress));
     }
 
     private function normalizeMacForPath(?string $macAddress): string

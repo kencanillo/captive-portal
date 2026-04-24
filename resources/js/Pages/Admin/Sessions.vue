@@ -19,6 +19,21 @@ const sessionRows = computed(() => props.sessions.data || []);
 const activeCount = computed(() => sessionRows.value.filter((item) => item.is_active).length);
 const paidCount = computed(() => sessionRows.value.filter((item) => item.payment_status === 'paid').length);
 const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.site?.name).filter(Boolean)).size);
+
+const activationStatusLabel = (status) => ({
+  succeeded: 'Access enabled',
+  pending: 'Queued',
+  in_progress: 'Activating access',
+  failed: 'Activation failed',
+  uncertain: 'Needs controller check',
+  manual_required: 'Needs manual support',
+}[status] || 'Not queued');
+
+const reconcileStatusLabel = (status) => ({
+  authorized_in_controller: 'Controller confirms active access',
+  not_authorized_in_controller: 'Controller shows no active access',
+  reconcile_failed: 'Controller check failed',
+}[status] || 'Not checked yet');
 </script>
 
 <template>
@@ -56,11 +71,11 @@ const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.si
       v-if="releaseRuntime.degraded"
       class="mt-6 rounded-[24px] border border-rose-200 bg-rose-50 px-6 py-5 text-sm text-rose-800"
     >
-      <p class="font-semibold text-rose-950">Release automation looks degraded.</p>
+      <p class="font-semibold text-rose-950">Access activation looks degraded.</p>
       <p class="mt-2">
-        Outstanding release incidents: {{ formatNumber(releaseRuntime.outstanding_release_count || 0) }}.
+        Sessions needing activation: {{ formatNumber(releaseRuntime.outstanding_release_count || 0) }}.
         Worker heartbeat: {{ releaseRuntime.job_heartbeat_at || 'missing' }}.
-        Reconcile heartbeat: {{ releaseRuntime.reconcile_heartbeat_at || 'missing' }}.
+        Recovery check heartbeat: {{ releaseRuntime.reconcile_heartbeat_at || 'missing' }}.
       </p>
     </section>
 
@@ -81,8 +96,8 @@ const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.si
               <th>SSID</th>
               <th>Plan</th>
               <th>Payment</th>
-              <th>Release</th>
-              <th>Reconcile</th>
+              <th>Access Activation</th>
+              <th>Controller Check</th>
               <th>Active</th>
               <th>Time Left</th>
               <th>Ends</th>
@@ -124,7 +139,7 @@ const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.si
                           ? 'bg-rose-100 text-rose-700'
                           : 'bg-slate-100 text-slate-600'"
                   >
-                    {{ item.release_status || 'not_started' }}
+                    {{ activationStatusLabel(item.release_status) }}
                   </span>
                   <p v-if="item.release_outcome_type" class="text-xs text-slate-600">
                     {{ item.release_outcome_type }}
@@ -143,7 +158,7 @@ const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.si
               <td>
                 <div class="space-y-2">
                   <p class="text-xs text-slate-600">
-                    {{ item.last_reconcile_result || 'not_reconciled' }}
+                    {{ reconcileStatusLabel(item.last_reconcile_result) }}
                   </p>
                   <p class="text-xs text-slate-500">
                     {{ item.reconcile_attempt_count || 0 }} checks
@@ -165,7 +180,7 @@ const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.si
                     :href="`/admin/sessions/${item.id}/retry-release`"
                     class="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-950 hover:text-slate-950"
                   >
-                    Retry release
+                    Retry activation
                   </Link>
                   <Link
                     v-if="item.payment_status === 'paid' && !item.is_active && ['uncertain', 'manual_required', 'in_progress'].includes(item.release_status)"
@@ -174,7 +189,7 @@ const siteCount = computed(() => new Set(sessionRows.value.map((item) => item.si
                     :href="`/admin/sessions/${item.id}/reconcile-release`"
                     class="rounded-full border border-amber-300 px-3 py-1 text-xs font-semibold text-amber-800 transition hover:border-amber-500 hover:text-amber-950"
                   >
-                    Check controller
+                    Check controller access
                   </Link>
                   <span v-if="item.payment_status !== 'paid' || item.is_active" class="text-xs text-slate-400">-</span>
                 </div>

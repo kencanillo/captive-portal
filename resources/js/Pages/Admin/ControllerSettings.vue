@@ -1,6 +1,7 @@
 <script setup>
 import { reactive, ref } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
 
 const props = defineProps({
@@ -97,17 +98,17 @@ const applySyncedSite = () => {
         <p class="app-kicker">System Architecture</p>
         <h1 class="mt-3 app-title">Omada controller authority</h1>
         <p class="mt-4 app-subtitle">
-          This page defines the control plane. Base URL, credentials, hotspot operator access, synced sites, and portal base URL all belong here. Stop scattering controller state across the app.
+          This page defines the control plane. OpenAPI credentials are the required admin path for controller reads and sync. Hotspot operator credentials are separate and only exist for captive authorization.
         </p>
       </div>
 
       <div class="flex flex-wrap gap-3">
         <button class="app-button-secondary" @click="testConnection">
-          <span class="material-symbols-outlined text-[18px]">wifi_tethering</span>
+          <SvgIcon name="wifi_tethering" class="h-[18px] w-[18px]" />
           Save and test
         </button>
         <button class="app-button-primary" :disabled="!props.canSyncSites" @click="syncSites">
-          <span class="material-symbols-outlined text-[18px]">sync</span>
+          <SvgIcon name="sync" class="h-[18px] w-[18px]" />
           Sync sites
         </button>
       </div>
@@ -163,6 +164,7 @@ const applySyncedSite = () => {
 
           <div class="mt-8 rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-5">
             <p class="app-kicker">Authority Credentials</p>
+            <p class="mt-3 text-sm text-slate-500">Use OpenAPI client credentials for controller inventory, sites, and client reconciliation. Keep hotspot operator credentials for external portal authorization only.</p>
             <div class="mt-5 grid gap-5 md:grid-cols-2">
               <div>
                 <label class="app-label">Controller Username</label>
@@ -234,7 +236,7 @@ const applySyncedSite = () => {
 
         <div class="app-card-dark p-7">
           <p class="app-top-stat">
-            <span class="material-symbols-outlined text-[16px]">warning</span>
+            <SvgIcon name="warning" class="h-4 w-4" />
             Deployment notes
           </p>
           <ul class="mt-6 space-y-4 text-sm leading-7 text-slate-300">

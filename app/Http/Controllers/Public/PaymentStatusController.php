@@ -69,7 +69,7 @@ class PaymentStatusController extends Controller
             }
 
             if ($session->release_status === WifiSession::RELEASE_STATUS_UNCERTAIN) {
-                return [false, 'contact_support', 'Payment was received, but controller state is uncertain. Please contact support so the session can be recovered.'];
+                return [false, 'contact_support', 'Payment was received, but controller state is uncertain. Please contact support so internet access can be recovered.'];
             }
 
             if ($session->release_status === WifiSession::RELEASE_STATUS_MANUAL_REQUIRED) {
@@ -78,7 +78,7 @@ class PaymentStatusController extends Controller
 
             if ($session->release_status === WifiSession::RELEASE_STATUS_FAILED
                 || $session->session_status === WifiSession::SESSION_STATUS_RELEASE_FAILED) {
-                return [false, 'access_failed', 'Payment received, but internet access could not be enabled yet. Support can retry the release.'];
+                return [false, 'access_failed', 'Payment received, but internet access could not be enabled yet. Support can retry access activation.'];
             }
 
             if ($session->release_status === WifiSession::RELEASE_STATUS_IN_PROGRESS) {

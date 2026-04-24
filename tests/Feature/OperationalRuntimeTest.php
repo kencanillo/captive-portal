@@ -46,6 +46,8 @@ class OperationalRuntimeTest extends TestCase
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'super-secret',
+            'api_client_id' => 'test-client',
+            'api_client_secret' => 'test-secret',
             'default_session_minutes' => 60,
         ]);
 
@@ -56,6 +58,13 @@ class OperationalRuntimeTest extends TestCase
                     'controller_name' => 'Pilot Controller',
                     'version' => '5.15.20',
                     'api_version' => 'v2',
+                    'omadacId' => 'test-controller-id',
+                ],
+            ]),
+            'https://localhost:8043/openapi/authorize/token*' => Http::response([
+                'errorCode' => 0,
+                'result' => [
+                    'accessToken' => 'test-openapi-token',
                 ],
             ]),
             'https://localhost:8043/api/v2/login' => Http::response([
@@ -172,7 +181,7 @@ class OperationalRuntimeTest extends TestCase
         $this->actingAs($admin)
             ->post("/admin/sessions/{$session->id}/retry-release")
             ->assertRedirect('/admin/sessions')
-            ->assertSessionHas('error', 'Release retry is blocked because the queue worker heartbeat is not healthy.');
+            ->assertSessionHas('error', 'Access activation retry is blocked because the queue worker heartbeat is not healthy.');
     }
 
     public function test_admin_retry_release_still_works_when_runtime_is_healthy(): void
@@ -199,7 +208,7 @@ class OperationalRuntimeTest extends TestCase
         $this->actingAs($admin)
             ->post("/admin/sessions/{$session->id}/retry-release")
             ->assertRedirect('/admin/sessions')
-            ->assertSessionHas('success', 'WiFi release retry queued.');
+            ->assertSessionHas('success', 'WiFi access activation retry queued.');
 
         Bus::assertDispatched(ReleaseWifiAccessJob::class);
     }

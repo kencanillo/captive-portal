@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
 
 const props = defineProps({
@@ -242,11 +243,11 @@ const resolutionActionLabel = (action) => ({
           {{ props.syncConfigured ? 'Sync enabled' : 'Controller auth incomplete' }}
         </span>
         <button class="app-button-primary" :disabled="!props.syncConfigured" @click="syncAccessPoints">
-          <span class="material-symbols-outlined text-[18px]">sync</span>
+          <SvgIcon name="sync" class="h-[18px] w-[18px]" />
           Sync from Omada now
         </button>
         <button class="app-button-secondary" @click="postConnectionFees">
-          <span class="material-symbols-outlined text-[18px]">payments</span>
+          <SvgIcon name="payments" class="h-[18px] w-[18px]" />
           Post AP fees now
         </button>
       </div>
@@ -296,7 +297,7 @@ const resolutionActionLabel = (action) => ({
               'bg-rose-100 text-rose-700': card.tone === 'rose',
             }"
           >
-            <span class="material-symbols-outlined">{{ card.icon }}</span>
+            <SvgIcon :name="card.icon" class="h-6 w-6" />
           </div>
         </div>
         <p class="app-metric-note">
@@ -353,7 +354,7 @@ const resolutionActionLabel = (action) => ({
                 <td>
                   <div class="flex items-start gap-3">
                     <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
-                      <span class="material-symbols-outlined text-[20px]">router</span>
+                      <SvgIcon name="router" class="h-5 w-5" />
                     </div>
                     <div>
                       <p class="font-semibold text-slate-950">{{ accessPoint.name || 'Unnamed AP' }}</p>

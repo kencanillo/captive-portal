@@ -50,8 +50,19 @@ class CaptivePortalController extends Controller
             'rejected_reason' => $trustedPortalRequest['rejected_reason'],
             'plans_prefetched' => $plansPrefetched,
             'plans_count' => count($initialPlans),
+            'render_target' => $trustedPortalRequest['trusted'] ? 'plan_selection' : 'landing_page',
             'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
         ]);
+
+        if (! $trustedPortalRequest['trusted']) {
+            return Inertia::render('Public/LandingPage', [
+                'initialPlans' => $initialPlans,
+                'plansPrefetched' => $plansPrefetched,
+                'initialPortalContext' => $initialPortalContext,
+                'adminLoginUrl' => route('admin.login'),
+                'reconnectMessage' => 'No captive portal device context detected. Connect to the Wi-Fi network and reopen the sign-in page.',
+            ]);
+        }
 
         return Inertia::render('Public/PlanSelection', [
             'portalRequestId' => $requestId,

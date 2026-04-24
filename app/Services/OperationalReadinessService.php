@@ -96,20 +96,24 @@ class OperationalReadinessService
         if (! $settings || blank($settings->base_url) || ! $settings->hasHotspotOperatorCredentials()) {
             return $this->blockedAction(
                 self::ACTION_ADMIN_RETRY_RELEASE,
-                'Admin retry release',
-                'Release retry is blocked because the controller base URL or hotspot operator credentials are missing.'
+                'Admin retry access activation',
+                'Access activation retry is blocked because the controller base URL or hotspot operator credentials are missing.'
             );
         }
 
         if (! $queueWorker || $queueWorker['status'] !== AutomationHealthService::STATUS_HEALTHY) {
             return $this->blockedAction(
                 self::ACTION_ADMIN_RETRY_RELEASE,
-                'Admin retry release',
-                'Release retry is blocked because the queue worker heartbeat is not healthy.'
+                'Admin retry access activation',
+                'Access activation retry is blocked because the queue worker heartbeat is not healthy.'
             );
         }
 
-        return $this->healthyAction(self::ACTION_ADMIN_RETRY_RELEASE, 'Admin retry release', 'Queue worker and controller release prerequisites are healthy.');
+        return $this->healthyAction(
+            self::ACTION_ADMIN_RETRY_RELEASE,
+            'Admin retry access activation',
+            'Queue worker and controller access-activation prerequisites are healthy.'
+        );
     }
 
     private function actionForBillingPost(array $automation, array $billingRuntime): array

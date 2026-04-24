@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 
 const props = defineProps({
   title: {
@@ -132,7 +133,7 @@ onBeforeUnmount(() => {
               : 'text-slate-400 hover:bg-white/6 hover:text-white'"
             @click="closeNav"
           >
-            <span class="material-symbols-outlined text-[20px]">{{ item.icon }}</span>
+            <SvgIcon :name="item.icon" class="h-5 w-5" />
             <span>{{ item.label }}</span>
           </Link>
         </nav>
@@ -150,7 +151,7 @@ onBeforeUnmount(() => {
                 : 'text-slate-400 hover:bg-white/6 hover:text-white'"
               @click="closeNav"
             >
-              <span class="material-symbols-outlined text-[20px]">{{ item.icon }}</span>
+              <SvgIcon :name="item.icon" class="h-5 w-5" />
               <span>{{ item.label }}</span>
             </Link>
           </div>
@@ -167,7 +168,7 @@ onBeforeUnmount(() => {
               class="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 lg:hidden"
               @click="navOpen = true"
             >
-              <span class="material-symbols-outlined text-[20px]">menu</span>
+              <SvgIcon name="menu" class="h-5 w-5" />
             </button>
             <div>
               <p class="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-400">WiFi Management</p>
@@ -177,7 +178,7 @@ onBeforeUnmount(() => {
 
           <div class="flex items-center gap-3 sm:gap-4">
             <div class="hidden items-center gap-3 rounded-full border border-slate-200/70 bg-slate-50/80 px-4 py-2.5 md:flex">
-              <span class="material-symbols-outlined text-[18px] text-slate-400">search</span>
+              <SvgIcon name="search" class="h-[18px] w-[18px] text-slate-400" />
               <span class="text-sm text-slate-500">Search is staged into the redesign shell.</span>
             </div>
             <div ref="accountMenuRef" class="relative">
@@ -192,7 +193,7 @@ onBeforeUnmount(() => {
                   <p class="truncate text-sm font-semibold text-slate-950">{{ userDisplayName }}</p>
                   <p class="truncate text-xs uppercase tracking-[0.18em] text-slate-400">{{ userRoleLabel }}</p>
                 </div>
-                <span class="material-symbols-outlined text-[18px] text-slate-400">expand_more</span>
+                <SvgIcon name="expand_more" class="h-[18px] w-[18px] text-slate-400" />
               </button>
 
               <div
@@ -220,10 +221,10 @@ onBeforeUnmount(() => {
                     @click="closeAccountMenu"
                   >
                     <span class="flex items-center gap-3">
-                      <span class="material-symbols-outlined text-[18px] text-slate-500">{{ item.icon }}</span>
+                      <SvgIcon :name="item.icon" class="h-[18px] w-[18px] text-slate-500" />
                       <span>{{ item.label }}</span>
                     </span>
-                    <span class="material-symbols-outlined text-[18px] text-slate-400">arrow_forward</span>
+                    <SvgIcon name="arrow_forward" class="h-[18px] w-[18px] text-slate-400" />
                   </Link>
                 </div>
 
@@ -231,7 +232,7 @@ onBeforeUnmount(() => {
                   class="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                   @click="logout"
                 >
-                  <span class="material-symbols-outlined text-[18px]">logout</span>
+                  <SvgIcon name="logout" class="h-[18px] w-[18px]" />
                   <span>Logout</span>
                 </button>
               </div>

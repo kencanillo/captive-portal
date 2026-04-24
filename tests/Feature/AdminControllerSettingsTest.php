@@ -105,15 +105,13 @@ class AdminControllerSettingsTest extends TestCase
                     'omadacId' => 'controller-id',
                 ],
             ]),
-            'https://localhost:8043/api/v2/login' => Http::response([
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
                 'errorCode' => 0,
-                'msg' => 'Success.',
-                'result' => ['token' => 'abc123'],
-            ]),
-            'https://localhost:8043/api/v2/controller/setting' => Http::response([
-                'errorCode' => 0,
-                'msg' => 'Success.',
-                'result' => ['name' => 'Pilot Omada'],
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'AT-abc123',
+                    'expiresIn' => 7200,
+                ],
             ]),
         ]);
 
@@ -136,16 +134,17 @@ class AdminControllerSettingsTest extends TestCase
                 'portal_base_url' => 'https://portal.example.com',
                 'username' => 'admin',
                 'password' => 'super-secret',
-                'api_client_id' => null,
-                'api_client_secret' => null,
+                'api_client_id' => 'pilot-client',
+                'api_client_secret' => 'pilot-secret',
                 'default_session_minutes' => 60,
             ])
             ->assertRedirect('/admin/controller')
-            ->assertSessionHas('success', 'Connected to Pilot Omada v6.1.0.19. Settings were saved and verified.');
+            ->assertSessionHas('success', 'Connected to Pilot Controller v6.1.0.19. Settings were saved and verified.');
 
         $settings = ControllerSetting::query()->firstOrFail();
 
         $this->assertSame('admin', $settings->username);
+        $this->assertSame('pilot-client', $settings->api_client_id);
         $this->assertSame('Main Branch', $settings->site_name);
         $this->assertNotNull($settings->last_tested_at);
     }
@@ -212,18 +211,30 @@ class AdminControllerSettingsTest extends TestCase
     public function test_admin_can_sync_sites_from_omada_controller(): void
     {
         Http::fake([
-            'https://localhost:8043/api/v2/login' => Http::response([
+            'https://localhost:8043/api/info' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
-                'result' => ['token' => 'abc123'],
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
             ]),
-            'https://localhost:8043/api/v2/controller/sites' => Http::response([
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'AT-abc123',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites?page=1&pageSize=1000' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
                 'result' => [
                     'data' => [
-                        ['id' => 'site-001', 'name' => 'Main Branch'],
-                        ['id' => 'site-002', 'name' => 'North Branch'],
+                        ['siteId' => 'site-001', 'name' => 'Main Branch'],
+                        ['siteId' => 'site-002', 'name' => 'North Branch'],
                     ],
                 ],
             ]),
@@ -240,8 +251,8 @@ class AdminControllerSettingsTest extends TestCase
                 'portal_base_url' => 'https://portal.example.com',
                 'username' => 'admin',
                 'password' => 'super-secret',
-                'api_client_id' => null,
-                'api_client_secret' => null,
+                'api_client_id' => 'pilot-client',
+                'api_client_secret' => 'pilot-secret',
                 'default_session_minutes' => 60,
             ])
             ->assertRedirect('/admin/controller')
@@ -313,10 +324,11 @@ class AdminControllerSettingsTest extends TestCase
                 'omadacName' => 'Pilot Omada',
                 'omadacVersion' => '6.1.0.19',
                 'apiVer' => '3',
+                'omadacId' => 'controller-id',
             ]),
-            'https://localhost:8043/api/v2/login' => Http::response([
-                'errorCode' => -30109,
-                'msg' => 'Invalid username or password.',
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => -1,
+                'msg' => 'Invalid OpenAPI credentials.',
             ]),
         ]);
 
@@ -339,12 +351,12 @@ class AdminControllerSettingsTest extends TestCase
                 'portal_base_url' => 'https://portal.example.com',
                 'username' => '',
                 'password' => '',
-                'api_client_id' => '',
-                'api_client_secret' => '',
+                'api_client_id' => 'pilot-client',
+                'api_client_secret' => 'pilot-secret',
                 'default_session_minutes' => 60,
             ])
             ->assertRedirect('/admin/controller')
-            ->assertSessionHas('error', 'Invalid username or password. Settings were saved. Fix the credentials and test again.');
+            ->assertSessionHas('error', 'Invalid OpenAPI credentials. Settings were saved. Fix the credentials and test again.');
 
         $settings = ControllerSetting::query()->firstOrFail();
 

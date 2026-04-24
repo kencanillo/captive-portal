@@ -30,8 +30,8 @@ class AccessPointHealthTest extends TestCase
         ControllerSetting::query()->create([
             'controller_name' => 'Pilot Controller',
             'base_url' => 'https://localhost:8043',
-            'username' => 'admin',
-            'password' => 'super-secret',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
             'default_session_minutes' => 60,
         ]);
 
@@ -125,8 +125,8 @@ class AccessPointHealthTest extends TestCase
         ControllerSetting::query()->create([
             'controller_name' => 'Pilot Controller',
             'base_url' => 'https://localhost:8043',
-            'username' => 'admin',
-            'password' => 'super-secret',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
             'default_session_minutes' => 60,
         ]);
 
@@ -146,33 +146,62 @@ class AccessPointHealthTest extends TestCase
 
     private function fakeSyncPayload(string $statusCategory, int $lastSeenMillis, string $siteName = 'Main Branch'): void
     {
+        $numericStatus = match ($statusCategory) {
+            'connected' => 1,
+            'pending' => 2,
+            default => 0,
+        };
+
         Http::fake([
-            'https://localhost:8043/api/v2/login' => Http::response([
+            'https://localhost:8043/api/info' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
-                'result' => ['token' => 'abc123'],
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
             ]),
-            'https://localhost:8043/api/v2/grid/devices/adopted' => Http::response([
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'access-token',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites?page=1&pageSize=1000' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
                 'result' => [
                     'data' => [[
+                        'siteId' => 'site-001',
+                        'name' => $siteName,
+                    ]],
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/site-001/devices/all' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    [
                         'id' => 'device-001',
                         'name' => 'Front Gate AP',
                         'mac' => '11-22-33-44-55-66',
                         'sn' => 'SN123456789',
+                        'type' => 'ap',
                         'model' => 'EAP110',
                         'ip' => '192.168.1.2',
-                        'siteName' => $siteName,
-                        'statusCategory' => $statusCategory,
+                        'status' => $numericStatus,
                         'lastSeen' => $lastSeenMillis,
-                    ]],
+                    ],
                 ],
             ]),
-            'https://localhost:8043/api/v2/grid/devices/pending' => Http::response([
+            'https://localhost:8043/openapi/v1/controller-id/sites/site-001/grid/devices/pending?page=1&pageSize=1000' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
                 'result' => [
+                    'totalRows' => 0,
                     'data' => [],
                 ],
             ]),

@@ -117,6 +117,9 @@ class PaymentController extends Controller
             ]),
             'sessionToken' => $portalTokenService->issueSessionToken($payment->wifiSession),
             'createPaymentEndpoint' => route('api.create-payment'),
+            'qrDownloadEndpoint' => route('payments.qr.download', [
+                'paymentToken' => $portalTokenService->issuePaymentToken($payment),
+            ]),
             'backToPlansUrl' => route('portal.index'),
         ]);
     }

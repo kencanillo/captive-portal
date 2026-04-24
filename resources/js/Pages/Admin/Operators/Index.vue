@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatCurrency, formatNumber } from '@/utils/formatters';
 
@@ -43,7 +44,7 @@ const summary = computed(() => ({
       </article>
       <article class="app-card-dark p-6">
         <p class="app-top-stat">
-          <span class="material-symbols-outlined text-[16px]">payments</span>
+          <SvgIcon name="payments" class="h-4 w-4" />
           Revenue generated
         </p>
         <p class="mt-5 text-4xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(summary.revenue) }}</p>

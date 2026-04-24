@@ -154,7 +154,7 @@ class AccessPointController extends Controller
         if (! $settings->canSyncAccessPoints()) {
             return redirect()
                 ->route('admin.access-points.index')
-                ->with('error', 'Omada AP sync requires either OpenAPI client credentials or a working local controller username/password. Save them in Controller Settings before syncing devices.');
+                ->with('error', 'Omada AP sync requires OpenAPI client credentials. Save them in Controller Settings before syncing devices.');
         }
 
         try {

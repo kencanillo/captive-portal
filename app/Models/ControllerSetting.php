@@ -60,12 +60,12 @@ class ControllerSetting extends Model
 
     public function canTestConnection(): bool
     {
-        return filled($this->base_url) && ($this->hasLegacyCredentials() || $this->hasOpenApiCredentials());
+        return filled($this->base_url) && $this->hasOpenApiCredentials();
     }
 
     public function canSyncAccessPoints(): bool
     {
-        return filled($this->base_url) && ($this->hasOpenApiCredentials() || $this->hasLegacyCredentials());
+        return filled($this->base_url) && $this->hasOpenApiCredentials();
     }
 
     public function canSyncSites(): bool

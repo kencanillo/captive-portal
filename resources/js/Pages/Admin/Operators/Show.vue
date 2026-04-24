@@ -1,5 +1,6 @@
 <script setup>
 import { useForm, Head } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatCurrency } from '@/utils/formatters';
 
@@ -81,7 +82,7 @@ const updateSites = () => {
 
         <div class="app-card-dark p-7">
           <p class="app-top-stat">
-            <span class="material-symbols-outlined text-[16px]">account_balance_wallet</span>
+            <SvgIcon name="account_balance_wallet" class="h-4 w-4" />
             Commercial summary
           </p>
           <div class="mt-6 grid gap-4 sm:grid-cols-2">

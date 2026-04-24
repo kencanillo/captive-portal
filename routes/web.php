@@ -28,6 +28,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Public\CaptivePortalController;
 use App\Http\Controllers\Public\PaymentController;
+use App\Http\Controllers\Public\PaymentQrDownloadController;
 use App\Http\Controllers\Public\PaymentRecheckController;
 use App\Http\Controllers\Public\PaymentStatusController;
 use Illuminate\Support\Facades\Route;
@@ -62,6 +63,7 @@ Route::get('/operator/register', [OperatorRegistrationController::class, 'create
 Route::post('/operator/register', [OperatorRegistrationController::class, 'store'])->middleware('guest')->name('operator.register.store');
 
 Route::get('/payments/{paymentToken}', [PaymentController::class, 'show'])->name('payments.show');
+Route::get('/payments/{paymentToken}/download-qr', PaymentQrDownloadController::class)->name('payments.qr.download');
 Route::get('/payments/{paymentToken}/status', PaymentStatusController::class)->name('payments.status.show');
 Route::post('/payments/{paymentToken}/recheck', PaymentRecheckController::class)->name('payments.recheck.store');
 Route::get('/payment/success', [PaymentController::class, 'success'])->name('payment.success');

@@ -1,6 +1,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { usePage } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 
 const page = usePage();
 const toasts = ref([]);
@@ -91,9 +92,10 @@ onBeforeUnmount(() => {
             }"
           >
             <div class="flex items-start gap-3">
-              <span class="material-symbols-outlined mt-0.5 text-[18px]">
-                {{ toast.tone === 'success' ? 'check_circle' : toast.tone === 'error' ? 'error' : 'info' }}
-              </span>
+              <SvgIcon
+                :name="toast.tone === 'success' ? 'check_circle' : toast.tone === 'error' ? 'error' : 'info'"
+                class="mt-0.5 h-[18px] w-[18px]"
+              />
               <div class="min-w-0 flex-1">
                 <p class="text-xs font-bold uppercase tracking-[0.18em]">
                   {{ toast.tone === 'success' ? 'Success' : toast.tone === 'error' ? 'Action failed' : 'Notice' }}
@@ -105,7 +107,7 @@ onBeforeUnmount(() => {
                 class="rounded-full p-1 transition hover:bg-black/5"
                 @click="dismissToast(toast.id)"
               >
-                <span class="material-symbols-outlined text-[18px]">close</span>
+                <SvgIcon name="close" class="h-[18px] w-[18px]" />
               </button>
             </div>
           </article>
