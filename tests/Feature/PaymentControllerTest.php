@@ -145,6 +145,17 @@ class PaymentControllerTest extends TestCase
         $this->assertSame('qr-image-bytes', $response->getContent());
     }
 
+    public function test_qr_download_endpoint_rejects_remote_qr_urls(): void
+    {
+        $payment = $this->createPendingPayment([
+            'qr_reference' => 'qr-download-remote-test',
+            'qr_image_url' => 'https://example.com/qr.png',
+        ]);
+
+        $this->get("/payments/{$this->issuePaymentToken($payment)}/download-qr")
+            ->assertStatus(422);
+    }
+
     public function test_paymongo_payment_paid_webhook_updates_payment_and_session_and_dispatches_release_job(): void
     {
         Bus::fake();

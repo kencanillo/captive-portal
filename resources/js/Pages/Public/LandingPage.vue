@@ -25,9 +25,6 @@ const props = defineProps({
   },
 });
 
-const heroImageUrl = 'https://lh3.googleusercontent.com/aida-public/AB6AXuCz5pJ51KBghzyZiU7e9sRk6jOULSfCrtc_-jMyM_ddoKG9bidTL1osEO_uvVlA4pS3ND9YRFPzmj1pFP509hadyrAk4FbStSNanDoNfNarpj-2zqa2ThsQ6ysEuqRZCF5vp36fExXBgN56bwTV-18uSGR3t1GZ27fuUDRN2oDfqV5qh1-BpqWWokyXBCppzD803RHf9p1dYFpu_gyEpsiocKCgybCuWaA4nwRBR_lKubEUX34_1XQ-NOy-O3_Y-kG1AY_WW4HPwidx';
-const storyImageUrl = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBGqAPwo92dU-IJHw1szLTKkKK4kZxhaGYS7Qc3CaU--rWuRMa-ErwdzlBMitqhpoOoah-LKwDLM4h4eK86CLmoR9eOyU2TGg8VrDcUb_HmuzNIXxxJtKANcHfumN46Y04LabCW09LnfQ-3VGeItNg57u_rGBO7ObkasGZEJIVPYJPDFTt-cA1OUAmKODkWPWlWPMOc04n57vDA948mA6IIZ6eWcXntsecikbav1yt4hsNJlhQd2Cc6LO8EBUGK7f8enk-BBb8phJ5i';
-
 const services = [
   {
     title: 'Captive Portal Wi-Fi System',
@@ -192,7 +189,44 @@ const useCases = [
 
           <div class="relative">
             <div class="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-950 p-3 shadow-2xl shadow-slate-950/10">
-              <img :src="heroImageUrl" alt="Bridge hero artwork" class="h-full w-full rounded-[1.4rem] object-cover" />
+              <div class="relative min-h-[26rem] rounded-[1.4rem] bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.35),_transparent_42%),linear-gradient(135deg,_#020617_0%,_#0f172a_45%,_#1e293b_100%)]">
+                <div class="absolute inset-x-6 top-6 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 backdrop-blur">
+                  <p class="text-xs font-semibold uppercase tracking-[0.28em] text-sky-200">Captive Access Flow</p>
+                  <p class="mt-2 text-2xl font-black tracking-[-0.05em] text-white">Connect. Pay. Go Online.</p>
+                </div>
+
+                <div class="absolute left-6 right-6 top-28 grid gap-4 sm:grid-cols-3">
+                  <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p class="text-xs uppercase tracking-[0.22em] text-slate-300">1</p>
+                    <p class="mt-3 text-lg font-semibold text-white">Join Guest Wi-Fi</p>
+                    <p class="mt-2 text-sm leading-6 text-slate-300">Users connect and hit the captive portal immediately.</p>
+                  </div>
+                  <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p class="text-xs uppercase tracking-[0.22em] text-slate-300">2</p>
+                    <p class="mt-3 text-lg font-semibold text-white">Choose a Promo</p>
+                    <p class="mt-2 text-sm leading-6 text-slate-300">Plans, pricing, and session limits stay clear and predictable.</p>
+                  </div>
+                  <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p class="text-xs uppercase tracking-[0.22em] text-slate-300">3</p>
+                    <p class="mt-3 text-lg font-semibold text-white">Authorize Device</p>
+                    <p class="mt-2 text-sm leading-6 text-slate-300">The session turns into timed access on the actual device MAC.</p>
+                  </div>
+                </div>
+
+                <div class="absolute bottom-6 left-6 right-6 rounded-[1.6rem] border border-emerald-400/20 bg-emerald-400/10 p-5">
+                  <div class="flex items-center justify-between gap-4">
+                    <div>
+                      <p class="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Operational View</p>
+                      <p class="mt-2 text-lg font-semibold text-white">Revenue, plans, clients, AP health, and session state in one dashboard.</p>
+                    </div>
+                    <div class="grid min-w-[8rem] gap-2 text-right">
+                      <span class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">Timed Access</span>
+                      <span class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">QR Payments</span>
+                      <span class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">Omada Sync</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="absolute -bottom-6 left-4 max-w-xs rounded-2xl border border-white/70 bg-white/90 p-4 shadow-2xl shadow-slate-950/10 backdrop-blur">
@@ -240,7 +274,27 @@ const useCases = [
             </article>
 
             <div class="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm sm:col-span-2">
-              <img :src="storyImageUrl" alt="Modern city architecture" class="h-full w-full object-cover" />
+              <div class="grid h-full min-h-64 gap-px bg-slate-200 sm:grid-cols-[1.1fr_0.9fr]">
+                <div class="bg-[linear-gradient(135deg,_#e2e8f0_0%,_#ffffff_35%,_#bae6fd_100%)] p-8">
+                  <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Built For Real Deployments</p>
+                  <h3 class="mt-4 max-w-sm text-3xl font-black tracking-[-0.05em] text-slate-950">Stop handing out passwords. Start managing access properly.</h3>
+                  <p class="mt-4 max-w-md text-sm leading-6 text-slate-600">
+                    The public entry page should explain the system fast, stay usable on captive browsers, and avoid brittle third-party dependencies.
+                  </p>
+                </div>
+                <div class="bg-[radial-gradient(circle_at_20%_20%,_rgba(14,165,233,0.2),_transparent_20%),radial-gradient(circle_at_80%_25%,_rgba(15,23,42,0.12),_transparent_18%),linear-gradient(160deg,_#0f172a_0%,_#1e293b_55%,_#334155_100%)] p-8 text-white">
+                  <div class="grid h-full gap-4">
+                    <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <p class="text-xs uppercase tracking-[0.24em] text-slate-300">Guest Experience</p>
+                      <p class="mt-2 text-lg font-semibold">Fast first paint with a clear reconnect message.</p>
+                    </div>
+                    <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <p class="text-xs uppercase tracking-[0.24em] text-slate-300">Operator Control</p>
+                      <p class="mt-2 text-lg font-semibold">Consistent sessions, payment tracking, and device authorization.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -56,11 +56,9 @@ const downloadingQr = ref(false);
 const errorMessage = ref('');
 const remainingSeconds = ref(0);
 const sessionRemainingSeconds = ref(0);
-const closeAttempted = ref(false);
 
 let pollTimer = null;
 let countdownTimer = null;
-let autoCloseTimer = null;
 
 const pollIntervalMs = 7000;
 
@@ -174,9 +172,6 @@ function applyStatusPayload(payload) {
   syncCountdown();
   syncSessionCountdown();
 
-  if (uiState.value === 'access_enabled') {
-    scheduleAutoClose();
-  }
 }
 
 function syncCountdown() {
@@ -198,29 +193,6 @@ function syncSessionCountdown() {
 
   const endTimeMs = new Date(sessionEndTime.value).getTime();
   sessionRemainingSeconds.value = Math.max(0, Math.floor((endTimeMs - Date.now()) / 1000));
-}
-
-function attemptWindowClose() {
-  closeAttempted.value = true;
-
-  try {
-    window.close();
-    window.open('', '_self');
-    window.close();
-  } catch (error) {
-    // Browsers can block scripted window closes. The fallback message stays visible.
-  }
-}
-
-function scheduleAutoClose() {
-  if (autoCloseTimer || closeAttempted.value) {
-    return;
-  }
-
-  humanMessage.value = 'Payment confirmed. This page will try to close automatically so you can reopen WiFi settings and verify the connected session.';
-  autoCloseTimer = window.setTimeout(() => {
-    attemptWindowClose();
-  }, 2500);
 }
 
 async function refreshStatus(useCheckingState = true) {
@@ -370,10 +342,6 @@ onMounted(async () => {
   syncSessionCountdown();
   startCountdown();
 
-  if (uiState.value === 'access_enabled') {
-    scheduleAutoClose();
-  }
-
   await refreshStatus(false);
 });
 
@@ -383,11 +351,6 @@ onBeforeUnmount(() => {
   if (countdownTimer) {
     window.clearInterval(countdownTimer);
     countdownTimer = null;
-  }
-
-  if (autoCloseTimer) {
-    window.clearTimeout(autoCloseTimer);
-    autoCloseTimer = null;
   }
 });
 </script>
@@ -431,8 +394,8 @@ onBeforeUnmount(() => {
             <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700">Connected session</p>
             <p class="mt-2 text-lg font-semibold text-emerald-950">{{ sessionRemainingLabel }}</p>
             <p class="mt-1 text-sm text-emerald-700">Time remaining updates live without reloading.</p>
-            <p v-if="closeAttempted" class="mt-2 text-sm text-emerald-700">
-              If this page did not close itself, close it manually and reopen WiFi settings to verify the connected device info.
+            <p class="mt-2 text-sm text-emerald-700">
+              This page stays open on purpose. Do not rely on a captive mini-browser staying alive while you jump to GCash.
             </p>
           </div>
 
@@ -453,7 +416,7 @@ onBeforeUnmount(() => {
 
         <div class="mt-6 space-y-2 text-sm text-slate-600">
           <p>Scan this QR using GCash, Maya, or a supported banking/e-wallet app.</p>
-          <p>You may leave this page to complete payment. This page will update once payment is confirmed.</p>
+          <p>You may leave this page to complete payment. If the captive page is killed by the phone, server-side reconciliation will still recheck the payment automatically.</p>
         </div>
 
         <div class="mt-6 flex flex-wrap gap-3">

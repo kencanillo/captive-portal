@@ -235,6 +235,107 @@ class PayMongoQrPhService
         return $payment->fresh(['wifiSession']);
     }
 
+    public function reconcilePendingPayments(int $limit = 50): array
+    {
+        $summary = [
+            'checked' => 0,
+            'paid' => 0,
+            'released' => 0,
+            'expired' => 0,
+            'failed' => 0,
+            'awaiting_payment' => 0,
+            'errors' => 0,
+        ];
+
+        Payment::query()
+            ->with(['wifiSession.plan', 'wifiSession.client', 'wifiSession.site', 'wifiSession.accessPoint'])
+            ->where('provider', Payment::PROVIDER_PAYMONGO)
+            ->where('payment_flow', Payment::FLOW_QRPH)
+            ->whereIn('status', [
+                Payment::STATUS_PENDING,
+                Payment::STATUS_AWAITING_PAYMENT,
+            ])
+            ->whereNotNull('paymongo_payment_intent_id')
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get()
+            ->each(function (Payment $payment) use (&$summary): void {
+                $summary['checked']++;
+
+                try {
+                    $rechecked = $this->recheckPayment($payment);
+                } catch (Throwable $exception) {
+                    $summary['errors']++;
+
+                    Log::warning('Scheduled PayMongo payment reconciliation failed.', [
+                        'payment_id' => $payment->id,
+                        'wifi_session_id' => $payment->wifi_session_id,
+                        'error' => $exception->getMessage(),
+                    ]);
+
+                    return;
+                }
+
+                $status = $rechecked->payment_status;
+
+                if ($status === Payment::STATUS_PAID) {
+                    $summary['paid']++;
+
+                    $session = $rechecked->wifiSession;
+
+                    if ($session
+                        && (! $session->is_active
+                            || $session->session_status !== WifiSession::SESSION_STATUS_ACTIVE
+                            || $session->release_status !== WifiSession::RELEASE_STATUS_SUCCEEDED)) {
+                        try {
+                            $releasedSession = $this->wifiSessionReleaseService->attemptRelease(
+                                $session->id,
+                                'scheduled_paymongo_reconcile',
+                                [
+                                    'payment_id' => $rechecked->id,
+                                    'paymongo_payment_intent_id' => $rechecked->paymongo_payment_intent_id,
+                                ]
+                            );
+
+                            if ($releasedSession->is_active
+                                && $releasedSession->session_status === WifiSession::SESSION_STATUS_ACTIVE
+                                && $releasedSession->release_status === WifiSession::RELEASE_STATUS_SUCCEEDED) {
+                                $summary['released']++;
+                            }
+                        } catch (Throwable $exception) {
+                            $summary['errors']++;
+
+                            Log::warning('Scheduled PayMongo payment reconciliation could not activate paid session.', [
+                                'payment_id' => $rechecked->id,
+                                'wifi_session_id' => $session->id,
+                                'error' => $exception->getMessage(),
+                            ]);
+                        }
+                    }
+
+                    return;
+                }
+
+                if ($status === Payment::STATUS_EXPIRED) {
+                    $summary['expired']++;
+
+                    return;
+                }
+
+                if (in_array($status, [Payment::STATUS_FAILED, Payment::STATUS_CANCELED], true)) {
+                    $summary['failed']++;
+
+                    return;
+                }
+
+                $summary['awaiting_payment']++;
+            });
+
+        Log::info('Scheduled PayMongo payment reconciliation completed.', $summary);
+
+        return $summary;
+    }
+
     private function createPayment(WifiSession $session): Payment
     {
         if (! $this->secretKey) {
