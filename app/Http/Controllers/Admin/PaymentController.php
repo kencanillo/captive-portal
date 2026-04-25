@@ -19,7 +19,7 @@ class PaymentController extends Controller
                     'wifiSession.accessPoint:id,name,mac_address',
                 ])
                 ->latest()
-                ->paginate(25)
+                ->paginate(20)
                 ->withQueryString(),
         ]);
     }

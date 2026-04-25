@@ -1,13 +1,16 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
-import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
+import AdminPagination from '@/Components/AdminPagination.vue';
 import { formatCurrency, formatNumber } from '@/utils/formatters';
 
 const props = defineProps({
   operators: Array,
 });
+
+const currentPage = ref(1);
+const perPage = 20;
 
 const summary = computed(() => ({
   total: props.operators.length,
@@ -15,6 +18,20 @@ const summary = computed(() => ({
   pending: props.operators.filter((operator) => operator.status === 'pending').length,
   revenue: props.operators.reduce((total, operator) => total + Number(operator.revenue_total || 0), 0),
 }));
+
+const lastPage = computed(() => Math.max(1, Math.ceil(props.operators.length / perPage)));
+const operatorRows = computed(() => {
+  const start = (currentPage.value - 1) * perPage;
+
+  return props.operators.slice(start, start + perPage);
+});
+
+const from = computed(() => props.operators.length ? ((currentPage.value - 1) * perPage) + 1 : 0);
+const to = computed(() => Math.min(currentPage.value * perPage, props.operators.length));
+
+const goToPage = (page) => {
+  currentPage.value = page;
+};
 </script>
 
 <template>
@@ -25,29 +42,29 @@ const summary = computed(() => ({
       <p class="app-kicker">Multi-Operator Control</p>
       <h1 class="mt-3 app-title">Operator registry</h1>
       <p class="mt-4 app-subtitle">
-        This is the admin control point for approvals, site assignment, revenue visibility, and payout balance review. Operators are not generic users. Treat them like a managed business entity.
+        Approvals, assigned sites, balance, and revenue stay in one compact ledger. The page should read fast under review, not drown the operator list in oversized summary blocks.
       </p>
     </section>
 
-    <section class="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <article class="app-metric-card">
-        <p class="app-metric-label">Operators</p>
-        <p class="app-metric-value">{{ formatNumber(summary.total) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Approved</p>
-        <p class="app-metric-value">{{ formatNumber(summary.approved) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Pending</p>
-        <p class="app-metric-value">{{ formatNumber(summary.pending) }}</p>
-      </article>
+    <section class="mt-8 grid gap-4 lg:grid-cols-[1.2fr,0.8fr]">
+      <div class="grid gap-4 sm:grid-cols-3">
+        <article class="app-rail-card">
+          <p class="app-metric-label">Operators</p>
+          <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatNumber(summary.total) }}</p>
+        </article>
+        <article class="app-rail-card">
+          <p class="app-metric-label">Approved</p>
+          <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatNumber(summary.approved) }}</p>
+        </article>
+        <article class="app-rail-card">
+          <p class="app-metric-label">Pending</p>
+          <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatNumber(summary.pending) }}</p>
+        </article>
+      </div>
       <article class="app-card-dark p-6">
-        <p class="app-top-stat">
-          <SvgIcon name="payments" class="h-4 w-4" />
-          Revenue generated
-        </p>
+        <p class="app-top-stat">Revenue generated</p>
         <p class="mt-5 text-4xl font-semibold tracking-[-0.05em] text-white">{{ formatCurrency(summary.revenue) }}</p>
+        <p class="mt-3 text-sm text-slate-300">This number stays visible, but it no longer dominates the page layout.</p>
       </article>
     </section>
 
@@ -58,7 +75,7 @@ const summary = computed(() => ({
       </div>
 
       <div class="app-table-wrap">
-        <table class="app-table">
+        <table class="app-table app-table-compact">
           <thead>
             <tr>
               <th>Operator</th>
@@ -71,19 +88,19 @@ const summary = computed(() => ({
             </tr>
           </thead>
           <tbody>
-            <tr v-for="operator in operators" :key="operator.id">
-              <td>
+            <tr v-for="operator in operatorRows" :key="operator.id">
+              <td class="align-middle">
                 <p class="font-semibold text-slate-950">{{ operator.business_name }}</p>
                 <p class="mt-1 text-xs text-slate-500">{{ operator.requested_site_name || 'No requested site' }}</p>
               </td>
-              <td>
+              <td class="align-middle">
                 <p class="font-medium text-slate-950">{{ operator.contact_name }}</p>
                 <p class="mt-1 text-xs text-slate-500">{{ operator.email }} • {{ operator.phone_number }}</p>
               </td>
-              <td>{{ operator.sites.join(', ') || 'Unassigned' }}</td>
-              <td>
+              <td class="align-middle text-sm text-slate-600">{{ operator.sites.join(', ') || 'Unassigned' }}</td>
+              <td class="align-middle">
                 <span
-                  class="app-badge"
+                  class="app-badge app-badge-compact"
                   :class="{
                     'bg-emerald-100 text-emerald-700': operator.status === 'approved',
                     'bg-amber-100 text-amber-700': operator.status === 'pending',
@@ -93,15 +110,15 @@ const summary = computed(() => ({
                   {{ operator.status }}
                 </span>
               </td>
-              <td>{{ formatCurrency(operator.available_balance) }}</td>
-              <td>{{ formatCurrency(operator.revenue_total) }}</td>
-              <td>
-                <Link :href="`/admin/operators/${operator.id}`" class="app-button-secondary px-4 py-2.5">
+              <td class="align-middle font-medium text-slate-950">{{ formatCurrency(operator.available_balance) }}</td>
+              <td class="align-middle font-medium text-slate-950">{{ formatCurrency(operator.revenue_total) }}</td>
+              <td class="align-middle">
+                <Link :href="`/admin/operators/${operator.id}`" class="app-button-secondary px-4 py-2 text-[11px]">
                   Open
                 </Link>
               </td>
             </tr>
-            <tr v-if="!operators.length">
+            <tr v-if="!operatorRows.length">
               <td colspan="7">
                 <div class="app-empty">No operators have registered yet.</div>
               </td>
@@ -109,6 +126,15 @@ const summary = computed(() => ({
           </tbody>
         </table>
       </div>
+
+      <AdminPagination
+        :current-page="currentPage"
+        :last-page="lastPage"
+        :total="props.operators.length"
+        :from="from"
+        :to="to"
+        @change="goToPage"
+      />
     </section>
   </MainLayout>
 </template>

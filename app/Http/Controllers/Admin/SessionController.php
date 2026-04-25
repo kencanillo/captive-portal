@@ -19,20 +19,67 @@ class SessionController extends Controller
     {
         $this->authorize('viewAny', WifiSession::class);
 
+        $sessions = WifiSession::query()
+            ->with([
+                'client:id,name,phone_number,mac_address',
+                'plan:id,name,price,duration_minutes',
+                'site:id,name',
+                'accessPoint:id,site_id,name,mac_address',
+            ])
+            ->orderByDesc('is_active')
+            ->latest()
+            ->paginate(20)
+            ->withQueryString();
+
+        $clientIds = $sessions->getCollection()
+            ->pluck('client_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        $clientHistories = WifiSession::query()
+            ->with([
+                'plan:id,name',
+                'site:id,name',
+                'payments:id,wifi_session_id,reference_id,status,created_at',
+            ])
+            ->whereIn('client_id', $clientIds)
+            ->latest()
+            ->get()
+            ->groupBy('client_id')
+            ->map(function ($history) {
+                return $history
+                    ->take(8)
+                    ->map(function (WifiSession $session) {
+                        return [
+                            'id' => $session->id,
+                            'plan_name' => $session->plan?->name,
+                            'site_name' => $session->site?->name,
+                            'payment_status' => $session->payment_status,
+                            'release_status' => $session->release_status,
+                            'remaining_time' => $this->formatRemainingTime($session),
+                            'created_at' => optional($session->created_at)?->toDateTimeString(),
+                            'end_time' => optional($session->end_time)?->toDateTimeString(),
+                            'payments' => $session->payments->take(3)->map(fn ($payment) => [
+                                'id' => $payment->id,
+                                'reference_id' => $payment->reference_id,
+                                'status' => $payment->status,
+                                'created_at' => optional($payment->created_at)?->toDateTimeString(),
+                            ])->values()->all(),
+                        ];
+                    })
+                    ->values()
+                    ->all();
+            });
+
         return Inertia::render('Admin/Sessions', [
             'releaseRuntime' => $wifiSessionReleaseService->runtimeHealth(),
-            'sessions' => WifiSession::query()
-                ->with([
-                    'client:id,name,phone_number,mac_address',
-                    'plan:id,name,price,duration_minutes',
-                    'site:id,name',
-                    'accessPoint:id,site_id,name,mac_address',
-                ])
-                ->latest()
-                ->paginate(25)
+            'clientHistories' => $clientHistories,
+            'sessions' => $sessions
                 ->through(function (WifiSession $session): array {
                     return [
                         'id' => $session->id,
+                        'client_id' => $session->client_id,
                         'client' => $session->client ? [
                             'id' => $session->client->id,
                             'name' => $session->client->name,
@@ -70,6 +117,11 @@ class SessionController extends Controller
                         'last_reconciled_at' => optional($session->last_reconciled_at)?->toDateTimeString(),
                         'reconcile_attempt_count' => $session->reconcile_attempt_count,
                         'last_reconcile_result' => $session->last_reconcile_result,
+                        'controller_check_message' => $session->last_reconcile_result === 'not_authorized_in_controller'
+                            ? 'Controller inspection confirmed the client is not currently authorized.'
+                            : ($session->last_reconcile_result === 'reconcile_failed'
+                                ? 'Controller verification failed. Check the controller connection before trusting this record.'
+                                : null),
                         'release_stuck_at' => optional($session->release_stuck_at)?->toDateTimeString(),
                         'manual_followup_required' => $session->release_status === WifiSession::RELEASE_STATUS_MANUAL_REQUIRED,
                         'released_by_path' => $session->released_by_path,
@@ -79,8 +131,7 @@ class SessionController extends Controller
                         'end_time' => optional($session->end_time)?->toDateTimeString(),
                         'remaining_time' => $this->formatRemainingTime($session),
                     ];
-                })
-                ->withQueryString(),
+                }),
         ]);
     }
 

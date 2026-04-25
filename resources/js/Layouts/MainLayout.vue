@@ -114,11 +114,16 @@ onBeforeUnmount(() => {
       :class="navOpen ? 'translate-x-0' : '-translate-x-full'"
     >
       <div class="flex h-full flex-col rounded-[32px] bg-[linear-gradient(180deg,#131b2e_0%,#1a243b_100%)] px-5 py-6 shadow-[40px_0_80px_-32px_rgba(19,27,46,0.9)]">
-        <div class="px-3">
-          <p class="text-[11px] font-bold uppercase tracking-[0.3em] text-sky-200/70">Captive Portal</p>
-          <h1 class="mt-3 text-2xl font-extrabold tracking-[-0.05em] text-white">Captive Portal</h1>
-          <p class="mt-3 max-w-[15rem] text-sm leading-6 text-slate-400">
-            {{ isAdmin ? 'Omada operations, operators, billing, and payout review.' : 'Your sites, devices, sessions, and payout activity.' }}
+        <div class="rounded-[28px] border border-white/10 bg-white/5 px-4 py-4">
+          <div class="flex items-center gap-3">
+            <img src="/favicon.png" alt="Brucke logo" class="h-12 w-12 rounded-2xl object-cover shadow-[0_18px_40px_-28px_rgba(15,23,42,0.9)]" />
+            <div class="min-w-0">
+              <p class="text-[11px] font-bold uppercase tracking-[0.28em] text-sky-200/70">Brucke WiFi</p>
+              <p class="mt-1 text-sm font-semibold text-white">{{ isAdmin ? 'Admin control plane' : 'Operator workspace' }}</p>
+            </div>
+          </div>
+          <p class="mt-3 text-xs leading-5 text-slate-400">
+            {{ isAdmin ? 'Operations, access points, billing, sessions, and payouts in one shell.' : 'Devices, sessions, and payout activity for your assigned sites.' }}
           </p>
         </div>
 
@@ -183,7 +188,7 @@ onBeforeUnmount(() => {
             </div>
             <div ref="accountMenuRef" class="relative">
               <button
-                class="inline-flex items-center gap-3 rounded-full border border-slate-200/70 bg-white px-3 py-2 text-left shadow-[0_16px_40px_-28px_rgba(19,27,46,0.42)] transition hover:border-slate-300 hover:bg-white"
+                class="app-glass-menu inline-flex items-center gap-3 rounded-full px-3 py-2 text-left transition hover:border-slate-300"
                 @click="toggleAccountMenu"
               >
                 <div class="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(135deg,#131b2e_0%,#223455_100%)] text-sm font-semibold text-white">
@@ -198,7 +203,7 @@ onBeforeUnmount(() => {
 
               <div
                 v-if="accountMenuOpen"
-                class="absolute right-0 top-[calc(100%+0.75rem)] w-[20rem] rounded-[26px] border border-white/70 bg-white/92 p-3 shadow-[0_30px_80px_-35px_rgba(19,27,46,0.42)] backdrop-blur-xl"
+                class="app-glass-menu absolute right-0 top-[calc(100%+0.75rem)] w-[20rem] rounded-[26px] p-3"
               >
                 <div class="rounded-[22px] bg-[linear-gradient(160deg,#131b2e_0%,#1d2842_100%)] px-4 py-4 text-white">
                   <p class="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-200/65">{{ workspaceLabel }}</p>

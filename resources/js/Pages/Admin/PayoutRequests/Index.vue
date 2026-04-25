@@ -1,7 +1,8 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { router, Head } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
+import AdminPagination from '@/Components/AdminPagination.vue';
 import { formatCurrency, formatNumber } from '@/utils/formatters';
 
 const props = defineProps({
@@ -30,6 +31,42 @@ const summary = computed(() => ({
     'execution_provider_on_hold_under_review',
   ].includes(item.post_execution_state)).length,
 }));
+
+const currentPage = ref(1);
+const perPage = 20;
+
+const paginatedRows = computed(() => {
+  const start = (currentPage.value - 1) * perPage;
+
+  return props.payoutRequests.slice(start, start + perPage);
+});
+
+const lastPage = computed(() => Math.max(1, Math.ceil(props.payoutRequests.length / perPage)));
+const from = computed(() => props.payoutRequests.length ? ((currentPage.value - 1) * perPage) + 1 : 0);
+const to = computed(() => Math.min(currentPage.value * perPage, props.payoutRequests.length));
+
+const summaryItems = computed(() => ([
+  { label: 'Requests', value: summary.value.total, tone: 'slate' },
+  { label: 'Pending', value: summary.value.pending, tone: 'amber' },
+  { label: 'Approved', value: summary.value.approved, tone: 'sky' },
+  { label: 'Review', value: summary.value.reviewRequired, tone: 'orange' },
+  { label: 'Settled', value: summary.value.settled, tone: 'emerald' },
+  { label: 'Rejected', value: summary.value.rejected, tone: 'rose' },
+  { label: 'Cancelled', value: summary.value.cancelled, tone: 'zinc' },
+  { label: 'Awaiting Settlement', value: summary.value.completedAwaitingSettlement, tone: 'violet' },
+  { label: 'Execution Exceptions', value: summary.value.postExecutionExceptions, tone: 'rose' },
+]));
+
+const summaryTone = (tone) => ({
+  slate: 'bg-slate-100 text-slate-700',
+  amber: 'bg-amber-100 text-amber-700',
+  sky: 'bg-sky-100 text-sky-700',
+  orange: 'bg-orange-100 text-orange-700',
+  emerald: 'bg-emerald-100 text-emerald-700',
+  rose: 'bg-rose-100 text-rose-700',
+  zinc: 'bg-zinc-100 text-zinc-700',
+  violet: 'bg-violet-100 text-violet-700',
+}[tone] || 'bg-slate-100 text-slate-700');
 
 const submitAction = (id, action, reviewNotes = null) => {
   const payload = {};
@@ -264,6 +301,10 @@ const markExecutionTerminalFailed = (attempt) => {
     preserveScroll: true,
   });
 };
+
+const goToPage = (page) => {
+  currentPage.value = page;
+};
 </script>
 
 <template>
@@ -278,65 +319,49 @@ const markExecutionTerminalFailed = (attempt) => {
       </p>
     </section>
 
-    <section class="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <article class="app-metric-card">
-        <p class="app-metric-label">Requests</p>
-        <p class="app-metric-value">{{ formatNumber(summary.total) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Pending Review</p>
-        <p class="app-metric-value">{{ formatNumber(summary.pending) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Approved Unpaid</p>
-        <p class="app-metric-value">{{ formatNumber(summary.approved) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Review Required</p>
-        <p class="app-metric-value">{{ formatNumber(summary.reviewRequired) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Settled</p>
-        <p class="app-metric-value">{{ formatNumber(summary.settled) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Cancelled</p>
-        <p class="app-metric-value">{{ formatNumber(summary.cancelled) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Rejected</p>
-        <p class="app-metric-value">{{ formatNumber(summary.rejected) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Awaiting Settlement</p>
-        <p class="app-metric-value">{{ formatNumber(summary.completedAwaitingSettlement) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Execution Exceptions</p>
-        <p class="app-metric-value">{{ formatNumber(summary.postExecutionExceptions) }}</p>
-      </article>
+    <section class="mt-8 app-rail-card">
+      <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p class="app-metric-label">Status Summary</p>
+          <p class="mt-2 text-sm text-slate-500">One compact card is enough for payout status counts.</p>
+        </div>
+        <p class="text-xs text-slate-500">Total {{ formatNumber(summary.total) }}</p>
+      </div>
+
+      <div class="mt-5 flex flex-wrap gap-3">
+        <div
+          v-for="item in summaryItems"
+          :key="item.label"
+          class="rounded-2xl border border-slate-200/70 bg-white/75 px-3 py-3"
+        >
+          <div class="flex items-center gap-2">
+            <span class="app-badge app-badge-compact" :class="summaryTone(item.tone)">{{ item.label }}</span>
+          </div>
+          <p class="mt-2 text-lg font-semibold tracking-[-0.03em] text-slate-950">{{ formatNumber(item.value) }}</p>
+        </div>
+      </div>
     </section>
 
     <section class="mt-6 grid gap-4 xl:grid-cols-4">
-      <article class="app-metric-card">
+      <article class="app-rail-card">
         <p class="app-metric-label">Provider</p>
-        <p class="app-metric-value text-2xl">{{ providerOps.provider }}</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ providerOps.provider }}</p>
         <p class="mt-2 text-xs text-slate-500">
           mode {{ providerOps.provider_mode || 'unknown' }} • live rollout {{ providerOps.live_execution_enabled ? 'enabled' : 'disabled' }}
         </p>
       </article>
-      <article class="app-metric-card">
+      <article class="app-rail-card">
         <p class="app-metric-label">Provider Ops</p>
-        <p class="app-metric-value text-2xl">{{ providerOps.degraded ? 'degraded' : 'healthy' }}</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ providerOps.degraded ? 'degraded' : 'healthy' }}</p>
         <p class="mt-2 text-xs text-slate-500">{{ providerOps.last_reconcile_heartbeat_at || 'No reconcile heartbeat yet' }}</p>
       </article>
-      <article class="app-metric-card">
+      <article class="app-rail-card">
         <p class="app-metric-label">Stale / Ambiguous</p>
-        <p class="app-metric-value">{{ formatNumber(providerOps.stale_or_ambiguous_count) }}</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatNumber(providerOps.stale_or_ambiguous_count) }}</p>
       </article>
-      <article class="app-metric-card">
+      <article class="app-rail-card">
         <p class="app-metric-label">Retryable Failed</p>
-        <p class="app-metric-value">{{ formatNumber(providerOps.retryable_failed_count) }}</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatNumber(providerOps.retryable_failed_count) }}</p>
       </article>
     </section>
 
@@ -355,7 +380,7 @@ const markExecutionTerminalFailed = (attempt) => {
       </div>
 
       <div class="app-table-wrap">
-        <table class="app-table">
+        <table class="app-table app-table-compact">
           <thead>
             <tr>
               <th>Operator</th>
@@ -368,7 +393,7 @@ const markExecutionTerminalFailed = (attempt) => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in payoutRequests" :key="item.id">
+            <tr v-for="item in paginatedRows" :key="item.id">
               <td>
                 <p class="font-semibold text-slate-950">{{ item.operator_name }}</p>
                 <p class="mt-1 text-xs text-slate-500">{{ item.operator_email }}</p>
@@ -544,7 +569,7 @@ const markExecutionTerminalFailed = (attempt) => {
                 </div>
               </td>
             </tr>
-            <tr v-if="!payoutRequests.length">
+            <tr v-if="!paginatedRows.length">
               <td colspan="7">
                 <div class="app-empty">No payout requests exist yet.</div>
               </td>
@@ -552,6 +577,15 @@ const markExecutionTerminalFailed = (attempt) => {
           </tbody>
         </table>
       </div>
+
+      <AdminPagination
+        :current-page="currentPage"
+        :last-page="lastPage"
+        :total="props.payoutRequests.length"
+        :from="from"
+        :to="to"
+        @change="goToPage"
+      />
     </section>
   </MainLayout>
 </template>
