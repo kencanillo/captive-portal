@@ -49,15 +49,23 @@ class DashboardController extends Controller
                 ]),
             'recentSessions' => WifiSession::query()
                 ->forOperator($operator)
-                ->with(['client:id,name,phone_number', 'plan:id,name', 'site:id,name'])
-                ->latest()
+                ->with([
+                    'client:id,name,phone_number',
+                    'plan:id,name',
+                    'site:id,name',
+                    'accessPoint:id,site_id,name,mac_address',
+                    'accessPoint.site:id,name',
+                ])
+                ->latest('id')
                 ->limit(6)
                 ->get()
                 ->map(fn (WifiSession $session) => [
                     'id' => $session->id,
                     'client_name' => $session->client?->name,
                     'plan_name' => $session->plan?->name,
-                    'site_name' => $session->site?->name,
+                    'site_name' => $session->site?->name ?? $session->accessPoint?->site?->name,
+                    'access_point_name' => $session->accessPoint?->name ?? $session->ap_name,
+                    'access_point_mac' => $session->accessPoint?->mac_address ?? $session->ap_mac,
                     'payment_status' => $session->payment_status,
                     'session_status' => $session->session_status,
                     'amount_paid' => number_format((float) $session->amount_paid, 2, '.', ''),
@@ -65,8 +73,13 @@ class DashboardController extends Controller
                 ]),
             'recentPayments' => Payment::query()
                 ->forOperator($operator)
-                ->with(['wifiSession.plan:id,name', 'wifiSession.site:id,name'])
-                ->latest()
+                ->with([
+                    'wifiSession.plan:id,name',
+                    'wifiSession.site:id,name',
+                    'wifiSession.accessPoint:id,site_id,name,mac_address',
+                    'wifiSession.accessPoint.site:id,name',
+                ])
+                ->latest('id')
                 ->limit(6)
                 ->get()
                 ->map(fn (Payment $payment) => [
@@ -74,22 +87,36 @@ class DashboardController extends Controller
                     'status' => $payment->status,
                     'amount' => number_format((float) $payment->amount, 2, '.', ''),
                     'plan_name' => $payment->wifiSession?->plan?->name,
-                    'site_name' => $payment->wifiSession?->site?->name,
+                    'site_name' => $payment->wifiSession?->site?->name ?? $payment->wifiSession?->accessPoint?->site?->name,
+                    'access_point_name' => $payment->wifiSession?->accessPoint?->name ?? $payment->wifiSession?->ap_name,
                     'reference_id' => $payment->reference_id,
                     'updated_at' => optional($payment->updated_at)?->toDateTimeString(),
                 ]),
-            'recentAccessPoints' => AccessPoint::query()
+            'accessPoints' => AccessPoint::query()
                 ->forOperator($operator)
                 ->with('site:id,name')
+                ->withCount([
+                    'wifiSessions as active_sessions_count' => fn ($query) => $query->where('is_active', true),
+                    'wifiSessions as paid_sessions_count' => fn ($query) => $query->where('payment_status', WifiSession::STATUS_PAID),
+                ])
+                ->withSum([
+                    'wifiSessions as revenue_total' => fn ($query) => $query->where('payment_status', WifiSession::STATUS_PAID),
+                ], 'amount_paid')
+                ->orderByDesc('is_online')
                 ->latest('last_synced_at')
-                ->limit(6)
+                ->orderBy('name')
                 ->get()
                 ->map(fn (AccessPoint $accessPoint) => [
                     'id' => $accessPoint->id,
                     'name' => $accessPoint->name,
+                    'mac_address' => $accessPoint->mac_address,
                     'site_name' => $accessPoint->site?->name,
                     'claim_status' => $accessPoint->claim_status,
+                    'is_online' => $accessPoint->is_online,
                     'health' => $healthService->present($accessPoint),
+                    'active_sessions_count' => $accessPoint->active_sessions_count,
+                    'paid_sessions_count' => $accessPoint->paid_sessions_count,
+                    'revenue_total' => number_format((float) ($accessPoint->revenue_total ?? 0), 2, '.', ''),
                     'last_synced_at' => optional($accessPoint->last_synced_at)?->toDateTimeString(),
                 ]),
             'healthRuntime' => $healthService->runtimeHealth(),

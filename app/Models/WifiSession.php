@@ -156,6 +156,12 @@ class WifiSession extends Model
 
     public function scopeForOperator(Builder $query, Operator $operator): Builder
     {
-        return $query->whereIn('site_id', $operator->sites()->select('id'));
+        return $query->where(function (Builder $query) use ($operator): void {
+            $query->whereHas('accessPoint', fn (Builder $accessPoints) => $accessPoints->forOperator($operator))
+                ->orWhere(function (Builder $query) use ($operator): void {
+                    $query->whereNull('access_point_id')
+                        ->whereIn('site_id', $operator->sites()->select('id'));
+                });
+        });
     }
 }

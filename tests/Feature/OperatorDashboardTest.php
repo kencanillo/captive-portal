@@ -82,6 +82,32 @@ class OperatorDashboardTest extends TestCase
             'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
             'is_active' => true,
         ]);
+
+        $claimedAccessPoint = AccessPoint::query()->create([
+            'site_id' => null,
+            'claimed_by_operator_id' => $operator->id,
+            'name' => 'Claimed AP',
+            'mac_address' => '33:44:55:66:77:88',
+            'claim_status' => AccessPoint::CLAIM_STATUS_CLAIMED,
+            'is_online' => true,
+            'health_state' => AccessPoint::HEALTH_STATE_CONNECTED,
+            'health_checked_at' => now(),
+            'status_source' => AccessPoint::STATUS_SOURCE_RECONCILE,
+            'status_source_event_at' => now(),
+            'last_synced_at' => now()->addMinute(),
+        ]);
+
+        $claimedApSession = WifiSession::query()->create([
+            'mac_address' => 'cc:dd:ee:ff:00:11',
+            'plan_id' => $plan->id,
+            'site_id' => null,
+            'access_point_id' => $claimedAccessPoint->id,
+            'amount_paid' => 30,
+            'payment_status' => WifiSession::STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
+            'is_active' => true,
+        ]);
+
         WifiSession::query()->create([
             'mac_address' => 'bb:cc:dd:ee:ff:00',
             'plan_id' => $plan->id,
@@ -97,6 +123,15 @@ class OperatorDashboardTest extends TestCase
             'provider' => Payment::PROVIDER_PAYMONGO,
             'payment_flow' => Payment::FLOW_QRPH,
             'reference_id' => 'NORTH123',
+            'status' => Payment::STATUS_PAID,
+            'amount' => 30,
+            'currency' => 'PHP',
+        ]);
+        Payment::query()->create([
+            'wifi_session_id' => $claimedApSession->id,
+            'provider' => Payment::PROVIDER_PAYMONGO,
+            'payment_flow' => Payment::FLOW_QRPH,
+            'reference_id' => 'CLAIMED123',
             'status' => Payment::STATUS_PAID,
             'amount' => 30,
             'currency' => 'PHP',
@@ -123,18 +158,22 @@ class OperatorDashboardTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Operator/Dashboard')
                 ->where('summary.sites_count', 1)
-                ->where('summary.access_points_count', 1)
-                ->where('summary.active_sessions_count', 1)
-                ->where('summary.completed_payments_count', 1)
+                ->where('summary.access_points_count', 2)
+                ->where('summary.active_sessions_count', 2)
+                ->where('summary.completed_payments_count', 2)
                 ->where('summary.gross_billed_fees', '500.00')
                 ->where('summary.net_payable_fees', '500.00')
                 ->where('summary.available_balance', '500.00')
                 ->where('summary.confidence_state', 'healthy')
                 ->where('webhookCapabilityVerdict', 'webhook_not_safely_supported_using_current_setup')
-                ->has('recentPayments', 1)
-                ->where('recentPayments.0.reference_id', 'NORTH123')
-                ->where('recentAccessPoints.0.name', 'North AP')
-                ->where('recentAccessPoints.0.health.health_state', 'connected'));
+                ->has('recentSessions', 2)
+                ->where('recentSessions.0.access_point_name', 'Claimed AP')
+                ->has('recentPayments', 2)
+                ->where('recentPayments.0.reference_id', 'CLAIMED123')
+                ->has('accessPoints', 2)
+                ->where('accessPoints.0.name', 'Claimed AP')
+                ->where('accessPoints.0.active_sessions_count', 1)
+                ->where('accessPoints.0.health.health_state', 'connected'));
     }
 
     public function test_pending_operator_is_redirected_to_pending_approval_page(): void

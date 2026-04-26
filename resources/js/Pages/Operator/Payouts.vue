@@ -1,10 +1,11 @@
 <script setup>
+import { computed } from 'vue';
 import { useForm, Head } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import InputError from '@/Components/InputError.vue';
-import { formatCurrency } from '@/utils/formatters';
+import { formatCurrency, formatNumber } from '@/utils/formatters';
 
-defineProps({
+const props = defineProps({
   summary: Object,
   providerOps: Object,
   statementLines: Array,
@@ -29,6 +30,40 @@ const submit = () => {
     onSuccess: () => form.reset(),
   });
 };
+
+const requests = computed(() => [
+  ...(props.pendingRequests || []),
+  ...(props.completedRequests || []),
+]);
+
+const statusSummary = computed(() => ({
+  total: requests.value.length,
+  pending: requests.value.filter((item) => item.status === 'pending_review').length,
+  approved: requests.value.filter((item) => item.status === 'approved').length,
+  reviewRequired: requests.value.filter((item) => item.status === 'review_required').length,
+  settled: requests.value.filter((item) => ['settled', 'paid'].includes(item.status)).length,
+  rejected: requests.value.filter((item) => item.status === 'rejected').length,
+  failed: requests.value.filter((item) => item.status === 'failed').length,
+}));
+
+const statusItems = computed(() => ([
+  { label: 'Requests', value: statusSummary.value.total, tone: 'slate' },
+  { label: 'Pending', value: statusSummary.value.pending, tone: 'amber' },
+  { label: 'Approved', value: statusSummary.value.approved, tone: 'sky' },
+  { label: 'Review', value: statusSummary.value.reviewRequired, tone: 'orange' },
+  { label: 'Settled', value: statusSummary.value.settled, tone: 'emerald' },
+  { label: 'Rejected', value: statusSummary.value.rejected, tone: 'rose' },
+  { label: 'Failed', value: statusSummary.value.failed, tone: 'rose' },
+]));
+
+const summaryTone = (tone) => ({
+  slate: 'bg-slate-100 text-slate-700',
+  amber: 'bg-amber-100 text-amber-700',
+  sky: 'bg-sky-100 text-sky-700',
+  orange: 'bg-orange-100 text-orange-700',
+  emerald: 'bg-emerald-100 text-emerald-700',
+  rose: 'bg-rose-100 text-rose-700',
+}[tone] || 'bg-slate-100 text-slate-700');
 </script>
 
 <template>
@@ -43,45 +78,49 @@ const submit = () => {
       </p>
     </section>
 
-    <section class="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <article class="app-metric-card">
-        <p class="app-metric-label">Gross AP Fees</p>
-        <p class="app-metric-value">{{ formatCurrency(summary.gross_billed_fees) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Reversed Fees</p>
-        <p class="app-metric-value">{{ formatCurrency(summary.reversed_fees) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Net Payable Fees</p>
-        <p class="app-metric-value">{{ formatCurrency(summary.net_payable_fees) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Requestable Balance</p>
-        <p class="app-metric-value">{{ formatCurrency(summary.available_balance) }}</p>
-      </article>
+    <section class="mt-8 app-rail-card">
+      <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p class="app-metric-label">Status Summary</p>
+          <p class="mt-2 text-sm text-slate-500">Same compact payout status model as admin. No bloated card wall.</p>
+        </div>
+        <p class="text-xs text-slate-500">Total {{ formatNumber(statusSummary.total) }}</p>
+      </div>
+
+      <div class="mt-5 flex flex-wrap gap-3">
+        <div
+          v-for="item in statusItems"
+          :key="item.label"
+          class="rounded-2xl border border-slate-200/70 bg-white/75 px-3 py-3"
+        >
+          <span class="app-badge app-badge-compact" :class="summaryTone(item.tone)">{{ item.label }}</span>
+          <p class="mt-2 text-lg font-semibold tracking-[-0.03em] text-slate-950">{{ formatNumber(item.value) }}</p>
+        </div>
+      </div>
     </section>
 
-    <section class="mt-4 grid gap-4 md:grid-cols-3">
-      <article class="app-metric-card">
-        <p class="app-metric-label">Reserved For Payout</p>
-        <p class="app-metric-value">{{ formatCurrency(summary.reserved_for_payout) }}</p>
+    <section class="mt-6 grid gap-4 xl:grid-cols-4">
+      <article class="app-rail-card">
+        <p class="app-metric-label">Gross AP Fees</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatCurrency(summary.gross_billed_fees) }}</p>
+        <p class="mt-2 text-xs text-slate-500">Reversed {{ formatCurrency(summary.reversed_fees) }}</p>
       </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Pending Review Reserved</p>
-        <p class="app-metric-value">{{ formatCurrency(summary.pending_review_reserved) }}</p>
+      <article class="app-rail-card">
+        <p class="app-metric-label">Net Payable</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatCurrency(summary.net_payable_fees) }}</p>
+        <p class="mt-2 text-xs text-slate-500">Blocked {{ formatCurrency(summary.blocked_fees) }}</p>
       </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Approved Unpaid</p>
-        <p class="app-metric-value">{{ formatCurrency(summary.approved_unpaid_reserved) }}</p>
+      <article class="app-rail-card">
+        <p class="app-metric-label">Reserved</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatCurrency(summary.reserved_for_payout) }}</p>
+        <p class="mt-2 text-xs text-slate-500">
+          pending {{ formatCurrency(summary.pending_review_reserved) }} • approved {{ formatCurrency(summary.approved_unpaid_reserved) }}
+        </p>
       </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Review Required Hold</p>
-        <p class="app-metric-value">{{ formatCurrency(summary.review_required_reserved) }}</p>
-      </article>
-      <article class="app-metric-card">
-        <p class="app-metric-label">Settled</p>
-        <p class="app-metric-value">{{ formatCurrency(summary.settled_total) }}</p>
+      <article class="app-rail-card">
+        <p class="app-metric-label">Requestable</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatCurrency(summary.available_balance) }}</p>
+        <p class="mt-2 text-xs text-slate-500">Settled {{ formatCurrency(summary.settled_total) }}</p>
       </article>
     </section>
 

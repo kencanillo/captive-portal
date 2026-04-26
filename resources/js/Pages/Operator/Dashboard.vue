@@ -9,10 +9,19 @@ defineProps({
   sites: Array,
   recentSessions: Array,
   recentPayments: Array,
-  recentAccessPoints: Array,
+  accessPoints: Array,
   healthRuntime: Object,
   webhookCapabilityVerdict: String,
 });
+
+function healthBadgeClass(state) {
+  return {
+    'app-badge bg-emerald-100 text-emerald-700': state === 'connected',
+    'app-badge bg-amber-100 text-amber-700': state === 'heartbeat_missed' || state === 'pending',
+    'app-badge bg-rose-100 text-rose-700': state === 'disconnected' || state === 'stale_unknown',
+    'app-badge bg-slate-100 text-slate-600': !state,
+  };
+}
 </script>
 
 <template>
@@ -115,7 +124,10 @@ defineProps({
             <tbody>
               <tr v-for="session in recentSessions" :key="session.id">
                 <td>{{ session.client_name || 'Unknown client' }}</td>
-                <td>{{ session.site_name || 'Unassigned' }}</td>
+                <td>
+                  <p>{{ session.site_name || 'Unassigned' }}</p>
+                  <p class="mt-1 text-xs text-slate-500">{{ session.access_point_name || session.access_point_mac || 'No AP linked' }}</p>
+                </td>
                 <td>{{ session.plan_name || 'N/A' }}</td>
                 <td>
                   <span class="app-badge" :class="session.session_status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'">
@@ -157,24 +169,29 @@ defineProps({
       </section>
 
       <section class="app-card p-7">
-        <p class="app-kicker">AP Sync Status</p>
-        <h2 class="mt-3 app-section-title">Recent device visibility</h2>
+        <p class="app-kicker">Access Point Inventory</p>
+        <h2 class="mt-3 app-section-title">Health and connected clients</h2>
         <div class="mt-6 space-y-3">
-          <article v-for="accessPoint in recentAccessPoints" :key="accessPoint.id" class="rounded-[22px] border border-slate-200/80 bg-white/80 px-5 py-4">
+          <article v-for="accessPoint in accessPoints" :key="accessPoint.id" class="rounded-[22px] border border-slate-200/80 bg-white/80 px-5 py-4">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p class="font-semibold text-slate-950">{{ accessPoint.name || 'Unnamed AP' }}</p>
-                <p class="mt-1 text-sm text-slate-500">{{ accessPoint.site_name || 'Unassigned site' }}</p>
+                <p class="mt-1 text-sm text-slate-500">{{ accessPoint.site_name || 'Unassigned site' }} • {{ accessPoint.mac_address || 'No MAC' }}</p>
               </div>
               <div class="text-left sm:text-right">
-                <p class="font-medium text-slate-950">{{ accessPoint.claim_status }}</p>
+                <span :class="healthBadgeClass(accessPoint.health?.health_state)">
+                  {{ accessPoint.health?.health_label || (accessPoint.is_online ? 'Connected' : 'Disconnected') }}
+                </span>
                 <p class="mt-1 text-xs text-slate-500">
-                  {{ accessPoint.health.health_label }} • {{ accessPoint.health.freshness_label || 'No freshness data' }} • {{ accessPoint.health.status_source || 'unknown' }}
+                  {{ formatNumber(accessPoint.active_sessions_count || 0) }} connected clients • {{ accessPoint.health?.freshness_label || 'No freshness data' }} • {{ accessPoint.health?.status_source || 'unknown' }}
+                </p>
+                <p class="mt-1 text-xs text-slate-500">
+                  {{ accessPoint.claim_status }} • {{ formatNumber(accessPoint.paid_sessions_count || 0) }} paid sessions • {{ formatCurrency(accessPoint.revenue_total || 0) }}
                 </p>
               </div>
             </div>
           </article>
-          <div v-if="!recentAccessPoints.length" class="app-empty">No access points are mapped to this operator yet.</div>
+          <div v-if="!accessPoints.length" class="app-empty">No access points are mapped to this operator yet.</div>
         </div>
       </section>
     </section>

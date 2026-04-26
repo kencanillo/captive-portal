@@ -1,3 +1,216 @@
+<template>
+  <Head title="Connect to WiFi" />
+
+  <div class="min-h-screen bg-[linear-gradient(180deg,#f7f9fb_0%,#eef2f7_100%)]">
+    <main class="grid min-h-screen grid-cols-1 lg:grid-cols-12">
+      <section class="relative hidden overflow-hidden bg-[linear-gradient(160deg,#131b2e_0%,#0d1324_100%)] lg:col-span-5 lg:flex lg:items-center lg:justify-center lg:p-14">
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(91,184,254,0.18),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(78,222,163,0.14),transparent_22%)]" />
+        <div class="relative z-10 max-w-lg">
+          <span class="inline-flex rounded-full bg-sky-400/15 px-4 py-1 text-xs font-bold uppercase tracking-[0.24em] text-sky-200">
+            BruckeLab Captive Portal
+          </span>
+          <h1 class="mt-8 text-6xl font-extrabold leading-[1.02] tracking-[-0.08em] text-white">
+            Connect your
+            <span class="font-light">device.</span>
+          </h1>
+          <p class="mt-6 text-lg leading-8 text-slate-300">
+            The page is live immediately. Device detection runs in the background so the captive portal does not feel hung.
+          </p>
+
+          <div v-if="portalContext?.site_name || portalContext?.ap_name || portalContext?.ssid_name" class="mt-10 rounded-[24px] border border-white/10 bg-white/8 px-5 py-5 backdrop-blur-sm">
+            <p class="text-[11px] font-bold uppercase tracking-[0.22em] text-white/55">Detected Network Context</p>
+            <div class="mt-4 space-y-2 text-sm text-slate-300">
+              <p>Site: {{ portalContext?.site_name || 'Unknown' }}</p>
+              <p>Access point: {{ portalContext?.ap_name || portalContext?.ap_mac || 'Unknown' }}</p>
+              <p>SSID: {{ portalContext?.ssid_name || 'Unknown' }}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="flex min-h-screen items-center justify-center px-6 py-10 sm:px-8 lg:col-span-7 lg:px-16 lg:py-16">
+        <div class="w-full max-w-2xl">
+          <div class="app-card-strong p-6 sm:p-8">
+            <div class="mb-8">
+              <p class="app-kicker">Client Registration</p>
+              <h2 class="mt-3 text-4xl font-black tracking-[-0.05em] text-slate-950">Register your device</h2>
+              <p class="mt-3 text-sm leading-7 text-slate-500">
+                Fill out the form while the portal resolves the device context in the background.
+              </p>
+            </div>
+
+            <div
+              class="mb-6 rounded-[22px] border px-5 py-4 text-sm"
+              :class="deviceContextResolved ? 'border-emerald-200/70 bg-emerald-50/90 text-emerald-800' : 'border-slate-200/70 bg-slate-50/80 text-slate-600'"
+            >
+              <p class="font-semibold">
+                {{ deviceContextResolved ? 'Device detected.' : (deviceContextStatus === 'failed' ? 'Device context unavailable.' : 'Detecting device...') }}
+              </p>
+              <p class="mt-1">
+                {{ deviceContextMessage }}
+              </p>
+              <div class="mt-3 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-slate-500">
+                <span>Status: {{ deviceContextStatus }}</span>
+                <span v-if="deviceContextErrorCode">Error: {{ deviceContextErrorCode }}</span>
+                <span v-if="deviceContextStalled && !deviceContextResolved">You can keep filling out the form.</span>
+              </div>
+              <button
+                v-if="['retryable', 'failed'].includes(deviceContextStatus) && !deviceContextLoading"
+                type="button"
+                class="mt-3 font-semibold underline"
+                @click="fetchDeviceContext(true)"
+              >
+                Retry device detection
+              </button>
+            </div>
+
+            <div v-if="hasActiveSession" class="mb-6 rounded-[22px] border border-sky-200/70 bg-sky-50/90 px-5 py-5">
+              <p class="text-sm font-semibold text-sky-950">This device already has active internet access.</p>
+              <p class="mt-1 text-sm text-sky-700">
+                The captive sign-in form is blocked while the session is active. Open WiFi settings again after disconnecting if you need to reconnect.
+              </p>
+
+              <div class="mt-4 grid gap-3 md:grid-cols-2">
+                <div class="rounded-[18px] bg-white/80 px-4 py-4">
+                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Plan</p>
+                  <p class="mt-2 text-lg font-semibold text-slate-950">{{ activeSession?.plan?.name || 'Active session' }}</p>
+                </div>
+                <div class="rounded-[18px] bg-white/80 px-4 py-4">
+                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Time Remaining</p>
+                  <p class="mt-2 text-lg font-semibold text-slate-950">{{ activeSessionRemainingLabel || '0:00' }}</p>
+                </div>
+              </div>
+
+              <div class="mt-4 space-y-2 text-sm text-sky-800">
+                <p><span class="font-semibold">Name:</span> {{ activeSession?.client_name || existingClient?.name || 'Unknown client' }}</p>
+                <p><span class="font-semibold">Phone:</span> {{ activeSession?.phone_number || existingClient?.phone_number || 'Unknown phone' }}</p>
+                <p><span class="font-semibold">MAC:</span> {{ activeMacAddress || 'Pending detection' }}</p>
+              </div>
+            </div>
+
+            <div v-else-if="existingClient" class="mb-6 rounded-[22px] border border-emerald-200/70 bg-emerald-50/90 px-5 py-4">
+              <p class="text-sm font-semibold text-emerald-900">Welcome back, {{ existingClient.name }}.</p>
+              <p class="mt-1 text-sm text-emerald-700">Your device is already registered. Payment unlocks once device detection is ready.</p>
+            </div>
+
+            <div v-if="!hasActiveSession" class="space-y-6">
+              <div>
+                <label class="app-label" for="mac_address">MAC Address</label>
+                <div
+                  id="mac_address"
+                  class="app-field flex h-14 items-center font-mono"
+                  :class="hasDetectedMacAddress ? 'text-slate-950' : 'text-slate-400'"
+                >
+                  {{ hasDetectedMacAddress ? activeMacAddress : 'Waiting for device detection' }}
+                </div>
+                <p class="mt-2 text-sm text-slate-500">
+                  This field is controller-driven and cannot be edited by the client.
+                </p>
+              </div>
+
+              <div v-if="existingClient" class="rounded-[22px] bg-slate-50/90 px-5 py-4">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Known Account</p>
+                <div class="mt-3 space-y-2 text-sm text-slate-600">
+                  <p><span class="font-semibold text-slate-950">Registered Name:</span> {{ existingClient?.name }}</p>
+                  <p><span class="font-semibold text-slate-950">Registered Phone:</span> {{ existingClient?.phone_number }}</p>
+                </div>
+                <p class="mt-3 text-sm text-slate-500">
+                  PIN verification is still required before payment. Existing-device detection does not unlock checkout by itself.
+                </p>
+              </div>
+
+              <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div>
+                  <label class="app-label" for="name">Full Name</label>
+                  <input id="name" v-model="registrationForm.name" type="text" class="app-field h-14" />
+                </div>
+
+                <div>
+                  <label class="app-label" for="phone_number">Phone Number</label>
+                  <input id="phone_number" v-model="registrationForm.phone_number" type="tel" class="app-field h-14" placeholder="09XXXXXXXXX" />
+                </div>
+              </div>
+
+              <div>
+                <label class="app-label" for="pin">PIN</label>
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <input
+                    id="pin"
+                    v-model="registrationForm.pin"
+                    type="password"
+                    maxlength="20"
+                    class="app-field h-14 text-center text-xl tracking-[0.45em]"
+                    placeholder="PIN"
+                  />
+                  <input
+                    id="pin_confirmation"
+                    v-model="registrationForm.pin_confirmation"
+                    type="password"
+                    maxlength="20"
+                    class="app-field h-14 text-center text-xl tracking-[0.45em]"
+                    placeholder="Confirm PIN"
+                  />
+                </div>
+                <p class="mt-2 text-sm text-slate-500">
+                  Phone number plus PIN identifies the account. Internet access still depends on this detected device MAC.
+                </p>
+              </div>
+            </div>
+
+            <div v-if="!hasActiveSession" class="mt-8 space-y-6">
+              <div>
+                <p class="app-kicker">Plan Selection</p>
+                <h3 class="mt-2 text-2xl font-bold tracking-[-0.04em] text-slate-950">Choose a plan</h3>
+                <p class="mt-2 text-sm text-slate-500">Plans are ready as soon as the page settles. Payment unlocks when registration and device detection are both ready.</p>
+              </div>
+
+              <div v-if="plansLoading" class="grid gap-4 md:grid-cols-2">
+                <div v-for="placeholder in 4" :key="placeholder" class="animate-pulse rounded-[24px] border border-slate-200/80 bg-white/80 p-5">
+                  <div class="h-5 w-32 rounded bg-slate-200"></div>
+                  <div class="mt-3 h-4 w-24 rounded bg-slate-200"></div>
+                  <div class="mt-6 h-8 w-28 rounded bg-slate-200"></div>
+                  <div class="mt-5 h-11 rounded-[20px] bg-slate-200"></div>
+                </div>
+              </div>
+
+              <div v-else-if="plans.length" class="grid gap-4 md:grid-cols-2">
+                <article v-for="plan in plans" :key="plan.id" class="rounded-[24px] border border-slate-200/80 bg-white/80 p-5 shadow-[0_16px_36px_-28px_rgba(19,27,46,0.35)]">
+                  <p class="text-lg font-semibold text-slate-950">{{ plan.name }}</p>
+                  <p class="mt-1 text-sm text-slate-500">{{ plan.duration_minutes }} minutes</p>
+                  <p v-if="plan.speed_limit" class="mt-1 text-xs text-slate-500">{{ plan.speed_limit }}</p>
+                  <p class="mt-5 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatCurrency(plan.customer_price ?? plan.price) }}</p>
+                  <p class="mt-2 text-sm text-slate-500">Final payable amount</p>
+                  <button
+                    class="app-button-primary mt-5 w-full rounded-[20px]"
+                    :disabled="isPaymentDisabled(plan.id)"
+                    @click="payWithGCash(plan.id)"
+                  >
+                    {{ loadingPlanId === plan.id ? 'Preparing payment...' : (deviceContextResolved ? 'Pay via QRPh' : 'Waiting for device detection') }}
+                  </button>
+                </article>
+              </div>
+
+              <div v-else class="app-empty">
+                No plans are available right now.
+              </div>
+
+              <p class="text-sm text-slate-500">
+                {{ paymentActionLockedReason || 'Device context is ready. Choose a plan to continue.' }}
+              </p>
+            </div>
+          </div>
+
+          <p v-if="plansError" class="mt-6 rounded-[22px] border border-amber-200/70 bg-amber-50/90 px-5 py-4 text-sm text-amber-700">
+            {{ plansError }}
+          </p>
+          <p v-if="errorMessage" class="mt-6 rounded-[22px] border border-rose-200/70 bg-rose-50/90 px-5 py-4 text-sm text-rose-700">
+            {{ errorMessage }}
+          </p>
+        </div>
+      </section>
+    </main>
+  </div>
+</template>
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
@@ -382,217 +595,3 @@ const isPaymentDisabled = (planId) => {
   return Boolean(paymentActionLockedReason.value);
 };
 </script>
-
-<template>
-  <Head title="Connect to WiFi" />
-
-  <div class="min-h-screen bg-[linear-gradient(180deg,#f7f9fb_0%,#eef2f7_100%)]">
-    <main class="grid min-h-screen grid-cols-1 lg:grid-cols-12">
-      <section class="relative hidden overflow-hidden bg-[linear-gradient(160deg,#131b2e_0%,#0d1324_100%)] lg:col-span-5 lg:flex lg:items-center lg:justify-center lg:p-14">
-        <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(91,184,254,0.18),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(78,222,163,0.14),transparent_22%)]" />
-        <div class="relative z-10 max-w-lg">
-          <span class="inline-flex rounded-full bg-sky-400/15 px-4 py-1 text-xs font-bold uppercase tracking-[0.24em] text-sky-200">
-            BruckeLab Captive Portal
-          </span>
-          <h1 class="mt-8 text-6xl font-extrabold leading-[1.02] tracking-[-0.08em] text-white">
-            Connect your
-            <span class="font-light">device.</span>
-          </h1>
-          <p class="mt-6 text-lg leading-8 text-slate-300">
-            The page is live immediately. Device detection runs in the background so the captive portal does not feel hung.
-          </p>
-
-          <div v-if="portalContext?.site_name || portalContext?.ap_name || portalContext?.ssid_name" class="mt-10 rounded-[24px] border border-white/10 bg-white/8 px-5 py-5 backdrop-blur-sm">
-            <p class="text-[11px] font-bold uppercase tracking-[0.22em] text-white/55">Detected Network Context</p>
-            <div class="mt-4 space-y-2 text-sm text-slate-300">
-              <p>Site: {{ portalContext?.site_name || 'Unknown' }}</p>
-              <p>Access point: {{ portalContext?.ap_name || portalContext?.ap_mac || 'Unknown' }}</p>
-              <p>SSID: {{ portalContext?.ssid_name || 'Unknown' }}</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="flex min-h-screen items-center justify-center px-6 py-10 sm:px-8 lg:col-span-7 lg:px-16 lg:py-16">
-        <div class="w-full max-w-2xl">
-          <div class="app-card-strong p-6 sm:p-8">
-            <div class="mb-8">
-              <p class="app-kicker">Client Registration</p>
-              <h2 class="mt-3 text-4xl font-black tracking-[-0.05em] text-slate-950">Register your device</h2>
-              <p class="mt-3 text-sm leading-7 text-slate-500">
-                Fill out the form while the portal resolves the device context in the background.
-              </p>
-            </div>
-
-            <div
-              class="mb-6 rounded-[22px] border px-5 py-4 text-sm"
-              :class="deviceContextResolved ? 'border-emerald-200/70 bg-emerald-50/90 text-emerald-800' : 'border-slate-200/70 bg-slate-50/80 text-slate-600'"
-            >
-              <p class="font-semibold">
-                {{ deviceContextResolved ? 'Device detected.' : (deviceContextStatus === 'failed' ? 'Device context unavailable.' : 'Detecting device...') }}
-              </p>
-              <p class="mt-1">
-                {{ deviceContextMessage }}
-              </p>
-              <div class="mt-3 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-slate-500">
-                <span>Status: {{ deviceContextStatus }}</span>
-                <span v-if="deviceContextErrorCode">Error: {{ deviceContextErrorCode }}</span>
-                <span v-if="deviceContextStalled && !deviceContextResolved">You can keep filling out the form.</span>
-              </div>
-              <button
-                v-if="['retryable', 'failed'].includes(deviceContextStatus) && !deviceContextLoading"
-                type="button"
-                class="mt-3 font-semibold underline"
-                @click="fetchDeviceContext(true)"
-              >
-                Retry device detection
-              </button>
-            </div>
-
-            <div v-if="hasActiveSession" class="mb-6 rounded-[22px] border border-sky-200/70 bg-sky-50/90 px-5 py-5">
-              <p class="text-sm font-semibold text-sky-950">This device already has active internet access.</p>
-              <p class="mt-1 text-sm text-sky-700">
-                The captive sign-in form is blocked while the session is active. Open WiFi settings again after disconnecting if you need to reconnect.
-              </p>
-
-              <div class="mt-4 grid gap-3 md:grid-cols-2">
-                <div class="rounded-[18px] bg-white/80 px-4 py-4">
-                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Plan</p>
-                  <p class="mt-2 text-lg font-semibold text-slate-950">{{ activeSession?.plan?.name || 'Active session' }}</p>
-                </div>
-                <div class="rounded-[18px] bg-white/80 px-4 py-4">
-                  <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Time Remaining</p>
-                  <p class="mt-2 text-lg font-semibold text-slate-950">{{ activeSessionRemainingLabel || '0:00' }}</p>
-                </div>
-              </div>
-
-              <div class="mt-4 space-y-2 text-sm text-sky-800">
-                <p><span class="font-semibold">Name:</span> {{ activeSession?.client_name || existingClient?.name || 'Unknown client' }}</p>
-                <p><span class="font-semibold">Phone:</span> {{ activeSession?.phone_number || existingClient?.phone_number || 'Unknown phone' }}</p>
-                <p><span class="font-semibold">MAC:</span> {{ activeMacAddress || 'Pending detection' }}</p>
-              </div>
-            </div>
-
-            <div v-else-if="existingClient" class="mb-6 rounded-[22px] border border-emerald-200/70 bg-emerald-50/90 px-5 py-4">
-              <p class="text-sm font-semibold text-emerald-900">Welcome back, {{ existingClient.name }}.</p>
-              <p class="mt-1 text-sm text-emerald-700">Your device is already registered. Payment unlocks once device detection is ready.</p>
-            </div>
-
-            <div v-if="!hasActiveSession" class="space-y-6">
-              <div>
-                <label class="app-label" for="mac_address">MAC Address</label>
-                <div
-                  id="mac_address"
-                  class="app-field flex h-14 items-center font-mono"
-                  :class="hasDetectedMacAddress ? 'text-slate-950' : 'text-slate-400'"
-                >
-                  {{ hasDetectedMacAddress ? activeMacAddress : 'Waiting for device detection' }}
-                </div>
-                <p class="mt-2 text-sm text-slate-500">
-                  This field is controller-driven and cannot be edited by the client.
-                </p>
-              </div>
-
-              <div v-if="existingClient" class="rounded-[22px] bg-slate-50/90 px-5 py-4">
-                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Known Account</p>
-                <div class="mt-3 space-y-2 text-sm text-slate-600">
-                  <p><span class="font-semibold text-slate-950">Registered Name:</span> {{ existingClient?.name }}</p>
-                  <p><span class="font-semibold text-slate-950">Registered Phone:</span> {{ existingClient?.phone_number }}</p>
-                </div>
-                <p class="mt-3 text-sm text-slate-500">
-                  PIN verification is still required before payment. Existing-device detection does not unlock checkout by itself.
-                </p>
-              </div>
-
-              <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div>
-                  <label class="app-label" for="name">Full Name</label>
-                  <input id="name" v-model="registrationForm.name" type="text" class="app-field h-14" />
-                </div>
-
-                <div>
-                  <label class="app-label" for="phone_number">Phone Number</label>
-                  <input id="phone_number" v-model="registrationForm.phone_number" type="tel" class="app-field h-14" placeholder="09XXXXXXXXX" />
-                </div>
-              </div>
-
-              <div>
-                <label class="app-label" for="pin">PIN</label>
-                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-                  <input
-                    id="pin"
-                    v-model="registrationForm.pin"
-                    type="password"
-                    maxlength="20"
-                    class="app-field h-14 text-center text-xl tracking-[0.45em]"
-                    placeholder="PIN"
-                  />
-                  <input
-                    id="pin_confirmation"
-                    v-model="registrationForm.pin_confirmation"
-                    type="password"
-                    maxlength="20"
-                    class="app-field h-14 text-center text-xl tracking-[0.45em]"
-                    placeholder="Confirm PIN"
-                  />
-                </div>
-                <p class="mt-2 text-sm text-slate-500">
-                  Phone number plus PIN identifies the account. Internet access still depends on this detected device MAC.
-                </p>
-              </div>
-            </div>
-
-            <div v-if="!hasActiveSession" class="mt-8 space-y-6">
-              <div>
-                <p class="app-kicker">Plan Selection</p>
-                <h3 class="mt-2 text-2xl font-bold tracking-[-0.04em] text-slate-950">Choose a plan</h3>
-                <p class="mt-2 text-sm text-slate-500">Plans are ready as soon as the page settles. Payment unlocks when registration and device detection are both ready.</p>
-              </div>
-
-              <div v-if="plansLoading" class="grid gap-4 md:grid-cols-2">
-                <div v-for="placeholder in 4" :key="placeholder" class="animate-pulse rounded-[24px] border border-slate-200/80 bg-white/80 p-5">
-                  <div class="h-5 w-32 rounded bg-slate-200"></div>
-                  <div class="mt-3 h-4 w-24 rounded bg-slate-200"></div>
-                  <div class="mt-6 h-8 w-28 rounded bg-slate-200"></div>
-                  <div class="mt-5 h-11 rounded-[20px] bg-slate-200"></div>
-                </div>
-              </div>
-
-              <div v-else-if="plans.length" class="grid gap-4 md:grid-cols-2">
-                <article v-for="plan in plans" :key="plan.id" class="rounded-[24px] border border-slate-200/80 bg-white/80 p-5 shadow-[0_16px_36px_-28px_rgba(19,27,46,0.35)]">
-                  <p class="text-lg font-semibold text-slate-950">{{ plan.name }}</p>
-                  <p class="mt-1 text-sm text-slate-500">{{ plan.duration_minutes }} minutes</p>
-                  <p v-if="plan.speed_limit" class="mt-1 text-xs text-slate-500">{{ plan.speed_limit }}</p>
-                  <p class="mt-5 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatCurrency(plan.customer_price ?? plan.price) }}</p>
-                  <p class="mt-2 text-sm text-slate-500">Final payable amount</p>
-                  <button
-                    class="app-button-primary mt-5 w-full rounded-[20px]"
-                    :disabled="isPaymentDisabled(plan.id)"
-                    @click="payWithGCash(plan.id)"
-                  >
-                    {{ loadingPlanId === plan.id ? 'Preparing payment...' : (deviceContextResolved ? 'Pay via QRPh' : 'Waiting for device detection') }}
-                  </button>
-                </article>
-              </div>
-
-              <div v-else class="app-empty">
-                No plans are available right now.
-              </div>
-
-              <p class="text-sm text-slate-500">
-                {{ paymentActionLockedReason || 'Device context is ready. Choose a plan to continue.' }}
-              </p>
-            </div>
-          </div>
-
-          <p v-if="plansError" class="mt-6 rounded-[22px] border border-amber-200/70 bg-amber-50/90 px-5 py-4 text-sm text-amber-700">
-            {{ plansError }}
-          </p>
-          <p v-if="errorMessage" class="mt-6 rounded-[22px] border border-rose-200/70 bg-rose-50/90 px-5 py-4 text-sm text-rose-700">
-            {{ errorMessage }}
-          </p>
-        </div>
-      </section>
-    </main>
-  </div>
-</template>
