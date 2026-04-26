@@ -16,6 +16,14 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  initialPlans: {
+    type: Array,
+    default: () => [],
+  },
+  plansPrefetched: {
+    type: Boolean,
+    default: false,
+  },
   deviceContextTimeoutMs: {
     type: Number,
     default: 8000,
@@ -24,12 +32,19 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  initialDeviceContextState: {
+    type: Object,
+    default: () => ({
+      status: 'pending',
+      error_code: null,
+    }),
+  },
 });
 
 const deviceContextLoading = ref(false);
-const plansLoading = ref(false);
+const plansLoading = ref(!props.plansPrefetched);
 const plansError = ref('');
-const plans = ref([]);
+const plans = ref(props.initialPlans);
 const portalToken = ref(null);
 const portalContext = ref({
   ...props.initialPortalContext,
@@ -40,8 +55,8 @@ const activeSession = ref(null);
 const loadingPlanId = ref(null);
 const errorMessage = ref('');
 const activeSessionRemainingSeconds = ref(0);
-const deviceContextStatus = ref('pending');
-const deviceContextErrorCode = ref(null);
+const deviceContextStatus = ref(props.initialDeviceContextState?.status || 'pending');
+const deviceContextErrorCode = ref(props.initialDeviceContextState?.error_code || null);
 const deviceContextMessage = ref('Detecting device...');
 const deviceContextStalled = ref(false);
 const deviceContextAttempts = ref(0);
@@ -51,6 +66,7 @@ const maxAutomaticDeviceContextAttempts = 3;
 let activeSessionCountdownTimer = null;
 let deviceContextRetryTimer = null;
 let deviceContextStallTimer = null;
+let bootTasksTimer = null;
 
 const registrationForm = ref({
   name: '',
@@ -102,6 +118,10 @@ const syncResolvedContext = (payload) => {
 
 const describeDeviceContextFailure = (errorCode) => {
   switch (errorCode) {
+    case 'missing_captive_context':
+      return 'No captive portal device context detected. Connect to the Wi-Fi network and reopen the sign-in page.';
+    case 'invalid_client_mac':
+      return 'The captive portal MAC address was invalid. Reopen the Wi-Fi sign-in page from the network login flow.';
     case 'omada_ssl':
       return 'Device detection failed because the Omada controller certificate was rejected. Fix SSL trust or the internal controller URL, then retry.';
     case 'auth':
@@ -116,6 +136,10 @@ const describeDeviceContextFailure = (errorCode) => {
       return 'Device detection is unavailable right now. Retry when the controller path is healthy.';
   }
 };
+
+if (deviceContextStatus.value !== 'pending') {
+  deviceContextMessage.value = describeDeviceContextFailure(deviceContextErrorCode.value);
+}
 
 const scheduleDeviceContextStallNotice = () => {
   if (deviceContextStatus.value === 'resolved') return;
@@ -137,7 +161,6 @@ const scheduleDeviceContextRetry = (delayMs) => {
 };
 
 const fetchDeviceContext = async (isManualRetry = false) => {
-  const startTime = performance.now();
   clearDeviceContextTimers();
   deviceContextLoading.value = true;
   deviceContextStalled.value = false;
@@ -151,15 +174,12 @@ const fetchDeviceContext = async (isManualRetry = false) => {
 
   try {
     scheduleDeviceContextStallNotice();
-    console.log('[PlanSelection] Starting async device context fetch');
     const response = await window.axios.get(props.deviceContextUrl, {
       timeout: props.deviceContextTimeoutMs,
       headers: {
         'X-Portal-Request-Id': props.portalRequestId,
       },
     });
-    const fetchDuration = performance.now() - startTime;
-    console.log(`[PlanSelection] Device context fetch completed in ${fetchDuration.toFixed(2)}ms`);
 
     const payload = response?.data?.data || {};
     deviceContextStatus.value = payload.status || 'pending';
@@ -171,16 +191,15 @@ const fetchDeviceContext = async (isManualRetry = false) => {
     } else {
       deviceContextMessage.value = describeDeviceContextFailure(deviceContextErrorCode.value);
 
-      if (['pending', 'retryable'].includes(deviceContextStatus.value) && deviceContextAttempts.value < maxAutomaticDeviceContextAttempts) {
+      if (
+        ['pending', 'retryable'].includes(deviceContextStatus.value)
+        && !['missing_captive_context', 'invalid_client_mac'].includes(deviceContextErrorCode.value)
+        && deviceContextAttempts.value < maxAutomaticDeviceContextAttempts
+      ) {
         scheduleDeviceContextRetry(payload.retry_after_ms || 1500);
       }
     }
-
-    console.log(`[PlanSelection] Device context status: ${deviceContextStatus.value}; MAC detected: ${Boolean(registrationForm.value.mac_address)}`);
   } catch (error) {
-    const errorDuration = performance.now() - startTime;
-    console.error(`[PlanSelection] Device context fetch failed after ${errorDuration.toFixed(2)}ms:`, error);
-
     deviceContextStatus.value = 'retryable';
     deviceContextErrorCode.value = error?.code === 'ECONNABORTED' ? 'timeout' : 'request_failed';
     deviceContextMessage.value = error?.code === 'ECONNABORTED'
@@ -196,6 +215,10 @@ const fetchDeviceContext = async (isManualRetry = false) => {
 };
 
 const loadPlans = async () => {
+  if (plansLoading.value && plans.value.length > 0) {
+    return;
+  }
+
   plansLoading.value = true;
   plansError.value = '';
 
@@ -210,24 +233,34 @@ const loadPlans = async () => {
 };
 
 onMounted(() => {
-  console.log('[PlanSelection] Page mounted, loading plans and device context');
-  const mountStart = performance.now();
+  const queueBootTasks = () => {
+    bootTasksTimer = window.setTimeout(() => {
+      if (!props.plansPrefetched) {
+        void loadPlans();
+      }
 
-  loadPlans();
-  fetchDeviceContext(false);
+      void fetchDeviceContext(false);
+    }, 0);
+  };
+
+  if ('requestAnimationFrame' in window) {
+    window.requestAnimationFrame(queueBootTasks);
+  } else {
+    queueBootTasks();
+  }
 
   activeSessionCountdownTimer = window.setInterval(() => {
     syncActiveSessionCountdown();
   }, 1000);
-
-  setTimeout(() => {
-    const interactiveTime = performance.now() - mountStart;
-    console.log(`[PlanSelection] Page became interactive in ${interactiveTime.toFixed(2)}ms`);
-  }, 100);
 });
 
 onBeforeUnmount(() => {
   clearDeviceContextTimers();
+
+  if (bootTasksTimer) {
+    window.clearTimeout(bootTasksTimer);
+    bootTasksTimer = null;
+  }
 
   if (activeSessionCountdownTimer) {
     window.clearInterval(activeSessionCountdownTimer);
@@ -279,12 +312,10 @@ const paymentActionLockedReason = computed(() => {
     return 'This device already has active internet access.';
   }
 
-  if (!existingClient.value) {
-    const validationError = validateRegistrationForm(false);
+  const validationError = validateRegistrationForm(false);
 
-    if (validationError) {
-      return validationError;
-    }
+  if (validationError) {
+    return validationError;
   }
 
   if (!deviceContextResolved.value) {
@@ -303,12 +334,10 @@ const payWithGCash = async (planId) => {
       throw new Error('This device already has active internet access. Disconnect from WiFi and reconnect if you need the captive portal again.');
     }
 
-    if (!existingClient.value) {
-      const validationError = validateRegistrationForm(true);
+    const validationError = validateRegistrationForm(true);
 
-      if (validationError) {
-        throw new Error(validationError);
-      }
+    if (validationError) {
+      throw new Error(validationError);
     }
 
     if (!deviceContextResolved.value) {
@@ -318,16 +347,13 @@ const payWithGCash = async (planId) => {
     const payload = {
       plan_id: planId,
       portal_token: portalToken.value,
-    };
-
-    if (!existingClient.value) {
-      payload.client_registration = {
+      client_registration: {
         name: registrationForm.value.name,
         phone_number: registrationForm.value.phone_number,
         pin: registrationForm.value.pin,
         pin_confirmation: registrationForm.value.pin_confirmation,
-      };
-    }
+      },
+    };
 
     const selectResp = await window.axios.post('/api/select-plan', payload);
     const sessionToken = selectResp?.data?.data?.session_token;
@@ -340,7 +366,10 @@ const payWithGCash = async (planId) => {
 
     window.location.href = paymentUrl;
   } catch (error) {
-    errorMessage.value = error?.response?.data?.message || error?.message || 'Unable to process payment.';
+    const backendCode = error?.response?.data?.data?.code;
+    errorMessage.value = backendCode === 'transfer_required'
+      ? error?.response?.data?.message
+      : error?.response?.data?.message || error?.message || 'Unable to process payment.';
     loadingPlanId.value = null;
   }
 };
@@ -400,7 +429,7 @@ const isPaymentDisabled = (planId) => {
               :class="deviceContextResolved ? 'border-emerald-200/70 bg-emerald-50/90 text-emerald-800' : 'border-slate-200/70 bg-slate-50/80 text-slate-600'"
             >
               <p class="font-semibold">
-                {{ deviceContextResolved ? 'Device detected.' : 'Detecting device...' }}
+                {{ deviceContextResolved ? 'Device detected.' : (deviceContextStatus === 'failed' ? 'Device context unavailable.' : 'Detecting device...') }}
               </p>
               <p class="mt-1">
                 {{ deviceContextMessage }}
@@ -449,7 +478,7 @@ const isPaymentDisabled = (planId) => {
               <p class="mt-1 text-sm text-emerald-700">Your device is already registered. Payment unlocks once device detection is ready.</p>
             </div>
 
-            <div v-if="!existingClient && !hasActiveSession" class="space-y-6">
+            <div v-if="!hasActiveSession" class="space-y-6">
               <div>
                 <label class="app-label" for="mac_address">MAC Address</label>
                 <div
@@ -461,6 +490,17 @@ const isPaymentDisabled = (planId) => {
                 </div>
                 <p class="mt-2 text-sm text-slate-500">
                   This field is controller-driven and cannot be edited by the client.
+                </p>
+              </div>
+
+              <div v-if="existingClient" class="rounded-[22px] bg-slate-50/90 px-5 py-4">
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Known Account</p>
+                <div class="mt-3 space-y-2 text-sm text-slate-600">
+                  <p><span class="font-semibold text-slate-950">Registered Name:</span> {{ existingClient?.name }}</p>
+                  <p><span class="font-semibold text-slate-950">Registered Phone:</span> {{ existingClient?.phone_number }}</p>
+                </div>
+                <p class="mt-3 text-sm text-slate-500">
+                  PIN verification is still required before payment. Existing-device detection does not unlock checkout by itself.
                 </p>
               </div>
 
@@ -497,19 +537,8 @@ const isPaymentDisabled = (planId) => {
                   />
                 </div>
                 <p class="mt-2 text-sm text-slate-500">
-                  Registration stays usable while the controller resolves the device identity.
+                  Phone number plus PIN identifies the account. Internet access still depends on this detected device MAC.
                 </p>
-              </div>
-            </div>
-
-            <div v-else-if="!hasActiveSession" class="space-y-6">
-              <div class="rounded-[22px] bg-slate-50/90 px-5 py-4">
-                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Registration Summary</p>
-                <div class="mt-3 space-y-2 text-sm text-slate-600">
-                  <p><span class="font-semibold text-slate-950">MAC:</span> {{ activeMacAddress || 'Pending detection' }}</p>
-                  <p><span class="font-semibold text-slate-950">Name:</span> {{ existingClient?.name }}</p>
-                  <p><span class="font-semibold text-slate-950">Phone:</span> {{ existingClient?.phone_number }}</p>
-                </div>
               </div>
             </div>
 
@@ -517,7 +546,7 @@ const isPaymentDisabled = (planId) => {
               <div>
                 <p class="app-kicker">Plan Selection</p>
                 <h3 class="mt-2 text-2xl font-bold tracking-[-0.04em] text-slate-950">Choose a plan</h3>
-                <p class="mt-2 text-sm text-slate-500">Plans load immediately. Payment unlocks when registration and device detection are both ready.</p>
+                <p class="mt-2 text-sm text-slate-500">Plans are ready as soon as the page settles. Payment unlocks when registration and device detection are both ready.</p>
               </div>
 
               <div v-if="plansLoading" class="grid gap-4 md:grid-cols-2">

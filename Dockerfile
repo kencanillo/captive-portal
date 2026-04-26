@@ -24,9 +24,7 @@ COPY public ./public
 COPY vite.config.js postcss.config.js tailwind.config.js jsconfig.json ./
 RUN npm run build
 
-FROM php:8.4-apache-bookworm AS app
-
-ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
+FROM php:8.4-fpm-bookworm AS app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -41,12 +39,13 @@ RUN apt-get update \
         libonig-dev \
         libpng-dev \
         libzip-dev \
+        nginx \
         unzip \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" bcmath gd intl opcache pcntl pdo_mysql zip \
-    && a2enmod headers rewrite \
+    && mkdir -p /run/php \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /var/www/html
@@ -54,7 +53,8 @@ WORKDIR /var/www/html
 COPY . .
 COPY --from=composer_deps /app/vendor ./vendor
 COPY --from=frontend_deps /app/public/build ./public/build
-COPY docker/apache-vhost.conf /etc/apache2/sites-available/000-default.conf
+COPY docker/nginx.conf /etc/nginx/sites-available/default
+COPY docker/php-fpm-pool.conf /usr/local/etc/php-fpm.d/zz-www.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-captive-portal.ini
 COPY docker/entrypoint.sh /usr/local/bin/portal-entrypoint
 
@@ -76,4 +76,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1/up || exit 1
 
 ENTRYPOINT ["portal-entrypoint"]
-CMD ["apache2-foreground"]
+CMD ["nginx", "-g", "daemon off;"]

@@ -1,6 +1,7 @@
 <script setup>
 import InputError from '@/Components/InputError.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import { Head, useForm, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -86,7 +87,7 @@ const updatePassword = () => {
       <aside class="space-y-6">
         <div class="app-card-dark p-7">
           <p class="app-top-stat">
-            <span class="material-symbols-outlined text-[16px]">person</span>
+            <SvgIcon name="person" class="h-4 w-4" />
             Account summary
           </p>
           <h2 class="mt-6 text-3xl font-bold tracking-[-0.05em] text-white">{{ user?.name || 'Unknown user' }}</h2>

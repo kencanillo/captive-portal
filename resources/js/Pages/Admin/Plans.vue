@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatCurrency, formatNumber } from '@/utils/formatters';
 
@@ -200,7 +201,7 @@ const saveEdit = () => {
         </div>
 
         <button class="app-button-primary mt-8" @click="createPlan">
-          <span class="material-symbols-outlined text-[18px]">add_circle</span>
+          <SvgIcon name="add_circle" class="h-[18px] w-[18px]" />
           Create promo
         </button>
       </div>
@@ -241,11 +242,11 @@ const saveEdit = () => {
 
               <div class="flex flex-wrap gap-2">
                 <button class="app-button-secondary px-4 py-2.5" @click="startEdit(plan)">
-                  <span class="material-symbols-outlined text-[18px]">edit</span>
+                  <SvgIcon name="edit" class="h-[18px] w-[18px]" />
                   Edit
                 </button>
                 <button class="inline-flex items-center justify-center gap-2 rounded-full bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500" @click="deletePlan(plan.id)">
-                  <span class="material-symbols-outlined text-[18px]">delete</span>
+                  <SvgIcon name="delete" class="h-[18px] w-[18px]" />
                   Delete
                 </button>
               </div>

@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Jobs\ReleaseWifiAccessJob;
 use App\Models\Payment;
 use App\Models\WifiSession;
 use Carbon\Carbon;
@@ -31,7 +30,10 @@ class PayMongoQrPhService
 
     private int $timeoutSeconds;
 
-    public function __construct()
+    public function __construct(
+        private readonly WifiSessionService $wifiSessionService,
+        private readonly WifiSessionReleaseService $wifiSessionReleaseService,
+    )
     {
         $this->secretKey = (string) config('services.paymongo.secret_key');
         $this->webhookSecret = (string) config('services.paymongo.webhook_secret');
@@ -76,7 +78,9 @@ class PayMongoQrPhService
             ->where('status', Payment::STATUS_PAID)
             ->first();
 
-        if ($latestPaidPayment && in_array($session->session_status, [
+        if ($latestPaidPayment
+            && ! $session->extends_session_id
+            && in_array($session->session_status, [
             WifiSession::SESSION_STATUS_PAID,
             WifiSession::SESSION_STATUS_ACTIVE,
             WifiSession::SESSION_STATUS_RELEASE_FAILED,
@@ -231,6 +235,107 @@ class PayMongoQrPhService
         return $payment->fresh(['wifiSession']);
     }
 
+    public function reconcilePendingPayments(int $limit = 50): array
+    {
+        $summary = [
+            'checked' => 0,
+            'paid' => 0,
+            'released' => 0,
+            'expired' => 0,
+            'failed' => 0,
+            'awaiting_payment' => 0,
+            'errors' => 0,
+        ];
+
+        Payment::query()
+            ->with(['wifiSession.plan', 'wifiSession.client', 'wifiSession.site', 'wifiSession.accessPoint'])
+            ->where('provider', Payment::PROVIDER_PAYMONGO)
+            ->where('payment_flow', Payment::FLOW_QRPH)
+            ->whereIn('status', [
+                Payment::STATUS_PENDING,
+                Payment::STATUS_AWAITING_PAYMENT,
+            ])
+            ->whereNotNull('paymongo_payment_intent_id')
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get()
+            ->each(function (Payment $payment) use (&$summary): void {
+                $summary['checked']++;
+
+                try {
+                    $rechecked = $this->recheckPayment($payment);
+                } catch (Throwable $exception) {
+                    $summary['errors']++;
+
+                    Log::warning('Scheduled PayMongo payment reconciliation failed.', [
+                        'payment_id' => $payment->id,
+                        'wifi_session_id' => $payment->wifi_session_id,
+                        'error' => $exception->getMessage(),
+                    ]);
+
+                    return;
+                }
+
+                $status = $rechecked->payment_status;
+
+                if ($status === Payment::STATUS_PAID) {
+                    $summary['paid']++;
+
+                    $session = $rechecked->wifiSession;
+
+                    if ($session
+                        && (! $session->is_active
+                            || $session->session_status !== WifiSession::SESSION_STATUS_ACTIVE
+                            || $session->release_status !== WifiSession::RELEASE_STATUS_SUCCEEDED)) {
+                        try {
+                            $releasedSession = $this->wifiSessionReleaseService->attemptRelease(
+                                $session->id,
+                                'scheduled_paymongo_reconcile',
+                                [
+                                    'payment_id' => $rechecked->id,
+                                    'paymongo_payment_intent_id' => $rechecked->paymongo_payment_intent_id,
+                                ]
+                            );
+
+                            if ($releasedSession->is_active
+                                && $releasedSession->session_status === WifiSession::SESSION_STATUS_ACTIVE
+                                && $releasedSession->release_status === WifiSession::RELEASE_STATUS_SUCCEEDED) {
+                                $summary['released']++;
+                            }
+                        } catch (Throwable $exception) {
+                            $summary['errors']++;
+
+                            Log::warning('Scheduled PayMongo payment reconciliation could not activate paid session.', [
+                                'payment_id' => $rechecked->id,
+                                'wifi_session_id' => $session->id,
+                                'error' => $exception->getMessage(),
+                            ]);
+                        }
+                    }
+
+                    return;
+                }
+
+                if ($status === Payment::STATUS_EXPIRED) {
+                    $summary['expired']++;
+
+                    return;
+                }
+
+                if (in_array($status, [Payment::STATUS_FAILED, Payment::STATUS_CANCELED], true)) {
+                    $summary['failed']++;
+
+                    return;
+                }
+
+                $summary['awaiting_payment']++;
+            });
+
+        Log::info('Scheduled PayMongo payment reconciliation completed.', $summary);
+
+        return $summary;
+    }
+
     private function createPayment(WifiSession $session): Payment
     {
         if (! $this->secretKey) {
@@ -350,7 +455,20 @@ class PayMongoQrPhService
             $session->forceFill([
                 'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
                 'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+                'release_status' => null,
+                'release_outcome_type' => null,
+                'release_attempt_count' => 0,
+                'last_release_attempt_at' => null,
+                'last_release_error' => null,
                 'release_failure_reason' => null,
+                'controller_state_uncertain' => false,
+                'released_at' => null,
+                'last_reconciled_at' => null,
+                'reconcile_attempt_count' => 0,
+                'last_reconcile_result' => null,
+                'release_stuck_at' => null,
+                'released_by_path' => null,
+                'release_metadata' => null,
                 'paymongo_payment_intent_id' => $paymentIntentId,
             ])->save();
 
@@ -468,6 +586,11 @@ class PayMongoQrPhService
         $payment->wifiSession()->update([
             'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
             'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+            'release_status' => null,
+            'release_outcome_type' => null,
+            'last_release_error' => null,
+            'release_failure_reason' => null,
+            'controller_state_uncertain' => false,
         ]);
     }
 
@@ -518,15 +641,57 @@ class PayMongoQrPhService
             $session = $lockedPayment->wifiSession;
             $netAmount = (float) ($session->plan?->net_amount ?? $lockedPayment->amount ?? $session->amount_paid);
 
+            if ($session->session_status === WifiSession::SESSION_STATUS_MERGED && $session->merged_into_session_id) {
+                Log::info('Skipping duplicate renewal merge for already-merged paid session.', [
+                    'payment_id' => $lockedPayment->id,
+                    'wifi_session_id' => $session->id,
+                    'merged_into_session_id' => $session->merged_into_session_id,
+                ]);
+
+                return;
+            }
+
             $session->forceFill([
                 'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
                 'session_status' => $session->is_active
                     ? WifiSession::SESSION_STATUS_ACTIVE
                     : WifiSession::SESSION_STATUS_PAID,
+                'release_status' => $session->is_active
+                    ? WifiSession::RELEASE_STATUS_SUCCEEDED
+                    : null,
+                'release_outcome_type' => $session->is_active
+                    ? WifiSession::RELEASE_OUTCOME_SUCCESS
+                    : null,
                 'release_failure_reason' => null,
+                'last_release_error' => null,
+                'controller_state_uncertain' => false,
+                'release_stuck_at' => null,
                 'amount_paid' => $netAmount,
                 'paymongo_payment_intent_id' => $lockedPayment->paymongo_payment_intent_id,
             ])->save();
+
+            if ($session->extends_session_id) {
+                $extendedSession = WifiSession::query()
+                    ->with('plan')
+                    ->lockForUpdate()
+                    ->find($session->extends_session_id);
+
+                if ($extendedSession
+                    && $extendedSession->is_active
+                    && $extendedSession->end_time?->isFuture()
+                    && strtolower($extendedSession->mac_address) === strtolower($session->mac_address)) {
+                    $this->wifiSessionService->mergePaidRenewalIntoActiveSession($session, $extendedSession);
+                    $dispatch = false;
+
+                    Log::info('Merged paid renewal into active WiFi entitlement.', [
+                        'payment_id' => $lockedPayment->id,
+                        'wifi_session_id' => $session->id,
+                        'merged_into_session_id' => $extendedSession->id,
+                    ]);
+
+                    return;
+                }
+            }
 
             Log::info('Marked payment as paid from PayMongo webhook.', [
                 'payment_id' => $lockedPayment->id,
@@ -542,7 +707,18 @@ class PayMongoQrPhService
         });
 
         if ($dispatch) {
-            ReleaseWifiAccessJob::dispatch($payment->id)->afterCommit();
+            $session = $payment->wifiSession()->with(['plan', 'client', 'site', 'accessPoint'])->first();
+
+            if ($session) {
+                $this->wifiSessionReleaseService->queueInitialRelease(
+                    $session,
+                    $this->resolveReleasePath($eventId),
+                    [
+                        'payment_id' => $payment->id,
+                        'paymongo_payment_intent_id' => $payment->paymongo_payment_intent_id,
+                    ]
+                );
+            }
         }
     }
 
@@ -581,6 +757,11 @@ class PayMongoQrPhService
             $lockedPayment->wifiSession->forceFill([
                 'payment_status' => WifiSession::PAYMENT_STATUS_FAILED,
                 'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+                'release_status' => null,
+                'release_outcome_type' => null,
+                'last_release_error' => null,
+                'release_failure_reason' => null,
+                'controller_state_uncertain' => false,
             ])->save();
 
             Log::warning('Marked payment as failed from PayMongo update.', [
@@ -623,6 +804,11 @@ class PayMongoQrPhService
             $lockedPayment->wifiSession->forceFill([
                 'payment_status' => WifiSession::PAYMENT_STATUS_EXPIRED,
                 'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+                'release_status' => null,
+                'release_outcome_type' => null,
+                'last_release_error' => null,
+                'release_failure_reason' => null,
+                'controller_state_uncertain' => false,
             ])->save();
 
             Log::warning('Marked payment as expired.', [
@@ -644,6 +830,15 @@ class PayMongoQrPhService
             'canceled' => Payment::STATUS_CANCELED,
             default => Payment::STATUS_PENDING,
         };
+    }
+
+    private function resolveReleasePath(?string $eventId): string
+    {
+        if (is_string($eventId) && str_starts_with($eventId, 'manual-recheck')) {
+            return 'manual_recheck';
+        }
+
+        return 'webhook';
     }
 
     private function extractPaymentIntentId(string $eventType, array $resource): ?string

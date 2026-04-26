@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatCurrency, formatNumber } from '@/utils/formatters';
 
@@ -9,6 +10,9 @@ const props = defineProps({
   totalRevenue: String,
   mostPopularPlan: Object,
   analytics: Object,
+  automationStatus: Object,
+  operationalReadiness: Object,
+  operationalVerification: Object,
   controllerSettings: Object,
   revenueTrend: Array,
   accessPoints: Array,
@@ -46,6 +50,15 @@ const trendBars = computed(() => (props.revenueTrend || []).map((item) => ({
   ...item,
   normalizedHeight: Math.max(28, Math.round((Number(item.amount || 0) / trendMax.value) * 100)),
 })));
+
+function runtimeBadgeClass(status) {
+  return {
+    'app-badge bg-emerald-100 text-emerald-700': status === 'healthy' || status === 'pass',
+    'app-badge bg-sky-100 text-sky-700': status === 'warning',
+    'app-badge bg-amber-100 text-amber-700': status === 'degraded' || status === 'warn',
+    'app-badge bg-rose-100 text-rose-700': status === 'stale' || status === 'missing' || status === 'fail' || status === 'blocked',
+  };
+}
 </script>
 
 <template>
@@ -71,7 +84,7 @@ const trendBars = computed(() => (props.revenueTrend || []).map((item) => ({
         <div class="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div class="max-w-3xl">
             <p class="app-top-stat">
-              <span class="material-symbols-outlined text-[16px]">monitoring</span>
+              <SvgIcon name="monitoring" class="h-4 w-4" />
               Revenue command center
             </p>
             <h1 class="mt-5 text-4xl font-extrabold tracking-[-0.06em] text-white sm:text-5xl">
@@ -118,7 +131,7 @@ const trendBars = computed(() => (props.revenueTrend || []).map((item) => ({
                 'bg-slate-100 text-slate-700': stat.tone === 'slate',
               }"
             >
-              <span class="material-symbols-outlined">{{ stat.icon }}</span>
+              <SvgIcon :name="stat.icon" class="h-6 w-6" />
             </div>
           </div>
         </article>
@@ -159,6 +172,143 @@ const trendBars = computed(() => (props.revenueTrend || []).map((item) => ({
               {{ props.controllerSettings?.controller_name || 'No controller configured' }}
             </p>
             <p class="mt-2 break-all text-sm text-slate-500">{{ props.controllerSettings?.base_url || 'Save controller settings first' }}</p>
+          </div>
+        </div>
+
+        <div class="mt-8 rounded-[24px] border border-slate-200/80 bg-slate-50/90 p-5">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p class="app-kicker">Operational Runtime</p>
+              <h3 class="mt-2 text-xl font-semibold tracking-[-0.04em] text-slate-950">Critical automation status</h3>
+              <p class="mt-2 text-sm text-slate-500">
+                This is the real runtime picture for scheduler, access activation, AP sync, recovery checks, and billing automation.
+              </p>
+            </div>
+            <div class="flex items-center gap-3">
+              <span :class="runtimeBadgeClass(props.automationStatus?.overall_status)">
+                {{ props.automationStatus?.overall_status || 'unknown' }}
+              </span>
+              <Link
+                href="/admin/dashboard/verify-operations"
+                method="post"
+                as="button"
+                class="app-button-secondary px-4 py-2.5"
+              >
+                Run verification
+              </Link>
+            </div>
+          </div>
+
+          <div class="mt-5 grid gap-3 lg:grid-cols-2">
+            <article
+              v-for="status in props.automationStatus?.statuses || []"
+              :key="status.key"
+              class="rounded-[20px] border border-slate-200/80 bg-white px-4 py-4"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-slate-950">{{ status.label }}</p>
+                  <p class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                    Last heartbeat: {{ status.last_heartbeat_at || 'Never observed' }}
+                  </p>
+                </div>
+                <span :class="runtimeBadgeClass(status.status)">
+                  {{ status.status }}
+                </span>
+              </div>
+              <p class="mt-3 text-sm leading-6 text-slate-600">{{ status.summary }}</p>
+            </article>
+          </div>
+
+          <div class="mt-5 grid gap-4 sm:grid-cols-3">
+            <div class="app-panel">
+              <p class="app-metric-label">Activation Backlog</p>
+              <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                {{ formatNumber(props.automationStatus?.incident_counts?.outstanding_release_count || 0) }}
+              </p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Stale AP Health</p>
+              <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                {{ formatNumber(props.automationStatus?.incident_counts?.stale_access_point_count || 0) }}
+              </p>
+            </div>
+            <div class="app-panel">
+              <p class="app-metric-label">Billing Incidents</p>
+              <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                {{ formatNumber(props.automationStatus?.incident_counts?.billing_blocked_incident_count || 0) }}
+              </p>
+              <p class="mt-2 text-sm text-slate-500">
+                {{ formatNumber(props.automationStatus?.incident_counts?.billing_manual_review_count || 0) }} manual-review APs
+              </p>
+            </div>
+          </div>
+
+          <div class="mt-5 rounded-[20px] border border-slate-200/80 bg-white px-4 py-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-950">Action readiness</p>
+                <p class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                  {{ props.operationalReadiness?.overall_state || 'unknown' }}
+                </p>
+              </div>
+              <span :class="runtimeBadgeClass(props.operationalReadiness?.overall_state)">
+                {{ props.operationalReadiness?.overall_state || 'unknown' }}
+              </span>
+            </div>
+
+            <div class="mt-4 space-y-3">
+              <div
+                v-for="action in props.operationalReadiness?.actions || []"
+                :key="action.key"
+                class="rounded-[16px] border border-slate-200/80 bg-slate-50 px-4 py-3"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <p class="text-sm font-semibold text-slate-950">{{ action.label }}</p>
+                  <span :class="runtimeBadgeClass(action.state)">
+                    {{ action.state }}
+                  </span>
+                </div>
+                <p class="mt-2 text-sm text-slate-600">{{ action.summary }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-5 rounded-[20px] border border-slate-200/80 bg-white px-4 py-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-950">Latest operational verification</p>
+                <p class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                  {{ props.operationalVerification?.performed_at || 'Not run yet' }}
+                </p>
+              </div>
+              <span
+                v-if="props.operationalVerification"
+                :class="runtimeBadgeClass(props.operationalVerification?.overall_status)"
+              >
+                {{ props.operationalVerification?.overall_status }}
+              </span>
+            </div>
+
+            <div v-if="props.operationalVerification" class="mt-4 space-y-3">
+              <div
+                v-for="check in props.operationalVerification.checks"
+                :key="check.key"
+                class="rounded-[16px] border border-slate-200/80 bg-slate-50 px-4 py-3"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <p class="text-sm font-semibold text-slate-950">{{ check.label }}</p>
+                  <span :class="runtimeBadgeClass(check.status)">
+                    {{ check.status }}
+                  </span>
+                </div>
+                <p class="mt-2 text-sm text-slate-600">{{ check.summary }}</p>
+              </div>
+            </div>
+
+            <div v-else class="mt-4 rounded-[16px] border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+              Run operational verification before trusting automation in production.
+            </div>
           </div>
         </div>
       </div>
@@ -289,19 +439,19 @@ const trendBars = computed(() => (props.revenueTrend || []).map((item) => ({
 
     <section class="mt-8 flex flex-wrap gap-3">
       <Link href="/admin/controller" class="app-button-primary">
-        <span class="material-symbols-outlined text-[18px]">settings_input_component</span>
+        <SvgIcon name="settings_input_component" class="h-[18px] w-[18px]" />
         Controller Settings
       </Link>
       <Link href="/admin/operators" class="app-button-secondary">
-        <span class="material-symbols-outlined text-[18px]">groups</span>
+        <SvgIcon name="groups" class="h-[18px] w-[18px]" />
         Manage Operators
       </Link>
       <Link href="/admin/payout-requests" class="app-button-secondary">
-        <span class="material-symbols-outlined text-[18px]">payments</span>
+        <SvgIcon name="payments" class="h-[18px] w-[18px]" />
         Review Payouts
       </Link>
       <Link href="/admin/plans" class="app-button-secondary">
-        <span class="material-symbols-outlined text-[18px]">sell</span>
+        <SvgIcon name="sell" class="h-[18px] w-[18px]" />
         Manage Promos
       </Link>
     </section>

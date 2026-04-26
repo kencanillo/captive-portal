@@ -4,40 +4,25 @@ namespace App\Http\Controllers\Operator;
 
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
-use App\Models\ControllerSetting;
-use App\Services\OmadaService;
-use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
+use App\Models\AccessPointClaim;
+use App\Services\AccessPointBillingService;
+use App\Services\AccessPointHealthService;
 use Inertia\Inertia;
 use Inertia\Response;
-use Throwable;
 
 class DeviceController extends Controller
 {
     public function index(): Response
     {
         $operator = request()->user()->loadMissing('operator.sites')->operator;
-        $siteIds = $operator->sites()->pluck('id');
-
-        $pendingDevices = AccessPoint::query()
-            ->whereIn('site_id', $siteIds)
-            ->where('claim_status', AccessPoint::CLAIM_STATUS_PENDING)
-            ->with('site:id,name')
-            ->get()
-            ->map(fn (AccessPoint $ap) => [
-                'id' => $ap->id,
-                'name' => $ap->name,
-                'mac_address' => $ap->mac_address,
-                'model' => $ap->model,
-                'site_name' => $ap->site?->name,
-                'last_synced_at' => optional($ap->last_synced_at)?->toDateTimeString(),
-            ]);
-
+        $claimService = app(\App\Services\AccessPointClaimService::class);
+        $healthService = app(AccessPointHealthService::class);
+        $billingService = app(AccessPointBillingService::class);
         $connectedDevices = AccessPoint::query()
-            ->whereIn('site_id', $siteIds)
-            ->where('claim_status', AccessPoint::CLAIM_STATUS_CLAIMED)
-            ->where('is_online', true)
-            ->with('site:id,name')
+            ->where('claimed_by_operator_id', $operator->id)
+            ->where('adoption_state', AccessPoint::ADOPTION_STATE_ADOPTED)
+            ->where('health_state', AccessPoint::HEALTH_STATE_CONNECTED)
+            ->with(['site:id,name', 'latestBillingEntry'])
             ->get()
             ->map(fn (AccessPoint $ap) => [
                 'id' => $ap->id,
@@ -46,13 +31,19 @@ class DeviceController extends Controller
                 'model' => $ap->model,
                 'site_name' => $ap->site?->name,
                 'last_synced_at' => optional($ap->last_synced_at)?->toDateTimeString(),
+                'health' => $healthService->present($ap),
+                'billing' => $billingService->present($ap),
             ]);
 
         $failedDevices = AccessPoint::query()
-            ->whereIn('site_id', $siteIds)
-            ->where('claim_status', AccessPoint::CLAIM_STATUS_CLAIMED)
-            ->where('is_online', false)
-            ->with('site:id,name')
+            ->where('claimed_by_operator_id', $operator->id)
+            ->where('adoption_state', AccessPoint::ADOPTION_STATE_ADOPTED)
+            ->whereIn('health_state', [
+                AccessPoint::HEALTH_STATE_HEARTBEAT_MISSED,
+                AccessPoint::HEALTH_STATE_DISCONNECTED,
+                AccessPoint::HEALTH_STATE_STALE_UNKNOWN,
+            ])
+            ->with(['site:id,name', 'latestBillingEntry'])
             ->get()
             ->map(fn (AccessPoint $ap) => [
                 'id' => $ap->id,
@@ -61,42 +52,52 @@ class DeviceController extends Controller
                 'model' => $ap->model,
                 'site_name' => $ap->site?->name,
                 'last_synced_at' => optional($ap->last_synced_at)?->toDateTimeString(),
+                'health' => $healthService->present($ap),
+                'billing' => $billingService->present($ap),
             ]);
 
         return Inertia::render('Operator/Devices', [
-            'pendingDevices' => $pendingDevices,
+            'syncHealth' => $claimService->inventoryHealth(),
+            'healthRuntime' => $healthService->runtimeHealth(),
+            'billingRuntime' => $billingService->runtimeHealth(),
+            'webhookCapabilityVerdict' => $healthService->webhookCapabilityVerdict(),
+            'claimableSites' => $operator->sites->map(fn ($site) => [
+                'id' => $site->id,
+                'name' => $site->name,
+            ])->values(),
+            'claimRequests' => AccessPointClaim::query()
+                ->where('operator_id', $operator->id)
+                ->with(['site:id,name', 'matchedAccessPoint.site:id,name'])
+                ->latest('claimed_at')
+                ->latest()
+                ->get()
+                ->map(fn (AccessPointClaim $claim) => [
+                    'id' => $claim->id,
+                    'claim_status' => $claim->claim_status,
+                    'claim_match_status' => $claim->claim_match_status,
+                    'requested_serial_number' => $claim->requested_serial_number,
+                    'requested_mac_address' => $claim->requested_mac_address,
+                    'requested_ap_name' => $claim->requested_ap_name,
+                    'claimed_at' => optional($claim->claimed_at)?->toDateTimeString(),
+                    'reviewed_at' => optional($claim->reviewed_at)?->toDateTimeString(),
+                    'matched_at' => optional($claim->matched_at)?->toDateTimeString(),
+                    'requires_re_review' => $claim->requires_re_review,
+                    'conflict_state' => $claim->conflict_state,
+                    'sync_freshness_checked_at' => optional($claim->sync_freshness_checked_at)?->toDateTimeString(),
+                    'review_notes' => $claim->review_notes,
+                    'denial_reason' => $claim->denial_reason,
+                    'failure_reason' => $claim->failure_reason,
+                    'site_name' => $claim->site?->name,
+                    'matched_access_point' => $claim->matchedAccessPoint ? [
+                        'id' => $claim->matchedAccessPoint->id,
+                        'name' => $claim->matchedAccessPoint->name,
+                        'mac_address' => $claim->matchedAccessPoint->mac_address,
+                        'serial_number' => $claim->matchedAccessPoint->serial_number,
+                        'site_name' => $claim->matchedAccessPoint->site?->name,
+                    ] : null,
+                ]),
             'connectedDevices' => $connectedDevices,
             'failedDevices' => $failedDevices,
         ]);
-    }
-
-    public function adopt(Request $request, OmadaService $omadaService): RedirectResponse
-    {
-        $request->validate([
-            'access_point_id' => 'required|exists:access_points,id',
-        ]);
-
-        $operator = request()->user()->loadMissing('operator.sites')->operator;
-        $siteIds = $operator->sites()->pluck('id');
-
-        $accessPoint = AccessPoint::query()
-            ->where('id', $request->access_point_id)
-            ->whereIn('site_id', $siteIds)
-            ->where('claim_status', AccessPoint::CLAIM_STATUS_PENDING)
-            ->firstOrFail();
-
-        $settings = ControllerSetting::singleton();
-
-        try {
-            $omadaService->adoptDevice($settings, $accessPoint->mac_address);
-
-            return redirect()
-                ->route('operator.devices.index')
-                ->with('success', "Device {$accessPoint->name} adopted successfully.");
-        } catch (Throwable $exception) {
-            return redirect()
-                ->route('operator.devices.index')
-                ->with('error', 'Failed to adopt device: '.$exception->getMessage());
-        }
     }
 }

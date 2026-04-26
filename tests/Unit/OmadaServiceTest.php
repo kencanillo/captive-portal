@@ -6,6 +6,7 @@ use App\Models\ControllerSetting;
 use App\Models\Site;
 use App\Models\WifiSession;
 use App\Services\OmadaService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -15,6 +16,8 @@ use Tests\TestCase;
 
 class OmadaServiceTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_client_respects_ssl_verification_config_flag(): void
     {
         $service = app(OmadaService::class);
@@ -56,20 +59,47 @@ class OmadaServiceTest extends TestCase
     public function test_client_uses_internal_base_url_override_for_container_network_requests(): void
     {
         config()->set('services.omada.internal_base_url', 'https://omada-controller:8043');
-        config()->set('portal.cache_store', 'array');
 
         Http::fake([
-            'https://omada-controller:8043/api/v2/login' => Http::response([
+            'https://omada-controller:8043/api/info' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
-                'result' => ['token' => 'abc123'],
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
             ]),
-            'https://omada-controller:8043/api/v2/controller/clients' => Http::response([
+            'https://omada-controller:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'access-token',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://omada-controller:8043/openapi/v1/controller-id/sites?page=1&pageSize=1000' => Http::response([
                 'errorCode' => 0,
                 'msg' => 'Success.',
                 'result' => [
                     'data' => [
-                        ['ip' => '10.10.10.25', 'mac' => 'AA-BB-CC-DD-EE-FF'],
+                        ['siteId' => 'site-001', 'name' => 'Main Branch'],
+                    ],
+                ],
+            ]),
+            'https://omada-controller:8043/openapi/v1/controller-id/sites/site-001/clients?page=1&pageSize=1000' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'totalRows' => 1,
+                    'data' => [
+                        [
+                            'mac' => 'AA-BB-CC-DD-EE-FF',
+                            'siteName' => 'Main Branch',
+                            'ssid' => 'Guest WiFi',
+                            'authStatus' => 1,
+                            'active' => true,
+                        ],
                     ],
                 ],
             ]),
@@ -77,17 +107,88 @@ class OmadaServiceTest extends TestCase
 
         $service = app(OmadaService::class);
 
-        $macAddress = $service->getClientMacAddress(new ControllerSetting([
+        $clients = $service->listAuthorizedClients(new ControllerSetting([
             'controller_name' => 'Pilot Controller',
             'base_url' => 'https://76.13.187.98:8043',
-            'username' => 'admin',
-            'password' => 'super-secret',
-        ]), '10.10.10.25');
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
+        ]));
 
-        $this->assertSame('AA:BB:CC:DD:EE:FF', $macAddress);
+        $this->assertCount(1, $clients);
+        $this->assertSame('aa:bb:cc:dd:ee:ff', $clients[0]['mac_address']);
 
-        Http::assertSent(fn ($request) => $request->url() === 'https://omada-controller:8043/api/v2/login');
-        Http::assertSent(fn ($request) => $request->url() === 'https://omada-controller:8043/api/v2/controller/clients');
+        Http::assertSent(fn ($request) => $request->url() === 'https://omada-controller:8043/api/info');
+        Http::assertSent(fn ($request) => $request->url() === 'https://omada-controller:8043/openapi/v1/controller-id/sites/site-001/clients?page=1&pageSize=1000');
+    }
+
+    public function test_list_authorized_clients_normalizes_mac_addresses_and_filters_to_authorized_clients(): void
+    {
+        Http::fake([
+            'https://localhost:8043/api/info' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
+            ]),
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'access-token',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites?page=1&pageSize=1000' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [
+                        ['siteId' => 'site-001', 'name' => 'Main Branch'],
+                    ],
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/site-001/clients?page=1&pageSize=1000' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'totalRows' => 2,
+                    'data' => [
+                        [
+                            'mac' => 'AA-BB-CC-DD-EE-FF',
+                            'siteName' => 'Main Branch',
+                            'ssid' => 'Guest WiFi',
+                            'authStatus' => 1,
+                            'active' => true,
+                        ],
+                        [
+                            'macAddress' => '11:22:33:44:55:66',
+                            'siteName' => 'Main Branch',
+                            'ssid' => 'Guest WiFi',
+                            'authStatus' => 2,
+                            'active' => true,
+                        ],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $service = app(OmadaService::class);
+
+        $clients = $service->listAuthorizedClients(new ControllerSetting([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
+        ]));
+
+        $this->assertCount(1, $clients);
+        $this->assertSame('aa:bb:cc:dd:ee:ff', $clients[0]['mac_address']);
+        $this->assertSame('Main Branch', $clients[0]['site_name']);
+        $this->assertSame('Guest WiFi', $clients[0]['ssid_name']);
+        $this->assertTrue($clients[0]['authorized']);
     }
 
     public function test_test_connection_prefers_openapi_client_credentials_when_present(): void
@@ -131,44 +232,18 @@ class OmadaServiceTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/api/v2/login'));
     }
 
-    public function test_test_connection_uses_legacy_login_when_openapi_credentials_are_missing(): void
+    public function test_test_connection_requires_openapi_client_credentials(): void
     {
-        Http::fake([
-            'https://localhost:8043/api/info' => Http::response([
-                'errorCode' => 0,
-                'msg' => 'Success.',
-                'result' => [
-                    'controllerVer' => '6.1.0.19',
-                    'apiVer' => '3',
-                    'omadacId' => 'controller-id',
-                ],
-            ]),
-            'https://localhost:8043/api/v2/login' => Http::response([
-                'errorCode' => 0,
-                'msg' => 'Success.',
-                'result' => ['token' => 'abc123'],
-            ]),
-            'https://localhost:8043/api/v2/controller/setting' => Http::response([
-                'errorCode' => 0,
-                'msg' => 'Success.',
-                'result' => ['name' => 'Pilot Omada'],
-            ]),
-        ]);
-
         $service = app(OmadaService::class);
 
-        $result = $service->testConnection(new ControllerSetting([
+        $this->expectExceptionMessage('OpenAPI client credentials are required before testing the controller connection.');
+
+        $service->testConnection(new ControllerSetting([
             'controller_name' => 'Pilot Controller',
             'base_url' => 'https://localhost:8043',
             'username' => 'admin',
             'password' => 'super-secret',
         ]));
-
-        $this->assertSame('Pilot Omada', $result['controller_name']);
-        $this->assertSame('6.1.0.19', $result['version']);
-        $this->assertSame('3', $result['api_version']);
-
-        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/v2/login'));
     }
 
     public function test_authorize_client_uses_hotspot_login_and_external_portal_auth_endpoint(): void
@@ -292,6 +367,72 @@ class OmadaServiceTest extends TestCase
 
         Http::assertSent(fn ($request) => str_contains($request->url(), '/openapi/v1/controller-id/sites/main-branch/clients/AA-BB-CC-DD-EE-FF/disconnect')
             && $request->hasHeader('Authorization', 'AccessToken=access-token'));
+    }
+
+    public function test_deauthorize_client_refreshes_a_stale_local_omada_site_id_before_retrying(): void
+    {
+        $site = Site::query()->create([
+            'name' => 'Hillside_Pilot_Test',
+            'slug' => 'hillside-pilot-test',
+            'omada_site_id' => 'stale-site-id',
+        ]);
+
+        Http::fake([
+            'https://localhost:8043/api/info' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'controllerVer' => '6.1.0.19',
+                    'apiVer' => '3',
+                    'omadacId' => 'controller-id',
+                ],
+            ]),
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Open API Get Access Token successfully.',
+                'result' => [
+                    'accessToken' => 'access-token',
+                    'expiresIn' => 7200,
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/stale-site-id/hotspot/clients/02-80-62-94-DD-39/unauth' => Http::response([
+                'errorCode' => -1,
+                'msg' => 'The current user does not have permissions to access this site.',
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites?page=1&pageSize=1000' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+                'result' => [
+                    'data' => [
+                        ['siteId' => 'fresh-site-id', 'name' => 'Hillside_Pilot_Test'],
+                    ],
+                ],
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/fresh-site-id/hotspot/clients/02-80-62-94-DD-39/unauth' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+            ]),
+            'https://localhost:8043/openapi/v1/controller-id/sites/fresh-site-id/clients/02-80-62-94-DD-39/disconnect' => Http::response([
+                'errorCode' => 0,
+                'msg' => 'Success.',
+            ]),
+        ]);
+
+        $service = app(OmadaService::class);
+
+        $service->deauthorizeClientByMac(new ControllerSetting([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
+        ]), '02:80:62:94:dd:39', 'stale-site-id');
+
+        $this->assertSame('fresh-site-id', $site->fresh()->omada_site_id);
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/sites/stale-site-id/hotspot/clients/02-80-62-94-DD-39/unauth'));
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/openapi/v1/controller-id/sites?page=1&pageSize=1000'));
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/sites/fresh-site-id/hotspot/clients/02-80-62-94-DD-39/unauth'));
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/sites/fresh-site-id/clients/02-80-62-94-DD-39/disconnect'));
     }
 
     public function test_get_sites_uses_required_openapi_pagination_parameters(): void

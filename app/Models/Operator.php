@@ -56,6 +56,31 @@ class Operator extends Model
         return $this->hasMany(PayoutRequest::class);
     }
 
+    public function payoutSettlements(): HasMany
+    {
+        return $this->hasMany(PayoutSettlement::class);
+    }
+
+    public function accessPointClaims(): HasMany
+    {
+        return $this->hasMany(AccessPointClaim::class);
+    }
+
+    public function accessPoints(): HasMany
+    {
+        return $this->hasMany(AccessPoint::class, 'claimed_by_operator_id');
+    }
+
+    public function accessPointOwnershipCorrections(): HasMany
+    {
+        return $this->hasMany(AccessPointOwnershipCorrection::class, 'to_operator_id');
+    }
+
+    public function billingLedgerEntries(): HasMany
+    {
+        return $this->hasMany(BillingLedgerEntry::class);
+    }
+
     public function isApproved(): bool
     {
         return $this->status === self::STATUS_APPROVED;

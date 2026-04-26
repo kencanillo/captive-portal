@@ -3,12 +3,16 @@
 namespace Tests\Feature;
 
 use App\Models\AccessPoint;
+use App\Models\BillingLedgerEntry;
 use App\Models\Operator;
 use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\Site;
 use App\Models\User;
 use App\Models\WifiSession;
+use App\Services\AccessPointBillingService;
+use App\Services\AccessPointHealthService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -20,6 +24,7 @@ class OperatorDashboardTest extends TestCase
     public function test_operator_dashboard_only_shows_operator_scoped_data(): void
     {
         $this->withoutVite();
+        $this->noteFreshAutomation();
 
         $user = User::factory()->create([
             'is_admin' => false,
@@ -97,6 +102,21 @@ class OperatorDashboardTest extends TestCase
             'currency' => 'PHP',
         ]);
 
+        BillingLedgerEntry::query()->create([
+            'operator_id' => $operator->id,
+            'site_id' => $ownedSite->id,
+            'access_point_id' => $ownedAccessPoint->id,
+            'entry_type' => BillingLedgerEntry::ENTRY_TYPE_AP_CONNECTION_FEE,
+            'direction' => BillingLedgerEntry::DIRECTION_DEBIT,
+            'amount' => 500,
+            'currency' => 'PHP',
+            'state' => BillingLedgerEntry::STATE_POSTED,
+            'billable_key' => "ap-connection-fee:{$ownedAccessPoint->id}",
+            'triggered_at' => now(),
+            'posted_at' => now(),
+            'source' => BillingLedgerEntry::SOURCE_ADMIN_RUN,
+        ]);
+
         $this->actingAs($user)
             ->get('/operator/dashboard')
             ->assertOk()
@@ -106,10 +126,15 @@ class OperatorDashboardTest extends TestCase
                 ->where('summary.access_points_count', 1)
                 ->where('summary.active_sessions_count', 1)
                 ->where('summary.completed_payments_count', 1)
-                ->where('summary.revenue_total', '30.00')
+                ->where('summary.gross_billed_fees', '500.00')
+                ->where('summary.net_payable_fees', '500.00')
+                ->where('summary.available_balance', '500.00')
+                ->where('summary.confidence_state', 'healthy')
+                ->where('webhookCapabilityVerdict', 'webhook_not_safely_supported_using_current_setup')
                 ->has('recentPayments', 1)
                 ->where('recentPayments.0.reference_id', 'NORTH123')
-                ->where('recentAccessPoints.0.name', 'North AP'));
+                ->where('recentAccessPoints.0.name', 'North AP')
+                ->where('recentAccessPoints.0.health.health_state', 'connected'));
     }
 
     public function test_pending_operator_is_redirected_to_pending_approval_page(): void
@@ -127,5 +152,14 @@ class OperatorDashboardTest extends TestCase
         $this->actingAs($user)
             ->get('/dashboard')
             ->assertRedirect('/operator/pending');
+    }
+
+    private function noteFreshAutomation(): void
+    {
+        $now = now()->toIso8601String();
+
+        Cache::put(AccessPointHealthService::SYNC_HEARTBEAT_CACHE_KEY, $now, now()->addDay());
+        Cache::put(AccessPointHealthService::RECONCILE_HEARTBEAT_CACHE_KEY, $now, now()->addDay());
+        Cache::put(AccessPointBillingService::POST_HEARTBEAT_CACHE_KEY, $now, now()->addDay());
     }
 }

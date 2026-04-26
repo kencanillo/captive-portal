@@ -1,5 +1,6 @@
 <script setup>
 import { Head } from '@inertiajs/vue3';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatCurrency, formatNumber } from '@/utils/formatters';
 
@@ -9,6 +10,8 @@ defineProps({
   recentSessions: Array,
   recentPayments: Array,
   recentAccessPoints: Array,
+  healthRuntime: Object,
+  webhookCapabilityVerdict: String,
 });
 </script>
 
@@ -19,7 +22,7 @@ defineProps({
     <section class="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
       <div class="app-card-dark p-7 sm:p-9">
         <p class="app-top-stat">
-          <span class="material-symbols-outlined text-[16px]">domain</span>
+          <SvgIcon name="domain" class="h-4 w-4" />
           Operator overview
         </p>
         <h1 class="mt-5 text-4xl font-extrabold tracking-[-0.06em] text-white sm:text-5xl">
@@ -51,13 +54,35 @@ defineProps({
           <p class="app-metric-value">{{ formatNumber(summary.access_points_count || 0) }}</p>
         </article>
         <article class="app-metric-card">
-          <p class="app-metric-label">Ledger Balance</p>
+          <p class="app-metric-label">Net Payable Fees</p>
+          <p class="app-metric-value">{{ formatCurrency(summary.net_payable_fees || 0) }}</p>
+        </article>
+        <article class="app-metric-card">
+          <p class="app-metric-label">Available Balance</p>
           <p class="app-metric-value">{{ formatCurrency(summary.available_balance || 0) }}</p>
         </article>
       </div>
     </section>
 
+    <section
+      v-if="summary.confidence_state !== 'healthy'"
+      class="mt-6 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900"
+    >
+      Operator accounting confidence is degraded.
+      {{ formatNumber(summary.unresolved_blocked_count || 0) }} blocked fee incidents still need manual resolution.
+    </section>
+
     <section class="mt-8 grid gap-6 xl:grid-cols-[0.9fr,1.1fr]">
+      <section
+        v-if="healthRuntime?.degraded || webhookCapabilityVerdict !== 'webhook_supported_and_implemented'"
+        class="xl:col-span-2 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900"
+      >
+        AP health is controller-reconciled.
+        Sync heartbeat: {{ healthRuntime?.sync_heartbeat_at || 'missing' }}.
+        Reconcile heartbeat: {{ healthRuntime?.reconcile_heartbeat_at || 'missing' }}.
+        Stale unknown APs: {{ healthRuntime?.stale_unknown_count || 0 }}.
+      </section>
+
       <section class="app-card-strong p-7">
         <p class="app-kicker">Assigned Sites</p>
         <h2 class="mt-3 app-section-title">Your operating footprint</h2>
@@ -143,8 +168,8 @@ defineProps({
               </div>
               <div class="text-left sm:text-right">
                 <p class="font-medium text-slate-950">{{ accessPoint.claim_status }}</p>
-                <p :class="accessPoint.is_online ? 'mt-1 text-xs text-emerald-700' : 'mt-1 text-xs text-slate-500'">
-                  {{ accessPoint.is_online ? 'Online' : 'Offline' }}
+                <p class="mt-1 text-xs text-slate-500">
+                  {{ accessPoint.health.health_label }} • {{ accessPoint.health.freshness_label || 'No freshness data' }} • {{ accessPoint.health.status_source || 'unknown' }}
                 </p>
               </div>
             </div>

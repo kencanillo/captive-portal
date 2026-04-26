@@ -10,7 +10,6 @@ use App\Policies\PlanPolicy;
 use App\Policies\WifiSessionPolicy;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -42,13 +41,14 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('portal-create-payment', fn (Request $request) => [
             Limit::perMinute(20)->by($request->ip()),
         ]);
+        RateLimiter::for('operator-access-point-claims', fn (Request $request) => [
+            Limit::perMinute(10)->by(optional($request->user())->id ?: $request->ip()),
+        ]);
 
         Gate::define('access-admin', fn (User $user) => (bool) $user->is_admin);
         Gate::define('access-operator-panel', fn (User $user) => ! $user->is_admin
             && $user->operator()->where('status', Operator::STATUS_APPROVED)->exists());
         Gate::policy(Plan::class, PlanPolicy::class);
         Gate::policy(WifiSession::class, WifiSessionPolicy::class);
-
-        Vite::prefetch(concurrency: 3);
     }
 }

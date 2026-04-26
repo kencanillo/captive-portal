@@ -1,6 +1,7 @@
 <script setup>
 import Checkbox from '@/Components/Checkbox.vue';
 import InputError from '@/Components/InputError.vue';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 
 defineProps({
@@ -35,7 +36,7 @@ const submit = () => {
 
         <div class="relative z-10 flex items-center gap-3">
           <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-300/90 text-slate-950">
-            <span class="material-symbols-outlined text-[20px]">hub</span>
+            <SvgIcon name="hub" class="h-5 w-5" />
           </div>
           <span class="text-2xl font-black uppercase tracking-[0.18em]">BruckeLab</span>
         </div>
@@ -91,7 +92,7 @@ const submit = () => {
                   class="app-field h-14 pr-12"
                   placeholder="operator@bruckelab.com"
                 />
-                <span class="material-symbols-outlined pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">alternate_email</span>
+                <SvgIcon name="alternate_email" class="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
               </div>
               <InputError class="mt-2" :message="form.errors.email" />
             </div>
@@ -117,7 +118,7 @@ const submit = () => {
                   class="app-field h-14 pr-12"
                   placeholder="••••••••••••"
                 />
-                <span class="material-symbols-outlined pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">lock</span>
+                <SvgIcon name="lock" class="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
               </div>
               <InputError class="mt-2" :message="form.errors.password" />
             </div>
@@ -133,13 +134,13 @@ const submit = () => {
               :disabled="form.processing"
             >
               <span>Initialize Session</span>
-              <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+              <SvgIcon name="arrow_forward" class="h-[18px] w-[18px]" />
             </button>
           </form>
 
           <div class="mt-10 rounded-[22px] border border-rose-100/70 bg-slate-50/80 px-5 py-4">
             <div class="flex items-start gap-3">
-              <span class="material-symbols-outlined mt-0.5 text-rose-600">security</span>
+              <SvgIcon name="security" class="mt-0.5 h-5 w-5 text-rose-600" />
               <div>
                 <p class="text-xs font-bold uppercase tracking-[0.18em] text-slate-700">Authorized access only</p>
                 <p class="mt-2 text-sm leading-6 text-slate-500">Unapproved or unknown accounts are blocked from the management portal.</p>

@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Payment;
 use App\Models\WifiSession;
-use App\Services\WifiSessionService;
+use App\Services\WifiSessionReleaseService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -21,7 +21,9 @@ class ReleaseWifiAccessJob implements ShouldQueue, ShouldBeUnique
     use SerializesModels;
 
     public function __construct(
-        public readonly int $paymentId,
+        public readonly int $sessionId,
+        public readonly string $path = 'payment_confirmation',
+        public readonly array $context = [],
     ) {
     }
 
@@ -29,58 +31,67 @@ class ReleaseWifiAccessJob implements ShouldQueue, ShouldBeUnique
 
     public function uniqueId(): string
     {
-        return "release-wifi-access:{$this->paymentId}";
+        return "release-wifi-access:{$this->sessionId}";
     }
 
-    public function handle(WifiSessionService $wifiSessionService): void
+    public function handle(WifiSessionReleaseService $wifiSessionReleaseService): void
     {
-        $payment = Payment::query()
-            ->with(['wifiSession.plan', 'wifiSession.client', 'wifiSession.site', 'wifiSession.accessPoint'])
-            ->findOrFail($this->paymentId);
+        $wifiSessionReleaseService->recordJobHeartbeat();
 
-        $session = $payment->wifiSession;
+        $session = WifiSession::query()
+            ->with(['latestPayment', 'plan', 'client', 'site', 'accessPoint'])
+            ->find($this->sessionId);
 
         if (! $session) {
-            Log::warning('ReleaseWifiAccessJob skipped because payment has no WiFi session.', [
-                'payment_id' => $this->paymentId,
+            Log::warning('ReleaseWifiAccessJob skipped because WiFi session no longer exists.', [
+                'wifi_session_id' => $this->sessionId,
+                'path' => $this->path,
             ]);
 
             return;
         }
 
-        if ($payment->status !== Payment::STATUS_PAID) {
-            Log::warning('ReleaseWifiAccessJob skipped because payment is not confirmed as paid.', [
-                'payment_id' => $payment->id,
-                'payment_status' => $payment->status,
-            ]);
+        $payment = $session->latestPayment;
 
-            return;
-        }
-
-        if ($session->session_status === WifiSession::SESSION_STATUS_ACTIVE && $session->is_active) {
-            Log::info('ReleaseWifiAccessJob skipped because WiFi session is already active.', [
-                'payment_id' => $payment->id,
+        if ($session->payment_status !== WifiSession::PAYMENT_STATUS_PAID
+            || ($payment && $payment->status !== Payment::STATUS_PAID)) {
+            Log::warning('ReleaseWifiAccessJob skipped because session payment is not confirmed as paid.', [
+                'payment_id' => $payment?->id,
                 'wifi_session_id' => $session->id,
+                'payment_status' => $payment?->status,
+                'session_payment_status' => $session->payment_status,
+                'path' => $this->path,
+            ]);
+
+            return;
+        }
+
+        if ($session->session_status === WifiSession::SESSION_STATUS_ACTIVE
+            && $session->is_active
+            && $session->release_status === WifiSession::RELEASE_STATUS_SUCCEEDED) {
+            Log::info('ReleaseWifiAccessJob skipped because WiFi session is already released.', [
+                'payment_id' => $payment?->id,
+                'wifi_session_id' => $session->id,
+                'path' => $this->path,
             ]);
 
             return;
         }
 
         Log::info('Attempting Omada release for paid WiFi session.', [
-            'payment_id' => $payment->id,
+            'payment_id' => $payment?->id,
             'wifi_session_id' => $session->id,
+            'path' => $this->path,
         ]);
 
-        try {
-            $wifiSessionService->activateSession($session);
-        } catch (\Throwable $exception) {
-            $wifiSessionService->markReleaseFailed($session, $exception->getMessage());
+        $releasedSession = $wifiSessionReleaseService->attemptRelease($session->id, $this->path, $this->context);
 
-            Log::error('Omada release attempt failed.', [
-                'payment_id' => $payment->id,
-                'wifi_session_id' => $session->id,
-                'error' => $exception->getMessage(),
-            ]);
-        }
+        Log::info('Omada release attempt completed.', [
+            'payment_id' => $payment?->id,
+            'wifi_session_id' => $releasedSession->id,
+            'path' => $this->path,
+            'release_status' => $releasedSession->release_status,
+            'session_status' => $releasedSession->session_status,
+        ]);
     }
 }

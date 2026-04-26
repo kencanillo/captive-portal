@@ -16,21 +16,17 @@ class SelectPlanRequest extends FormRequest
         return [
             'plan_id' => ['required', 'integer', 'exists:plans,id'],
             'portal_token' => ['required', 'string'],
-            'client_registration' => ['nullable', 'array'],
-            'client_registration.name' => ['required_with:client_registration', 'string', 'max:255'],
-            'client_registration.phone_number' => ['required_with:client_registration', 'string', 'max:20'],
-            'client_registration.pin' => ['required_with:client_registration', 'string', 'min:4', 'max:20'],
-            'client_registration.pin_confirmation' => ['required_with:client_registration', 'same:client_registration.pin'],
+            'client_registration' => ['required', 'array'],
+            'client_registration.name' => ['required', 'string', 'max:255'],
+            'client_registration.phone_number' => ['required', 'string', 'max:20'],
+            'client_registration.pin' => ['required', 'string', 'min:4', 'max:20'],
+            'client_registration.pin_confirmation' => ['required', 'same:client_registration.pin'],
         ];
     }
 
-    public function getClientRegistrationData(): ?array
+    public function getClientRegistrationData(): array
     {
-        $registrationData = $this->validated()['client_registration'] ?? null;
-
-        if (! $registrationData) {
-            return null;
-        }
+        $registrationData = $this->validated()['client_registration'];
 
         unset($registrationData['pin_confirmation']);
 

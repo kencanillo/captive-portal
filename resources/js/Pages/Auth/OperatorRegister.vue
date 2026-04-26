@@ -1,5 +1,6 @@
 <script setup>
 import InputError from '@/Components/InputError.vue';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 
 const form = useForm({
@@ -44,7 +45,7 @@ const submit = () => {
           </Link>
           <button class="app-button-primary" :disabled="form.processing" @click="submit">
             <span>Submit Application</span>
-            <span class="material-symbols-outlined text-[18px]">send</span>
+            <SvgIcon name="send" class="h-[18px] w-[18px]" />
           </button>
         </div>
       </div>
@@ -54,7 +55,7 @@ const submit = () => {
           <div class="app-card-strong p-8">
             <div class="mb-8 flex items-center gap-3">
               <div class="flex h-11 w-11 items-center justify-center rounded-full bg-slate-200 text-slate-800">
-                <span class="material-symbols-outlined text-[20px]">business</span>
+                <SvgIcon name="business" class="h-5 w-5" />
               </div>
               <h2 class="text-2xl font-bold tracking-[-0.04em] text-slate-950">Business identity</h2>
             </div>
@@ -86,7 +87,7 @@ const submit = () => {
           <div class="app-card p-8">
             <div class="mb-8 flex items-center gap-3">
               <div class="flex h-11 w-11 items-center justify-center rounded-full bg-sky-100 text-sky-700">
-                <span class="material-symbols-outlined text-[20px]">account_balance_wallet</span>
+                <SvgIcon name="account_balance_wallet" class="h-5 w-5" />
               </div>
               <h2 class="text-2xl font-bold tracking-[-0.04em] text-slate-950">Payout preferences</h2>
             </div>
@@ -120,7 +121,7 @@ const submit = () => {
           <div class="app-card-strong p-8">
             <div class="mb-8 flex items-center gap-3">
               <div class="flex h-11 w-11 items-center justify-center rounded-full bg-sky-500 text-white">
-                <span class="material-symbols-outlined text-[20px]">lock_person</span>
+                <SvgIcon name="lock_person" class="h-5 w-5" />
               </div>
               <h2 class="text-2xl font-bold tracking-[-0.04em] text-slate-950">Security</h2>
             </div>
@@ -137,7 +138,7 @@ const submit = () => {
               </div>
               <div class="rounded-[22px] bg-sky-50 px-4 py-4">
                 <p class="flex items-start gap-2 text-sm leading-6 text-sky-900">
-                  <span class="material-symbols-outlined mt-0.5 text-[18px]">info</span>
+                  <SvgIcon name="info" class="mt-0.5 h-[18px] w-[18px]" />
                   Passwords should be long enough to be worth something. Minimum length is enforced server-side.
                 </p>
               </div>
@@ -147,7 +148,7 @@ const submit = () => {
           <div class="app-card p-8">
             <div class="mb-8 flex items-center gap-3">
               <div class="flex h-11 w-11 items-center justify-center rounded-full bg-slate-200 text-slate-800">
-                <span class="material-symbols-outlined text-[20px]">lan</span>
+                <SvgIcon name="lan" class="h-5 w-5" />
               </div>
               <h2 class="text-2xl font-bold tracking-[-0.04em] text-slate-950">Site details</h2>
             </div>
@@ -163,7 +164,7 @@ const submit = () => {
 
           <div class="app-card-dark overflow-hidden p-8">
             <p class="app-top-stat">
-              <span class="material-symbols-outlined text-[16px]">monitoring</span>
+              <SvgIcon name="monitoring" class="h-4 w-4" />
               Advanced signal management
             </p>
             <h3 class="mt-6 text-3xl font-bold tracking-[-0.05em] text-white">Premium operator workflow</h3>

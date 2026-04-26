@@ -24,7 +24,7 @@ class SyncOmadaAccessPointsCommand extends Command
         }
 
         if (! $settings->canSyncAccessPoints()) {
-            $this->info('Skipping Omada AP sync because local controller username/password are missing.');
+            $this->info('Skipping Omada AP sync because OpenAPI client credentials are missing.');
 
             return self::SUCCESS;
         }

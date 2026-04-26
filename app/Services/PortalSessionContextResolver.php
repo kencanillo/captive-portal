@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AccessPoint;
 use App\Models\Site;
+use App\Support\MacAddress;
 use Illuminate\Support\Str;
 
 class PortalSessionContextResolver
@@ -34,15 +35,11 @@ class PortalSessionContextResolver
                     'site_id' => $site?->id,
                     'name' => $apName ?: $apMac,
                     'mac_address' => $apMac,
-                    'is_online' => true,
-                    'last_seen_at' => now(),
                 ]);
             } else {
                 $accessPoint->fill([
                     'site_id' => $site?->id ?? $accessPoint->site_id,
                     'name' => $apName ?: $accessPoint->name,
-                    'is_online' => true,
-                    'last_seen_at' => now(),
                 ])->save();
             }
         } elseif ($siteName) {
@@ -92,9 +89,7 @@ class PortalSessionContextResolver
 
     private function normalizeMac(null|string $value): ?string
     {
-        $value = strtolower(trim((string) $value));
-
-        return $value !== '' ? $value : null;
+        return MacAddress::normalizeForStorage($value);
     }
 
     private function normalizeRadioId(mixed $value): ?int

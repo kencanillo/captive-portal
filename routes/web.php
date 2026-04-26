@@ -1,10 +1,13 @@
 <?php
 
 use App\Http\Controllers\Admin\AccessPointController;
+use App\Http\Controllers\Admin\AccessPointClaimController as AdminAccessPointClaimController;
 use App\Http\Controllers\Admin\ControllerSettingsController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\DeviceTransferRequestController;
 use App\Http\Controllers\Admin\OperatorController as AdminOperatorController;
 use App\Http\Controllers\Admin\PaymentController as AdminPaymentController;
+use App\Http\Controllers\Admin\PayoutExecutionAttemptController as AdminPayoutExecutionAttemptController;
 use App\Http\Controllers\Admin\PayoutRequestController as AdminPayoutRequestController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\SessionController;
@@ -19,11 +22,13 @@ use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use App\Http\Controllers\Operator\DashboardController as OperatorDashboardController;
 use App\Http\Controllers\Operator\DeviceController as DeviceController;
+use App\Http\Controllers\Operator\AccessPointClaimController as OperatorAccessPointClaimController;
 use App\Http\Controllers\Operator\PayoutController as OperatorPayoutController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Public\CaptivePortalController;
 use App\Http\Controllers\Public\PaymentController;
+use App\Http\Controllers\Public\PaymentQrDownloadController;
 use App\Http\Controllers\Public\PaymentRecheckController;
 use App\Http\Controllers\Public\PaymentStatusController;
 use Illuminate\Support\Facades\Route;
@@ -58,6 +63,7 @@ Route::get('/operator/register', [OperatorRegistrationController::class, 'create
 Route::post('/operator/register', [OperatorRegistrationController::class, 'store'])->middleware('guest')->name('operator.register.store');
 
 Route::get('/payments/{paymentToken}', [PaymentController::class, 'show'])->name('payments.show');
+Route::get('/payments/{paymentToken}/download-qr', PaymentQrDownloadController::class)->name('payments.qr.download');
 Route::get('/payments/{paymentToken}/status', PaymentStatusController::class)->name('payments.status.show');
 Route::post('/payments/{paymentToken}/recheck', PaymentRecheckController::class)->name('payments.recheck.store');
 Route::get('/payment/success', [PaymentController::class, 'success'])->name('payment.success');
@@ -137,18 +143,31 @@ Route::middleware('auth')->group(function () {
 
 Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::post('/dashboard/verify-operations', [DashboardController::class, 'verify'])->name('dashboard.verify-operations');
     Route::get('/controller', [ControllerSettingsController::class, 'edit'])->name('controller.edit');
     Route::put('/controller', [ControllerSettingsController::class, 'update'])->name('controller.update');
     Route::post('/controller/test-connection', [ControllerSettingsController::class, 'testConnection'])->name('controller.test');
     Route::post('/controller/sync-sites', [ControllerSettingsController::class, 'syncSites'])->name('controller.sync-sites');
     Route::get('/access-points', [AccessPointController::class, 'index'])->name('access-points.index');
     Route::post('/access-points/sync', [AccessPointController::class, 'sync'])->name('access-points.sync');
+    Route::post('/access-points/post-connection-fees', [AccessPointController::class, 'postConnectionFees'])->name('access-points.post-connection-fees');
+    Route::post('/access-points/{accessPoint}/reverse-connection-fee', [AccessPointController::class, 'reverseConnectionFee'])->name('access-points.reverse-connection-fee');
+    Route::post('/access-points/{accessPoint}/resolve-billing-incident', [AccessPointController::class, 'resolveBillingIncident'])->name('access-points.resolve-billing-incident');
+    Route::post('/access-points/{accessPoint}/correct-ownership', [AccessPointController::class, 'correctOwnership'])->name('access-points.correct-ownership');
+    Route::get('/access-point-claims', [AdminAccessPointClaimController::class, 'index'])->name('access-point-claims.index');
+    Route::post('/access-point-claims/{accessPointClaim}/approve', [AdminAccessPointClaimController::class, 'approve'])->name('access-point-claims.approve');
+    Route::post('/access-point-claims/{accessPointClaim}/deny', [AdminAccessPointClaimController::class, 'deny'])->name('access-point-claims.deny');
     Route::get('/plans', [PlanController::class, 'index'])->name('plans.index');
     Route::post('/plans', [PlanController::class, 'store'])->name('plans.store');
     Route::put('/plans/{plan}', [PlanController::class, 'update'])->name('plans.update');
     Route::delete('/plans/{plan}', [PlanController::class, 'destroy'])->name('plans.destroy');
     Route::get('/sessions', [SessionController::class, 'index'])->name('sessions.index');
+    Route::post('/sessions/{wifiSession}/retry-release', [SessionController::class, 'retryRelease'])->name('sessions.retry-release');
+    Route::post('/sessions/{wifiSession}/reconcile-release', [SessionController::class, 'reconcileRelease'])->name('sessions.reconcile-release');
     Route::get('/payments', [AdminPaymentController::class, 'index'])->name('payments.index');
+    Route::get('/transfer-requests', [DeviceTransferRequestController::class, 'index'])->name('transfer-requests.index');
+    Route::post('/transfer-requests/{deviceTransferRequest}/approve', [DeviceTransferRequestController::class, 'approve'])->name('transfer-requests.approve');
+    Route::post('/transfer-requests/{deviceTransferRequest}/deny', [DeviceTransferRequestController::class, 'deny'])->name('transfer-requests.deny');
     Route::get('/operators', [AdminOperatorController::class, 'index'])->name('operators.index');
     Route::get('/operators/{operator}', [AdminOperatorController::class, 'show'])->name('operators.show');
     Route::put('/operators/{operator}/status', [AdminOperatorController::class, 'updateStatus'])->name('operators.status.update');
@@ -156,15 +175,30 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/payout-requests', [AdminPayoutRequestController::class, 'index'])->name('payout-requests.index');
     Route::post('/payout-requests/{payoutRequest}/approve', [AdminPayoutRequestController::class, 'approve'])->name('payout-requests.approve');
     Route::post('/payout-requests/{payoutRequest}/reject', [AdminPayoutRequestController::class, 'reject'])->name('payout-requests.reject');
+    Route::post('/payout-requests/{payoutRequest}/cancel', [AdminPayoutRequestController::class, 'cancel'])->name('payout-requests.cancel');
+    Route::post('/payout-requests/{payoutRequest}/return-to-review', [AdminPayoutRequestController::class, 'returnToReview'])->name('payout-requests.return-to-review');
+    Route::post('/payout-requests/{payoutRequest}/settle', [AdminPayoutRequestController::class, 'settle'])->name('payout-requests.settle');
+    Route::post('/payout-requests/{payoutRequest}/confirm-settlement-handoff', [AdminPayoutRequestController::class, 'confirmSettlementHandoff'])->name('payout-requests.confirm-settlement-handoff');
+    Route::post('/payout-requests/{payoutRequest}/trigger-execution', [AdminPayoutRequestController::class, 'triggerExecution'])->name('payout-requests.trigger-execution');
+    Route::post('/payout-requests/{payoutRequest}/reverse-settlement', [AdminPayoutRequestController::class, 'reverseSettlement'])->name('payout-requests.reverse-settlement');
+    Route::post('/payout-requests/{payoutRequest}/cancel-and-release', [AdminPayoutRequestController::class, 'cancelAndRelease'])->name('payout-requests.cancel-and-release');
+    Route::post('/payout-requests/{payoutRequest}/resolve-return-to-review', [AdminPayoutRequestController::class, 'resolveReturnToReview'])->name('payout-requests.resolve-return-to-review');
     Route::post('/payout-requests/{payoutRequest}/processing', [AdminPayoutRequestController::class, 'markProcessing'])->name('payout-requests.processing');
     Route::post('/payout-requests/{payoutRequest}/paid', [AdminPayoutRequestController::class, 'markPaid'])->name('payout-requests.paid');
     Route::post('/payout-requests/{payoutRequest}/failed', [AdminPayoutRequestController::class, 'markFailed'])->name('payout-requests.failed');
+    Route::post('/payout-execution-attempts/{payoutExecutionAttempt}/reconcile', [AdminPayoutExecutionAttemptController::class, 'reconcile'])->name('payout-execution-attempts.reconcile');
+    Route::post('/payout-execution-attempts/{payoutExecutionAttempt}/retry', [AdminPayoutExecutionAttemptController::class, 'retry'])->name('payout-execution-attempts.retry');
+    Route::post('/payout-execution-attempts/{payoutExecutionAttempt}/mark-completed', [AdminPayoutExecutionAttemptController::class, 'markCompleted'])->name('payout-execution-attempts.mark-completed');
+    Route::post('/payout-execution-attempts/{payoutExecutionAttempt}/mark-terminal-failed', [AdminPayoutExecutionAttemptController::class, 'markTerminalFailed'])->name('payout-execution-attempts.mark-terminal-failed');
 });
 
 Route::middleware(['auth', 'can:access-operator-panel'])->prefix('operator')->name('operator.')->group(function (): void {
     Route::get('/dashboard', OperatorDashboardController::class)->name('dashboard');
     Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
-    Route::post('/devices/adopt', [DeviceController::class, 'adopt'])->name('devices.adopt');
+    Route::post('/access-point-claims', [OperatorAccessPointClaimController::class, 'store'])
+        ->middleware('throttle:operator-access-point-claims')
+        ->name('access-point-claims.store');
+    Route::post('/access-point-claims/{accessPointClaim}/adopt', [OperatorAccessPointClaimController::class, 'adopt'])->name('access-point-claims.adopt');
     Route::get('/payouts', [OperatorPayoutController::class, 'index'])->name('payouts.index');
     Route::post('/payouts', [OperatorPayoutController::class, 'store'])->name('payouts.store');
 });
