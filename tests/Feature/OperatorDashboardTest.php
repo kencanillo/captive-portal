@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\Operator;
 use App\Models\Payment;
 use App\Models\Plan;
+use App\Models\PayoutRequest;
 use App\Models\Site;
 use App\Models\User;
 use App\Models\WifiSession;
@@ -448,6 +449,93 @@ class OperatorDashboardTest extends TestCase
                 ->has('dailySales', 1)
                 ->has('accessPointSales', 1)
                 ->has('sales.data', 1));
+    }
+
+    public function test_operator_payout_balance_uses_paid_sales_even_without_ap_fee_ledger(): void
+    {
+        $this->withoutVite();
+
+        $user = User::factory()->create([
+            'is_admin' => false,
+            'email' => 'sales-payout-operator@example.com',
+        ]);
+        $operator = Operator::query()->create([
+            'user_id' => $user->id,
+            'business_name' => 'Sales Payout WiFi',
+            'contact_name' => 'Sales Payout Operator',
+            'phone_number' => '09171234567',
+            'status' => Operator::STATUS_APPROVED,
+        ]);
+        $site = Site::query()->create([
+            'operator_id' => $operator->id,
+            'name' => 'Sales Payout Site',
+            'slug' => 'sales-payout-site',
+        ]);
+        $accessPoint = AccessPoint::query()->create([
+            'site_id' => $site->id,
+            'claimed_by_operator_id' => $operator->id,
+            'name' => 'Sales Payout AP',
+            'mac_address' => '88:99:aa:bb:cc:dd',
+            'claim_status' => AccessPoint::CLAIM_STATUS_CLAIMED,
+            'health_state' => AccessPoint::HEALTH_STATE_CONNECTED,
+            'is_online' => true,
+        ]);
+        $plan = Plan::query()->create([
+            'name' => 'Paid Pass',
+            'price' => 19,
+            'duration_minutes' => 60,
+            'is_active' => true,
+        ]);
+        $session = WifiSession::query()->create([
+            'mac_address' => '10:20:30:40:50:60',
+            'plan_id' => $plan->id,
+            'site_id' => $site->id,
+            'access_point_id' => $accessPoint->id,
+            'amount_paid' => 19,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
+            'is_active' => true,
+        ]);
+        Payment::query()->create([
+            'wifi_session_id' => $session->id,
+            'provider' => Payment::PROVIDER_PAYMONGO,
+            'payment_flow' => Payment::FLOW_QRPH,
+            'reference_id' => 'SALE-PAYOUT',
+            'status' => Payment::STATUS_PAID,
+            'amount' => 19,
+            'currency' => 'PHP',
+            'paid_at' => now(),
+        ]);
+
+        $this->actingAs($user)
+            ->get('/operator/dashboard')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Operator/Dashboard')
+                ->where('summary.gross_sales', '19.00')
+                ->where('summary.available_balance', '19.00'));
+
+        $this->actingAs($user)
+            ->get('/operator/payouts')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Operator/Payouts')
+                ->where('summary.gross_sales', '19.00')
+                ->where('summary.requestable_balance', '19.00')
+                ->where('summary.confidence_state', 'healthy'));
+
+        $this->actingAs($user)
+            ->post('/operator/payouts', [
+                'amount' => 19,
+                'destination_type' => 'bank',
+                'destination_account_name' => 'Test Operator',
+                'destination_account_reference' => '1234567890',
+                'destination_provider' => 'instapay',
+            ])
+            ->assertRedirect('/operator/payouts')
+            ->assertSessionHas('success');
+
+        $this->assertSame(1, PayoutRequest::query()->where('operator_id', $operator->id)->count());
     }
 
     public function test_operator_devices_page_shows_connected_and_disconnected_access_points(): void

@@ -101,14 +101,14 @@ const summaryTone = (tone) => ({
 
     <section class="mt-6 grid gap-4 xl:grid-cols-4">
       <article class="app-rail-card">
-        <p class="app-metric-label">Gross AP Fees</p>
-        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatCurrency(summary.gross_billed_fees) }}</p>
-        <p class="mt-2 text-xs text-slate-500">Reversed {{ formatCurrency(summary.reversed_fees) }}</p>
+        <p class="app-metric-label">Gross Sales</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatCurrency(summary.gross_sales) }}</p>
+        <p class="mt-2 text-xs text-slate-500">{{ formatNumber(summary.paid_sales_count || 0) }} paid payments</p>
       </article>
       <article class="app-rail-card">
         <p class="app-metric-label">Net Payable</p>
-        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatCurrency(summary.net_payable_fees) }}</p>
-        <p class="mt-2 text-xs text-slate-500">Blocked {{ formatCurrency(summary.blocked_fees) }}</p>
+        <p class="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ formatCurrency(summary.payable_basis) }}</p>
+        <p class="mt-2 text-xs text-slate-500">AP fees {{ formatCurrency(summary.net_payable_fees) }}</p>
       </article>
       <article class="app-rail-card">
         <p class="app-metric-label">Reserved</p>

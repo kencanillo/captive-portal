@@ -50,6 +50,7 @@ class HandleInertiaRequests extends Middleware
                 'error' => fn () => $request->session()->get('error'),
                 'status' => fn () => $request->session()->get('status'),
             ],
+            'csrf_token' => csrf_token(),
         ];
     }
 }

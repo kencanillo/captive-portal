@@ -35,7 +35,7 @@ function healthBadgeClass(state) {
           Operator overview
         </p>
         <h1 class="mt-5 text-4xl font-extrabold tracking-[-0.06em] text-white sm:text-5xl">
-          {{ formatCurrency(summary.available_balance || 0) }}
+          {{ formatCurrency(summary.gross_sales || summary.available_balance || 0) }}
         </h1>
         <p class="mt-4 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
           This dashboard is site-scoped. Every card, activity list, and AP snapshot must stay inside the operator’s assigned footprint. Anything else is a tenancy leak.
@@ -63,8 +63,8 @@ function healthBadgeClass(state) {
           <p class="app-metric-value">{{ formatNumber(summary.access_points_count || 0) }}</p>
         </article>
         <article class="app-metric-card">
-          <p class="app-metric-label">Net Payable Fees</p>
-          <p class="app-metric-value">{{ formatCurrency(summary.net_payable_fees || 0) }}</p>
+          <p class="app-metric-label">Sales Revenue</p>
+          <p class="app-metric-value">{{ formatCurrency(summary.gross_sales || 0) }}</p>
         </article>
         <article class="app-metric-card">
           <p class="app-metric-label">Available Balance</p>
