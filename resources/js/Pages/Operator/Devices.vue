@@ -8,6 +8,7 @@ defineProps({
   claimRequests: Array,
   connectedDevices: Array,
   failedDevices: Array,
+  syncConfigured: Boolean,
 });
 
 const csrfToken = usePage().props.csrf_token;
@@ -19,7 +20,15 @@ const csrfToken = usePage().props.csrf_token;
   <MainLayout title="Device Management">
     <section>
       <p class="app-kicker">Operator Devices</p>
-      <h1 class="mt-3 app-title">Access point inventory</h1>
+      <div class="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <h1 class="app-title">Access point inventory</h1>
+        <form method="POST" :action="route('operator.devices.sync')">
+          <input type="hidden" name="_token" :value="csrfToken" />
+          <button type="submit" class="app-button-secondary" :disabled="!syncConfigured">
+            Sync APs
+          </button>
+        </form>
+      </div>
     </section>
 
     <section class="mt-8 grid gap-4 md:grid-cols-3">

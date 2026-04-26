@@ -268,6 +268,18 @@ class OperatorDashboardTest extends TestCase
             'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
             'is_active' => false,
         ]);
+        $apMacMatchedSession = WifiSession::query()->create([
+            'mac_address' => 'cc:bb:aa:99:88:77',
+            'plan_id' => $plan->id,
+            'site_id' => $otherSite->id,
+            'access_point_id' => null,
+            'ap_mac' => $accessPoint->mac_address,
+            'ap_name' => 'Session AP',
+            'amount_paid' => 30,
+            'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
+            'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+            'is_active' => false,
+        ]);
         WifiSession::query()->create([
             'mac_address' => 'cc:cc:cc:cc:cc:cc',
             'plan_id' => $plan->id,
@@ -291,7 +303,7 @@ class OperatorDashboardTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->get('/operator/sessions?status=awaiting_payment')
+            ->get("/operator/sessions?status=awaiting_payment&access_point_id={$accessPoint->id}")
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Operator/Sessions')
@@ -303,6 +315,15 @@ class OperatorDashboardTest extends TestCase
                 ->has('clientHistories')
                 ->has('sessions.data', 1)
                 ->has('accessPoints', 1));
+
+        $this->actingAs($user)
+            ->get('/operator/sessions?client=cc:bb:aa:99:88:77')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Operator/Sessions')
+                ->where('sessions.data.0.id', $apMacMatchedSession->id)
+                ->where('sessions.data.0.ap_mac', $accessPoint->mac_address)
+                ->has('sessions.data', 1));
     }
 
     public function test_operator_sales_page_lists_paid_sales_with_date_filters(): void
@@ -469,6 +490,24 @@ class OperatorDashboardTest extends TestCase
             'health_state' => AccessPoint::HEALTH_STATE_DISCONNECTED,
             'is_online' => false,
         ]);
+        $plan = Plan::query()->create([
+            'name' => 'Quick Surf',
+            'price' => 25,
+            'duration_minutes' => 60,
+            'is_active' => true,
+        ]);
+        WifiSession::query()->create([
+            'mac_address' => 'aa:00:aa:00:aa:00',
+            'plan_id' => $plan->id,
+            'site_id' => $site->id,
+            'access_point_id' => null,
+            'ap_mac' => '77:88:99:aa:bb:cc',
+            'ap_name' => 'Observed Session AP',
+            'amount_paid' => 25,
+            'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
+            'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+            'is_active' => false,
+        ]);
 
         $this->actingAs($user)
             ->get('/operator/devices')
@@ -476,7 +515,31 @@ class OperatorDashboardTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Operator/Devices')
                 ->where('connectedDevices.0.id', $connected->id)
+                ->where('connectedDevices.1.name', 'Observed Session AP')
+                ->where('connectedDevices.1.current_sessions_count', 1)
                 ->where('failedDevices.0.id', $disconnected->id));
+    }
+
+    public function test_operator_access_point_sync_route_returns_clear_error_without_controller_settings(): void
+    {
+        $this->withoutVite();
+
+        $user = User::factory()->create([
+            'is_admin' => false,
+            'email' => 'sync-operator@example.com',
+        ]);
+        Operator::query()->create([
+            'user_id' => $user->id,
+            'business_name' => 'Sync WiFi',
+            'contact_name' => 'Sync Operator',
+            'phone_number' => '09171234567',
+            'status' => Operator::STATUS_APPROVED,
+        ]);
+
+        $this->actingAs($user)
+            ->post('/operator/devices/sync')
+            ->assertRedirect('/operator/devices')
+            ->assertSessionHas('error', 'Controller settings are missing. Ask an admin to save them before syncing AP inventory.');
     }
 
     public function test_pending_operator_is_redirected_to_pending_approval_page(): void

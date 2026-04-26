@@ -158,6 +158,7 @@ class WifiSession extends Model
     {
         return $query->where(function (Builder $query) use ($operator): void {
             $query->whereHas('accessPoint', fn (Builder $accessPoints) => $accessPoints->forOperator($operator))
+                ->orWhereIn('ap_mac', AccessPoint::query()->forOperator($operator)->select('mac_address'))
                 ->orWhere(function (Builder $query) use ($operator): void {
                     $query->whereNull('access_point_id')
                         ->whereIn('site_id', $operator->sites()->select('id'));

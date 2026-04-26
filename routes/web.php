@@ -197,6 +197,9 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 Route::middleware(['auth', 'can:access-operator-panel'])->prefix('operator')->name('operator.')->group(function (): void {
     Route::get('/dashboard', OperatorDashboardController::class)->name('dashboard');
     Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
+    Route::post('/devices/sync', [DeviceController::class, 'sync'])
+        ->middleware('throttle:operator-access-point-claims')
+        ->name('devices.sync');
     Route::get('/sessions', [OperatorSessionController::class, 'index'])->name('sessions.index');
     Route::get('/sales', [OperatorSalesController::class, 'index'])->name('sales.index');
     Route::post('/access-point-claims', [OperatorAccessPointClaimController::class, 'store'])
