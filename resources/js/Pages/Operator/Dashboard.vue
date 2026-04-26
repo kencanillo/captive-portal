@@ -183,7 +183,7 @@ function healthBadgeClass(state) {
                   {{ accessPoint.health?.health_label || (accessPoint.is_online ? 'Connected' : 'Disconnected') }}
                 </span>
                 <p class="mt-1 text-xs text-slate-500">
-                  {{ formatNumber(accessPoint.active_sessions_count || 0) }} connected clients • {{ accessPoint.health?.freshness_label || 'No freshness data' }} • {{ accessPoint.health?.status_source || 'unknown' }}
+                  {{ formatNumber(accessPoint.current_sessions_count || 0) }} client sessions • {{ formatNumber(accessPoint.active_sessions_count || 0) }} active • {{ accessPoint.health?.freshness_label || 'No freshness data' }}
                 </p>
                 <p class="mt-1 text-xs text-slate-500">
                   {{ accessPoint.claim_status }} • {{ formatNumber(accessPoint.paid_sessions_count || 0) }} paid sessions • {{ formatCurrency(accessPoint.revenue_total || 0) }}

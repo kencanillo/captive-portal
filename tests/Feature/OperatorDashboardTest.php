@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AccessPoint;
 use App\Models\BillingLedgerEntry;
+use App\Models\Client;
 use App\Models\Operator;
 use App\Models\Payment;
 use App\Models\Plan;
@@ -108,6 +109,17 @@ class OperatorDashboardTest extends TestCase
             'is_active' => true,
         ]);
 
+        $qrPendingSession = WifiSession::query()->create([
+            'mac_address' => 'dd:ee:ff:00:11:22',
+            'plan_id' => $plan->id,
+            'site_id' => null,
+            'access_point_id' => $claimedAccessPoint->id,
+            'amount_paid' => 30,
+            'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
+            'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+            'is_active' => false,
+        ]);
+
         WifiSession::query()->create([
             'mac_address' => 'bb:cc:dd:ee:ff:00',
             'plan_id' => $plan->id,
@@ -133,6 +145,15 @@ class OperatorDashboardTest extends TestCase
             'payment_flow' => Payment::FLOW_QRPH,
             'reference_id' => 'CLAIMED123',
             'status' => Payment::STATUS_PAID,
+            'amount' => 30,
+            'currency' => 'PHP',
+        ]);
+        Payment::query()->create([
+            'wifi_session_id' => $qrPendingSession->id,
+            'provider' => Payment::PROVIDER_PAYMONGO,
+            'payment_flow' => Payment::FLOW_QRPH,
+            'reference_id' => 'QR123',
+            'status' => Payment::STATUS_AWAITING_PAYMENT,
             'amount' => 30,
             'currency' => 'PHP',
         ]);
@@ -166,14 +187,296 @@ class OperatorDashboardTest extends TestCase
                 ->where('summary.available_balance', '500.00')
                 ->where('summary.confidence_state', 'healthy')
                 ->where('webhookCapabilityVerdict', 'webhook_not_safely_supported_using_current_setup')
-                ->has('recentSessions', 2)
+                ->has('recentSessions', 3)
                 ->where('recentSessions.0.access_point_name', 'Claimed AP')
-                ->has('recentPayments', 2)
-                ->where('recentPayments.0.reference_id', 'CLAIMED123')
+                ->where('recentSessions.0.payment_status', WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT)
+                ->has('recentPayments', 3)
+                ->where('recentPayments.0.reference_id', 'QR123')
                 ->has('accessPoints', 2)
                 ->where('accessPoints.0.name', 'Claimed AP')
                 ->where('accessPoints.0.active_sessions_count', 1)
+                ->where('accessPoints.0.current_sessions_count', 2)
                 ->where('accessPoints.0.health.health_state', 'connected'));
+    }
+
+    public function test_operator_sessions_page_lists_qr_generated_clients_with_filters(): void
+    {
+        $this->withoutVite();
+        $this->noteFreshAutomation();
+
+        $user = User::factory()->create([
+            'is_admin' => false,
+            'email' => 'sessions-operator@example.com',
+        ]);
+        $operator = Operator::query()->create([
+            'user_id' => $user->id,
+            'business_name' => 'Session WiFi',
+            'contact_name' => 'Session Operator',
+            'phone_number' => '09171234567',
+            'status' => Operator::STATUS_APPROVED,
+        ]);
+        $site = Site::query()->create([
+            'operator_id' => $operator->id,
+            'name' => 'Session Site',
+            'slug' => 'session-site',
+        ]);
+        $accessPoint = AccessPoint::query()->create([
+            'site_id' => $site->id,
+            'claimed_by_operator_id' => $operator->id,
+            'name' => 'Session AP',
+            'mac_address' => '44:55:66:77:88:99',
+            'claim_status' => AccessPoint::CLAIM_STATUS_CLAIMED,
+            'health_state' => AccessPoint::HEALTH_STATE_CONNECTED,
+            'is_online' => true,
+        ]);
+        $otherSite = Site::query()->create([
+            'name' => 'Other Site',
+            'slug' => 'other-site',
+        ]);
+        $plan = Plan::query()->create([
+            'name' => '1 Hour',
+            'price' => 30,
+            'duration_minutes' => 60,
+            'is_active' => true,
+        ]);
+
+        $session = WifiSession::query()->create([
+            'mac_address' => 'aa:aa:aa:aa:aa:aa',
+            'plan_id' => $plan->id,
+            'site_id' => $site->id,
+            'access_point_id' => $accessPoint->id,
+            'amount_paid' => 30,
+            'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
+            'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+            'is_active' => false,
+        ]);
+        Payment::query()->create([
+            'wifi_session_id' => $session->id,
+            'provider' => Payment::PROVIDER_PAYMONGO,
+            'payment_flow' => Payment::FLOW_QRPH,
+            'reference_id' => 'QR-FILTERED',
+            'status' => Payment::STATUS_AWAITING_PAYMENT,
+            'amount' => 30,
+            'currency' => 'PHP',
+        ]);
+        WifiSession::query()->create([
+            'mac_address' => 'bb:bb:bb:bb:bb:bb',
+            'plan_id' => $plan->id,
+            'site_id' => $otherSite->id,
+            'amount_paid' => 30,
+            'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
+            'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+            'is_active' => false,
+        ]);
+        WifiSession::query()->create([
+            'mac_address' => 'cc:cc:cc:cc:cc:cc',
+            'plan_id' => $plan->id,
+            'site_id' => $site->id,
+            'access_point_id' => $accessPoint->id,
+            'amount_paid' => 30,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_PAID,
+            'release_status' => WifiSession::RELEASE_STATUS_PENDING,
+            'is_active' => false,
+        ]);
+        WifiSession::query()->create([
+            'mac_address' => 'dd:dd:dd:dd:dd:dd',
+            'plan_id' => $plan->id,
+            'site_id' => $otherSite->id,
+            'amount_paid' => 30,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_PAID,
+            'release_status' => WifiSession::RELEASE_STATUS_PENDING,
+            'is_active' => false,
+        ]);
+
+        $this->actingAs($user)
+            ->get('/operator/sessions?status=awaiting_payment')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Operator/Sessions')
+                ->where('sessions.data.0.id', $session->id)
+                ->where('sessions.data.0.access_point.name', 'Session AP')
+                ->where('sessions.data.0.payment_status', WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT)
+                ->has('releaseRuntime')
+                ->where('releaseRuntime.outstanding_release_count', 1)
+                ->has('clientHistories')
+                ->has('sessions.data', 1)
+                ->has('accessPoints', 1));
+    }
+
+    public function test_operator_sales_page_lists_paid_sales_with_date_filters(): void
+    {
+        $this->withoutVite();
+        $this->noteFreshAutomation();
+
+        $user = User::factory()->create([
+            'is_admin' => false,
+            'email' => 'sales-operator@example.com',
+        ]);
+        $operator = Operator::query()->create([
+            'user_id' => $user->id,
+            'business_name' => 'Sales WiFi',
+            'contact_name' => 'Sales Operator',
+            'phone_number' => '09171234567',
+            'status' => Operator::STATUS_APPROVED,
+        ]);
+        $site = Site::query()->create([
+            'operator_id' => $operator->id,
+            'name' => 'Sales Site',
+            'slug' => 'sales-site',
+        ]);
+        $accessPoint = AccessPoint::query()->create([
+            'site_id' => $site->id,
+            'claimed_by_operator_id' => $operator->id,
+            'name' => 'Sales AP',
+            'mac_address' => '77:88:99:aa:bb:cc',
+            'claim_status' => AccessPoint::CLAIM_STATUS_CLAIMED,
+            'health_state' => AccessPoint::HEALTH_STATE_CONNECTED,
+            'is_online' => true,
+        ]);
+        $otherSite = Site::query()->create([
+            'name' => 'External Site',
+            'slug' => 'external-site',
+        ]);
+        $plan = Plan::query()->create([
+            'name' => 'Day Pass',
+            'price' => 75,
+            'duration_minutes' => 1440,
+            'is_active' => true,
+        ]);
+        $client = Client::query()->create([
+            'name' => 'Sales Client',
+            'phone_number' => '09170001111',
+            'pin' => '1234',
+            'mac_address' => '00:11:22:33:44:55',
+        ]);
+
+        $session = WifiSession::query()->create([
+            'client_id' => $client->id,
+            'mac_address' => $client->mac_address,
+            'plan_id' => $plan->id,
+            'site_id' => $site->id,
+            'access_point_id' => $accessPoint->id,
+            'amount_paid' => 75,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
+            'is_active' => true,
+        ]);
+        Payment::query()->create([
+            'wifi_session_id' => $session->id,
+            'provider' => Payment::PROVIDER_PAYMONGO,
+            'payment_flow' => Payment::FLOW_QRPH,
+            'reference_id' => 'SALE-IN-RANGE',
+            'status' => Payment::STATUS_PAID,
+            'amount' => 75,
+            'currency' => 'PHP',
+            'paid_at' => now()->setDate(2026, 4, 20)->setTime(10, 0),
+        ]);
+
+        $outOfRangeSession = WifiSession::query()->create([
+            'mac_address' => '66:55:44:33:22:11',
+            'plan_id' => $plan->id,
+            'site_id' => $site->id,
+            'access_point_id' => $accessPoint->id,
+            'amount_paid' => 75,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
+            'is_active' => true,
+        ]);
+        Payment::query()->create([
+            'wifi_session_id' => $outOfRangeSession->id,
+            'provider' => Payment::PROVIDER_PAYMONGO,
+            'payment_flow' => Payment::FLOW_QRPH,
+            'reference_id' => 'SALE-OUT-OF-RANGE',
+            'status' => Payment::STATUS_PAID,
+            'amount' => 75,
+            'currency' => 'PHP',
+            'paid_at' => now()->setDate(2026, 4, 10)->setTime(10, 0),
+        ]);
+
+        $externalSession = WifiSession::query()->create([
+            'mac_address' => '99:88:77:66:55:44',
+            'plan_id' => $plan->id,
+            'site_id' => $otherSite->id,
+            'amount_paid' => 75,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
+            'is_active' => true,
+        ]);
+        Payment::query()->create([
+            'wifi_session_id' => $externalSession->id,
+            'provider' => Payment::PROVIDER_PAYMONGO,
+            'payment_flow' => Payment::FLOW_QRPH,
+            'reference_id' => 'SALE-EXTERNAL',
+            'status' => Payment::STATUS_PAID,
+            'amount' => 75,
+            'currency' => 'PHP',
+            'paid_at' => now()->setDate(2026, 4, 20)->setTime(10, 0),
+        ]);
+
+        $this->actingAs($user)
+            ->get('/operator/sales?date_from=2026-04-15&date_to=2026-04-21')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Operator/Sales')
+                ->where('summary.total_sales', '75.00')
+                ->where('summary.paid_payments_count', 1)
+                ->where('sales.data.0.reference_id', 'SALE-IN-RANGE')
+                ->where('sales.data.0.access_point.name', 'Sales AP')
+                ->has('dailySales', 1)
+                ->has('accessPointSales', 1)
+                ->has('sales.data', 1));
+    }
+
+    public function test_operator_devices_page_shows_connected_and_disconnected_access_points(): void
+    {
+        $this->withoutVite();
+        $this->noteFreshAutomation();
+
+        $user = User::factory()->create([
+            'is_admin' => false,
+            'email' => 'devices-operator@example.com',
+        ]);
+        $operator = Operator::query()->create([
+            'user_id' => $user->id,
+            'business_name' => 'Device WiFi',
+            'contact_name' => 'Device Operator',
+            'phone_number' => '09171234567',
+            'status' => Operator::STATUS_APPROVED,
+        ]);
+        $site = Site::query()->create([
+            'operator_id' => $operator->id,
+            'name' => 'Device Site',
+            'slug' => 'device-site',
+        ]);
+
+        $connected = AccessPoint::query()->create([
+            'site_id' => $site->id,
+            'claimed_by_operator_id' => $operator->id,
+            'name' => 'Connected AP',
+            'mac_address' => '55:66:77:88:99:aa',
+            'claim_status' => AccessPoint::CLAIM_STATUS_CLAIMED,
+            'health_state' => AccessPoint::HEALTH_STATE_CONNECTED,
+            'is_online' => true,
+        ]);
+        $disconnected = AccessPoint::query()->create([
+            'site_id' => $site->id,
+            'claimed_by_operator_id' => $operator->id,
+            'name' => 'Disconnected AP',
+            'mac_address' => '66:77:88:99:aa:bb',
+            'claim_status' => AccessPoint::CLAIM_STATUS_CLAIMED,
+            'health_state' => AccessPoint::HEALTH_STATE_DISCONNECTED,
+            'is_online' => false,
+        ]);
+
+        $this->actingAs($user)
+            ->get('/operator/devices')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Operator/Devices')
+                ->where('connectedDevices.0.id', $connected->id)
+                ->where('failedDevices.0.id', $disconnected->id));
     }
 
     public function test_pending_operator_is_redirected_to_pending_approval_page(): void

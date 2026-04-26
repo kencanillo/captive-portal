@@ -5,10 +5,12 @@ namespace App\Services;
 use App\Exceptions\ReleaseOperationException;
 use App\Jobs\ReleaseWifiAccessJob;
 use App\Models\ControllerSetting;
+use App\Models\Operator;
 use App\Models\User;
 use App\Models\WifiSession;
 use App\Support\Release\ReleaseOutcome;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -428,7 +430,17 @@ class WifiSessionReleaseService
 
     public function runtimeHealth(): array
     {
-        $outstandingReleaseCount = WifiSession::query()
+        return $this->runtimeHealthForQuery(WifiSession::query());
+    }
+
+    public function runtimeHealthForOperator(Operator $operator): array
+    {
+        return $this->runtimeHealthForQuery(WifiSession::query()->forOperator($operator));
+    }
+
+    private function runtimeHealthForQuery(Builder $query): array
+    {
+        $outstandingReleaseCount = $query
             ->where('payment_status', WifiSession::PAYMENT_STATUS_PAID)
             ->where(function ($query): void {
                 $query->whereIn('release_status', [

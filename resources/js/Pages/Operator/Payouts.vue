@@ -124,25 +124,10 @@ const summaryTone = (tone) => ({
       </article>
     </section>
 
-    <section v-if="summary.confidence_reasons?.length" class="mt-6 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-amber-900">
-      Accounting confidence is {{ summary.confidence_state }}.
-      <span v-for="reason in summary.confidence_reasons" :key="reason" class="block">{{ reason }}</span>
-    </section>
-
-    <section
-      v-if="providerOps.blocking_reason || !providerOps.provider_readiness?.ready"
-      class="mt-6 rounded-[24px] border border-rose-200 bg-rose-50 px-5 py-4 text-rose-900"
-    >
-      Provider payout execution is blocked.
-      <span class="block">{{ providerOps.blocking_reason || providerOps.provider_readiness?.blocking_reason }}</span>
-      <span class="block text-xs">mode {{ providerOps.provider_mode || 'unknown' }} • live rollout {{ providerOps.live_execution_enabled ? 'enabled' : 'disabled' }}</span>
-    </section>
-
     <section class="mt-8 grid gap-6 xl:grid-cols-[0.92fr,1.08fr]">
       <section class="app-card-strong p-7">
         <p class="app-kicker">New Request</p>
         <h2 class="mt-3 app-section-title">Submit payout details</h2>
-        <p class="app-section-copy">Capture a clean destination snapshot now so the admin review step has enough context without chasing the operator later.</p>
 
         <form class="mt-8 space-y-5" @submit.prevent="submit">
           <div>
@@ -210,28 +195,6 @@ const summaryTone = (tone) => ({
       </section>
 
       <section class="space-y-6">
-        <div class="app-card p-7">
-          <p class="app-kicker">Statement</p>
-          <h2 class="mt-3 app-section-title">Recent AP fee entries</h2>
-          <div class="mt-6 space-y-3">
-            <article v-for="item in statementLines" :key="item.id" class="rounded-[22px] border border-slate-200/80 bg-white/80 px-5 py-4">
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p class="font-semibold text-slate-950">{{ formatCurrency(item.amount) }} • {{ item.direction }}</p>
-                  <p class="mt-1 text-sm text-slate-500">
-                    {{ item.site?.name || 'No site' }} • {{ item.access_point?.name || 'No AP' }} • source #{{ item.source_billing_ledger_entry_id }}
-                  </p>
-                </div>
-                <div class="text-left sm:text-right">
-                  <p class="font-medium text-slate-950">{{ formatCurrency(item.payable_effect_amount) }}</p>
-                  <p class="mt-1 text-xs text-slate-500">{{ item.affects_payable ? 'payable effect' : 'excluded from payable' }}</p>
-                </div>
-              </div>
-            </article>
-            <div v-if="!statementLines.length" class="app-empty">No statement lines yet.</div>
-          </div>
-        </div>
-
         <div class="app-card p-7">
           <p class="app-kicker">Pending Requests</p>
           <h2 class="mt-3 app-section-title">Awaiting review or payout</h2>

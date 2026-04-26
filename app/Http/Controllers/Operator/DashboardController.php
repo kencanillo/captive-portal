@@ -97,6 +97,16 @@ class DashboardController extends Controller
                 ->with('site:id,name')
                 ->withCount([
                     'wifiSessions as active_sessions_count' => fn ($query) => $query->where('is_active', true),
+                    'wifiSessions as current_sessions_count' => fn ($query) => $query->whereIn('session_status', [
+                        WifiSession::SESSION_STATUS_PENDING_PAYMENT,
+                        WifiSession::SESSION_STATUS_PAID,
+                        WifiSession::SESSION_STATUS_ACTIVE,
+                        WifiSession::SESSION_STATUS_RELEASE_FAILED,
+                    ])->whereIn('payment_status', [
+                        WifiSession::PAYMENT_STATUS_PENDING,
+                        WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
+                        WifiSession::PAYMENT_STATUS_PAID,
+                    ]),
                     'wifiSessions as paid_sessions_count' => fn ($query) => $query->where('payment_status', WifiSession::STATUS_PAID),
                 ])
                 ->withSum([
@@ -115,6 +125,7 @@ class DashboardController extends Controller
                     'is_online' => $accessPoint->is_online,
                     'health' => $healthService->present($accessPoint),
                     'active_sessions_count' => $accessPoint->active_sessions_count,
+                    'current_sessions_count' => $accessPoint->current_sessions_count,
                     'paid_sessions_count' => $accessPoint->paid_sessions_count,
                     'revenue_total' => number_format((float) ($accessPoint->revenue_total ?? 0), 2, '.', ''),
                     'last_synced_at' => optional($accessPoint->last_synced_at)?->toDateTimeString(),

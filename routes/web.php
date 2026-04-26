@@ -22,6 +22,8 @@ use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use App\Http\Controllers\Operator\DashboardController as OperatorDashboardController;
 use App\Http\Controllers\Operator\DeviceController as DeviceController;
+use App\Http\Controllers\Operator\SalesController as OperatorSalesController;
+use App\Http\Controllers\Operator\SessionController as OperatorSessionController;
 use App\Http\Controllers\Operator\AccessPointClaimController as OperatorAccessPointClaimController;
 use App\Http\Controllers\Operator\PayoutController as OperatorPayoutController;
 use App\Http\Controllers\ProfileController;
@@ -195,6 +197,8 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 Route::middleware(['auth', 'can:access-operator-panel'])->prefix('operator')->name('operator.')->group(function (): void {
     Route::get('/dashboard', OperatorDashboardController::class)->name('dashboard');
     Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
+    Route::get('/sessions', [OperatorSessionController::class, 'index'])->name('sessions.index');
+    Route::get('/sales', [OperatorSalesController::class, 'index'])->name('sales.index');
     Route::post('/access-point-claims', [OperatorAccessPointClaimController::class, 'store'])
         ->middleware('throttle:operator-access-point-claims')
         ->name('access-point-claims.store');

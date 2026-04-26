@@ -36,6 +36,8 @@ const adminNavigation = [
 const operatorNavigation = [
   { label: 'Dashboard', href: '/operator/dashboard', icon: 'dashboard' },
   { label: 'Devices', href: '/operator/devices', icon: 'router' },
+  { label: 'Sessions', href: '/operator/sessions', icon: 'wifi_find' },
+  { label: 'Sales', href: '/operator/sales', icon: 'bar_chart' },
   { label: 'Payouts', href: '/operator/payouts', icon: 'payments' },
 ];
 
