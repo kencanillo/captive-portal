@@ -44,7 +44,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('omada:reconcile-authorized-clients')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('wifi:reconcile-releases')->everyMinute()->withoutOverlapping();
         $schedule->command('omada:sync-access-points')->everyMinute()->withoutOverlapping();
-        $schedule->command('omada:reconcile-access-point-health')->everyMinute()->withoutOverlapping();
+        // $schedule->command('omada:reconcile-access-point-health')->everyMinute()->withoutOverlapping();
         $schedule->command('billing:post-access-point-fees')->everyMinute()->withoutOverlapping();
         $schedule->command('payouts:reconcile-execution-attempts')->everyFiveMinutes()->withoutOverlapping();
     })
