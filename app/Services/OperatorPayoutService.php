@@ -43,10 +43,13 @@ class OperatorPayoutService
         }
 
         return DB::transaction(function () use ($operator, $attributes, $amount): PayoutRequest {
-            $this->operationalReadinessService->assertActionReady(OperationalReadinessService::ACTION_PAYOUT_REQUEST_CREATE);
             $lockedOperator = $this->lockOperatorBalanceContext($operator->id);
             $this->syncSettlementStatesForOperator($lockedOperator->id);
             $summary = $this->buildSummary($lockedOperator->id);
+
+            if ((float) ($summary['gross_sales'] ?? 0) <= 0.0) {
+                $this->operationalReadinessService->assertActionReady(OperationalReadinessService::ACTION_PAYOUT_REQUEST_CREATE);
+            }
 
             $this->assertBalanceConfidenceHealthy($summary, 'Payout request creation is blocked because the operator balance is not trustworthy enough yet.');
 
@@ -1404,10 +1407,15 @@ class OperatorPayoutService
             ->when($excludePayoutRequestId, fn ($query) => $query->where('payout_request_id', '!=', $excludePayoutRequestId))
             ->sum('amount');
 
-        $requestableBalance = (float) round(max(0.0, (float) $accounting['net_payable_fees'] - $paidOut - $reservedForPayout), 2);
+        $payableBasis = (float) ($accounting['payable_basis'] ?? $accounting['net_payable_fees']);
+        $requestableBalance = (float) round(max(0.0, $payableBasis - $paidOut - $reservedForPayout), 2);
 
         return [
-            'earnings' => round((float) $accounting['gross_billed_fees'], 2),
+            'earnings' => round($payableBasis, 2),
+            'gross_sales' => round((float) ($accounting['gross_sales'] ?? 0), 2),
+            'net_sales' => round((float) ($accounting['net_sales'] ?? 0), 2),
+            'paid_sales_count' => (int) ($accounting['paid_sales_count'] ?? 0),
+            'payable_basis' => round($payableBasis, 2),
             'gross_billed_fees' => round((float) $accounting['gross_billed_fees'], 2),
             'reversed_fees' => round((float) $accounting['reversed_fees'], 2),
             'blocked_fees' => round((float) $accounting['blocked_fees'], 2),
@@ -1953,6 +1961,10 @@ class OperatorPayoutService
     private function balanceSnapshot(array $summary): array
     {
         return [
+            'gross_sales' => $summary['gross_sales'] ?? 0,
+            'net_sales' => $summary['net_sales'] ?? 0,
+            'paid_sales_count' => $summary['paid_sales_count'] ?? 0,
+            'payable_basis' => $summary['payable_basis'] ?? $summary['net_payable_fees'],
             'gross_billed_fees' => $summary['gross_billed_fees'],
             'reversed_fees' => $summary['reversed_fees'],
             'blocked_fees' => $summary['blocked_fees'],

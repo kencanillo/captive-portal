@@ -78,6 +78,10 @@ class WifiSession extends Model
         'authorized_at',
         'deauthorized_at',
         'authorization_source',
+        'source',
+        'authorized_by_user_id',
+        'operator_id',
+        'authorization_note',
         'last_controller_seen_at',
         'start_time',
         'end_time',
@@ -134,6 +138,16 @@ class WifiSession extends Model
         return $this->belongsTo(AccessPoint::class);
     }
 
+    public function operator(): BelongsTo
+    {
+        return $this->belongsTo(Operator::class);
+    }
+
+    public function authorizedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'authorized_by_user_id');
+    }
+
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
@@ -156,6 +170,13 @@ class WifiSession extends Model
 
     public function scopeForOperator(Builder $query, Operator $operator): Builder
     {
-        return $query->whereIn('site_id', $operator->sites()->select('id'));
+        return $query->where(function (Builder $query) use ($operator): void {
+            $query->whereHas('accessPoint', fn (Builder $accessPoints) => $accessPoints->forOperator($operator))
+                ->orWhereIn('ap_mac', AccessPoint::query()->forOperator($operator)->select('mac_address'))
+                ->orWhere(function (Builder $query) use ($operator): void {
+                    $query->whereNull('access_point_id')
+                        ->whereIn('site_id', $operator->sites()->select('id'));
+                });
+        });
     }
 }

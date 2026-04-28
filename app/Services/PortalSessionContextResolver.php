@@ -42,6 +42,25 @@ class PortalSessionContextResolver
                     'name' => $apName ?: $accessPoint->name,
                 ])->save();
             }
+
+            $now = now();
+            $accessPoint->forceFill([
+                'is_online' => true,
+                'health_state' => AccessPoint::HEALTH_STATE_CONNECTED,
+                'health_checked_at' => $now,
+                'status_source' => 'session',
+                'status_source_event_at' => $now,
+                'last_seen_at' => $now,
+                'last_connected_at' => $now,
+                'first_confirmed_connected_at' => $accessPoint->first_confirmed_connected_at ?? $now,
+                'health_metadata' => array_merge($accessPoint->health_metadata ?? [], [
+                    'confidence' => 'observed',
+                    'session_context' => [
+                        'observed_at' => $now->toIso8601String(),
+                        'source' => 'portal_session_context',
+                    ],
+                ]),
+            ])->save();
         } elseif ($siteName) {
             $site = $this->firstOrCreateSite($siteName);
         }

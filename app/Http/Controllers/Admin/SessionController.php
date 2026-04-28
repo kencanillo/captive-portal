@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Plan;
 use App\Models\WifiSession;
 use App\Services\OperationalReadinessService;
 use App\Services\WifiSessionReleaseService;
@@ -75,6 +76,20 @@ class SessionController extends Controller
         return Inertia::render('Admin/Sessions', [
             'releaseRuntime' => $wifiSessionReleaseService->runtimeHealth(),
             'clientHistories' => $clientHistories,
+            'manualAuthorization' => [
+                'enabled' => true,
+                'plans' => Plan::query()
+                    ->where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'price', 'duration_minutes'])
+                    ->map(fn (Plan $plan) => [
+                        'id' => $plan->id,
+                        'name' => $plan->name,
+                        'price' => $plan->price,
+                        'duration_minutes' => $plan->duration_minutes,
+                    ]),
+            ],
             'sessions' => $sessions
                 ->through(function (WifiSession $session): array {
                     return [
@@ -99,6 +114,7 @@ class SessionController extends Controller
                         'ap_name' => $session->ap_name,
                         'ap_mac' => $session->ap_mac,
                         'ssid_name' => $session->ssid_name,
+                        'radio_id' => $session->radio_id,
                         'plan' => $session->plan ? [
                             'id' => $session->plan->id,
                             'name' => $session->plan->name,

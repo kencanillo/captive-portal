@@ -40,6 +40,8 @@ class PlanSelectionApiTest extends TestCase
         $this->assertSame($site->id, $accessPoint->site_id);
         $this->assertSame('North Pole AP', $accessPoint->name);
         $this->assertSame('11:22:33:44:55:66', $accessPoint->mac_address);
+        $this->assertTrue($accessPoint->is_online);
+        $this->assertSame(AccessPoint::HEALTH_STATE_CONNECTED, $accessPoint->health_state);
         $this->assertSame($site->id, $session->site_id);
         $this->assertSame($accessPoint->id, $session->access_point_id);
         $this->assertSame('Guest WiFi', $session->ssid_name);
@@ -357,7 +359,7 @@ class PlanSelectionApiTest extends TestCase
             'amount_paid' => $plan->price,
             'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
             'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
-            'is_active' => false,
+            'is_active' => 0,
             'extends_session_id' => $activeSession->id,
         ]);
 
@@ -371,7 +373,7 @@ class PlanSelectionApiTest extends TestCase
             'amount_paid' => $plan->price,
             'payment_status' => WifiSession::PAYMENT_STATUS_PENDING,
             'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
-            'is_active' => false,
+            'is_active' => 0,
             'extends_session_id' => $activeSession->id,
         ]);
     }

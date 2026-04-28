@@ -22,8 +22,11 @@ use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use App\Http\Controllers\Operator\DashboardController as OperatorDashboardController;
 use App\Http\Controllers\Operator\DeviceController as DeviceController;
+use App\Http\Controllers\Operator\SalesController as OperatorSalesController;
+use App\Http\Controllers\Operator\SessionController as OperatorSessionController;
 use App\Http\Controllers\Operator\AccessPointClaimController as OperatorAccessPointClaimController;
 use App\Http\Controllers\Operator\PayoutController as OperatorPayoutController;
+use App\Http\Controllers\ManualAuthorizationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Public\CaptivePortalController;
@@ -119,6 +122,8 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::get('/settings', SettingsController::class)->name('settings.index');
+    Route::post('/manual-authorizations', [ManualAuthorizationController::class, 'store'])->name('manual-authorizations.store');
+    Route::post('/manual-authorizations/{wifiSession}/retry', [ManualAuthorizationController::class, 'retry'])->name('manual-authorizations.retry');
 
     Route::get('/operator/pending', function () {
         $operator = request()->user()?->loadMissing('operator')->operator;
@@ -195,6 +200,11 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 Route::middleware(['auth', 'can:access-operator-panel'])->prefix('operator')->name('operator.')->group(function (): void {
     Route::get('/dashboard', OperatorDashboardController::class)->name('dashboard');
     Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
+    Route::post('/devices/sync', [DeviceController::class, 'sync'])
+        ->middleware('throttle:operator-access-point-claims')
+        ->name('devices.sync');
+    Route::get('/sessions', [OperatorSessionController::class, 'index'])->name('sessions.index');
+    Route::get('/sales', [OperatorSalesController::class, 'index'])->name('sales.index');
     Route::post('/access-point-claims', [OperatorAccessPointClaimController::class, 'store'])
         ->middleware('throttle:operator-access-point-claims')
         ->name('access-point-claims.store');

@@ -13,6 +13,7 @@ class Payment extends Model
     use HasFactory;
 
     public const PROVIDER_PAYMONGO = 'paymongo';
+    public const PROVIDER_MANUAL = 'manual';
     public const FLOW_QRPH = 'qrph';
 
     public const STATUS_PENDING = 'pending';
@@ -21,9 +22,13 @@ class Payment extends Model
     public const STATUS_EXPIRED = 'expired';
     public const STATUS_FAILED = 'failed';
     public const STATUS_CANCELED = 'canceled';
+    public const STATUS_CASH_COLLECTED = 'cash_collected';
+    public const STATUS_WAIVED = 'waived';
 
     protected $fillable = [
         'wifi_session_id',
+        'created_by_user_id',
+        'operator_id',
         'provider',
         'payment_flow',
         'reference_id',
@@ -64,6 +69,16 @@ class Payment extends Model
     public function wifiSession(): BelongsTo
     {
         return $this->belongsTo(WifiSession::class);
+    }
+
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    public function operator(): BelongsTo
+    {
+        return $this->belongsTo(Operator::class);
     }
 
     public function paymentStatus(): Attribute

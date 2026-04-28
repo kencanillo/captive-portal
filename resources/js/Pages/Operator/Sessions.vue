@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import AdminPagination from '@/Components/AdminPagination.vue';
 import SessionHistoryDialog from '@/Components/SessionHistoryDialog.vue';
@@ -10,6 +10,14 @@ import { formatNumber } from '@/utils/formatters';
 const props = defineProps({
   releaseRuntime: {
     type: Object,
+    required: true,
+  },
+  filters: {
+    type: Object,
+    required: true,
+  },
+  accessPoints: {
+    type: Array,
     required: true,
   },
   sessions: {
@@ -121,12 +129,34 @@ const submitManualAuthorization = () => {
 
 const selectedPlan = computed(() => props.manualAuthorization.plans.find((plan) => String(plan.id) === String(authorizationForm.value.plan_id)) || null);
 const expirationPreview = computed(() => {
-  if (! selectedPlan.value) return '-';
+  if (!selectedPlan.value) return '-';
   return new Date(Date.now() + (selectedPlan.value.duration_minutes * 60 * 1000)).toLocaleString();
 });
 
+const applyFilters = (event) => {
+  const form = new FormData(event.target);
+  const params = Object.fromEntries([...form.entries()].filter(([, value]) => String(value).trim() !== ''));
+
+  router.get('/operator/sessions', params, {
+    preserveState: true,
+    preserveScroll: true,
+    replace: true,
+  });
+};
+
+const resetFilters = () => {
+  router.get('/operator/sessions', {}, {
+    preserveState: true,
+    preserveScroll: true,
+    replace: true,
+  });
+};
+
 const goToPage = (page) => {
-  router.get('/admin/sessions', { page }, {
+  router.get('/operator/sessions', {
+    ...(props.filters || {}),
+    page,
+  }, {
     preserveState: true,
     preserveScroll: true,
     replace: true,
@@ -143,33 +173,77 @@ const historyRows = computed(() => {
 </script>
 
 <template>
-  <Head title="Sessions" />
+  <Head title="Operator Sessions" />
 
-  <MainLayout title="WiFi Sessions">
+  <MainLayout title="Sessions">
     <section>
       <p class="app-kicker">Session Telemetry</p>
       <h1 class="mt-3 app-title">Client session ledger</h1>
       <p class="mt-4 app-subtitle">
-        Active sessions stay at the top. Support actions stay in the action column. Client identity, site, and access point live in one compact block instead of wasting half the table.
+        Operator view uses the same session logic as Admin, scoped to your assigned sites and claimed APs.
       </p>
     </section>
+
+    <form class="mt-8 app-card p-5" @submit.prevent="applyFilters">
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div>
+          <label class="app-label">Date From</label>
+          <input name="date_from" type="date" class="app-field" :value="filters.date_from" />
+        </div>
+        <div>
+          <label class="app-label">Date To</label>
+          <input name="date_to" type="date" class="app-field" :value="filters.date_to" />
+        </div>
+        <div>
+          <label class="app-label">Client</label>
+          <input name="client" type="search" class="app-field" placeholder="Name, phone, or MAC" :value="filters.client" />
+        </div>
+        <div>
+          <label class="app-label">Access Point</label>
+          <select name="access_point_id" class="app-field" :value="filters.access_point_id">
+            <option value="">All APs</option>
+            <option v-for="accessPoint in accessPoints" :key="accessPoint.id" :value="accessPoint.id">
+              {{ accessPoint.name || accessPoint.mac_address }}
+            </option>
+          </select>
+        </div>
+        <div>
+          <label class="app-label">Status</label>
+          <select name="status" class="app-field" :value="filters.status">
+            <option value="">All statuses</option>
+            <option value="pending_payment">Pending payment</option>
+            <option value="awaiting_payment">QR generated</option>
+            <option value="paid">Paid</option>
+            <option value="active">Active</option>
+            <option value="expired">Expired</option>
+            <option value="failed">Failed</option>
+            <option value="release_failed">Release failed</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="mt-5 flex flex-wrap gap-3">
+        <button type="submit" class="app-button-primary">Apply filters</button>
+        <button type="button" class="app-button-secondary" @click="resetFilters">Reset</button>
+      </div>
+    </form>
 
     <section class="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <article class="app-rail-card">
         <p class="app-metric-label">Visible Sessions</p>
-        <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatNumber(props.sessions.total || sessionRows.length) }}</p>
+        <p class="mt-3 text-3xl font-semibold text-slate-950">{{ formatNumber(props.sessions.total || sessionRows.length) }}</p>
       </article>
       <article class="app-rail-card">
         <p class="app-metric-label">Active First</p>
-        <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatNumber(activeCount) }}</p>
+        <p class="mt-3 text-3xl font-semibold text-slate-950">{{ formatNumber(activeCount) }}</p>
       </article>
       <article class="app-rail-card">
         <p class="app-metric-label">Paid Sessions</p>
-        <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatNumber(paidCount) }}</p>
+        <p class="mt-3 text-3xl font-semibold text-slate-950">{{ formatNumber(paidCount) }}</p>
       </article>
       <article class="app-rail-card">
         <p class="app-metric-label">Needs Checking</p>
-        <p class="mt-3 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{{ formatNumber(needsAttentionCount) }}</p>
+        <p class="mt-3 text-3xl font-semibold text-slate-950">{{ formatNumber(needsAttentionCount) }}</p>
       </article>
     </section>
 
@@ -213,24 +287,22 @@ const historyRows = computed(() => {
             >
               <td class="font-semibold text-slate-950">{{ item.id }}</td>
               <td>
-                <div class="flex items-start gap-3">
-                  <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-2">
-                      <p class="font-semibold text-slate-950">{{ item.client?.name || 'Unknown client' }}</p>
-                      <span
-                        v-if="item.is_active"
-                        class="app-badge app-badge-compact bg-emerald-100 text-emerald-700"
-                      >
-                        Active
-                      </span>
-                    </div>
-                    <p class="mt-1 text-[10px] text-slate-500">
-                      {{ item.client?.phone_number || 'No phone' }} | {{ item.mac_address }}
-                    </p>
-                    <div class="mt-2 space-y-1 text-[11px] text-slate-500">
-                      <p>{{ item.site?.name || 'No site assigned' }}</p>
-                      <p>{{ item.access_point?.name || item.ap_name || 'No access point' }}<span v-if="item.ap_mac"> • {{ item.ap_mac }}</span></p>
-                    </div>
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p class="font-semibold text-slate-950">{{ item.client?.name || 'Unknown client' }}</p>
+                    <span
+                      v-if="item.is_active"
+                      class="app-badge app-badge-compact bg-emerald-100 text-emerald-700"
+                    >
+                      Active
+                    </span>
+                  </div>
+                  <p class="mt-1 text-[10px] text-slate-500">
+                    {{ item.client?.phone_number || 'No phone' }} | {{ item.mac_address }}
+                  </p>
+                  <div class="mt-2 space-y-1 text-[11px] text-slate-500">
+                    <p>{{ item.site?.name || 'No site assigned' }}</p>
+                    <p>{{ item.access_point?.name || item.ap_name || 'No access point' }}<span v-if="item.ap_mac || item.access_point?.mac_address"> | {{ item.ap_mac || item.access_point?.mac_address }}</span></p>
                   </div>
                 </div>
               </td>
@@ -256,16 +328,6 @@ const historyRows = computed(() => {
               <td class="text-[11px] text-slate-500">{{ item.end_time || '-' }}</td>
               <td>
                 <div class="flex flex-wrap gap-2">
-                  <Link
-                    v-if="item.payment_status === 'paid' && !item.is_active && ['failed', 'uncertain', 'manual_required'].includes(item.release_status)"
-                    as="button"
-                    method="post"
-                    :href="`/admin/sessions/${item.id}/retry-release`"
-                    class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
-                    title="Retry Activation"
-                  >
-                    <SvgIcon name="pending" class="h-5 w-5" />
-                  </Link>
                   <button
                     type="button"
                     class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
@@ -283,15 +345,6 @@ const historyRows = computed(() => {
                   >
                     <SvgIcon name="verified" class="h-5 w-5" />
                   </button>
-                  <Link
-                    v-if="item.payment_status === 'paid' && !item.is_active && ['failed', 'uncertain', 'manual_required'].includes(item.release_status)"
-                    as="button"
-                    method="post"
-                    :href="`/admin/sessions/${item.id}/retry-release`"
-                    class="app-button-secondary px-3 py-2 text-[11px]"
-                  >
-                    Retry Activation
-                  </Link>
                   <button
                     v-if="manualAuthorization.enabled"
                     type="button"
@@ -305,7 +358,7 @@ const historyRows = computed(() => {
             </tr>
             <tr v-if="!sessionRows.length">
               <td colspan="8">
-                <div class="app-empty">No WiFi sessions are available in this dataset.</div>
+                <div class="app-empty">No client sessions match these filters.</div>
               </td>
             </tr>
           </tbody>
@@ -339,9 +392,6 @@ const historyRows = computed(() => {
       <div class="w-full max-w-2xl rounded-2xl bg-white p-6">
         <h3 class="text-lg font-semibold text-slate-950">Connect / Authorize Client</h3>
         <div class="mt-4 grid gap-4 md:grid-cols-2">
-          <div><label class="app-label">Client Name</label><input v-model="authorizationForm.client_name" class="app-field" type="text" /></div>
-          <div><label class="app-label">Phone</label><input v-model="authorizationForm.phone" class="app-field" type="text" /></div>
-          <div><label class="app-label">MAC Address</label><input v-model="authorizationForm.mac_address" class="app-field" type="text" /></div>
           <div>
             <label class="app-label">Plan</label>
             <select v-model="authorizationForm.plan_id" class="app-field">
@@ -357,17 +407,9 @@ const historyRows = computed(() => {
               <option value="manually_paid">Manually Paid</option>
             </select>
           </div>
-          <div><label class="app-label">Site</label><input class="app-field" type="text" :value="selectedSession?.site?.name || 'N/A'" disabled /></div>
-          <div><label class="app-label">Access Point</label><input class="app-field" type="text" :value="selectedSession?.access_point?.name || selectedSession?.ap_name || 'N/A'" disabled /></div>
-          <div><label class="app-label">SSID</label><input class="app-field" type="text" :value="selectedSession?.ssid_name || 'N/A'" disabled /></div>
-          <div><label class="app-label">Expiration Preview</label><input class="app-field" type="text" :value="expirationPreview" disabled /></div>
         </div>
         <div v-if="selectedPlan" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
           Plan duration: {{ selectedPlan.duration_minutes }} minutes • Price: ₱{{ selectedPlan.price }}
-        </div>
-        <div class="mt-4">
-          <label class="app-label">Note / Reason (optional)</label>
-          <textarea v-model="authorizationForm.note" class="app-field" rows="2" />
         </div>
         <div class="mt-5 flex justify-end gap-3">
           <button type="button" class="app-button-secondary" @click="authorizationModalOpen = false">Cancel</button>

@@ -177,7 +177,13 @@ class AccessPoint extends Model
 
     public function scopeForOperator(Builder $query, Operator $operator): Builder
     {
-        return $query->whereIn('site_id', $operator->sites()->select('id'));
+        return $query->where(function (Builder $query) use ($operator): void {
+            $query->where('claimed_by_operator_id', $operator->id)
+                ->orWhere(function (Builder $query) use ($operator): void {
+                    $query->whereNull('claimed_by_operator_id')
+                        ->whereIn('site_id', $operator->sites()->select('id'));
+                });
+        });
     }
 
     public function ownershipCorrectedBy(): BelongsTo

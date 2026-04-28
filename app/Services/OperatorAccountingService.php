@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AccessPoint;
 use App\Models\BillingLedgerEntry;
 use App\Models\Operator;
+use App\Models\Payment;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -17,6 +18,16 @@ class OperatorAccountingService
 
     public function summary(Operator $operator): array
     {
+        $sales = Payment::query()
+            ->forOperator($operator)
+            ->where('status', Payment::STATUS_PAID)
+            ->join('wifi_sessions', 'payments.wifi_session_id', '=', 'wifi_sessions.id')
+            ->selectRaw('COALESCE(SUM(COALESCE(payments.amount, wifi_sessions.amount_paid)), 0) as gross_sales')
+            ->selectRaw('COUNT(*) as paid_sales_count')
+            ->first();
+
+        $grossSales = (float) ($sales->gross_sales ?? 0);
+        $paidSalesCount = (int) ($sales->paid_sales_count ?? 0);
         $grossBilledFees = (float) BillingLedgerEntry::query()
             ->where('operator_id', $operator->id)
             ->where('entry_type', BillingLedgerEntry::ENTRY_TYPE_AP_CONNECTION_FEE)
@@ -33,16 +44,20 @@ class OperatorAccountingService
         $blockedFees = (float) $blockedActiveDebitRows->sum(fn ($row) => (float) $row->amount);
         $unresolvedBlockedCount = $blockedActiveDebitRows->count();
         $netPayableFees = (float) round(max(0.0, $grossBilledFees - $reversedFees - $blockedFees), 2);
+        $netSales = round($grossSales, 2);
+        $payableBasis = round(max($netSales, $netPayableFees), 2);
 
         $automation = $this->automationHealthService->statusSummary();
         $confidenceReasons = [];
 
-        foreach (['ap_sync', 'ap_health_reconcile', 'billing_post'] as $key) {
-            $status = $this->automationStatusFor($automation, $key);
+        if ($paidSalesCount === 0) {
+            foreach (['ap_sync', 'ap_health_reconcile', 'billing_post'] as $key) {
+                $status = $this->automationStatusFor($automation, $key);
 
-            if (! $status || ($status['status'] ?? null) !== AutomationHealthService::STATUS_HEALTHY) {
-                $confidenceReasons[] = $status['summary']
-                    ?? 'Critical automation required for AP-fee recognition is unhealthy.';
+                if (! $status || ($status['status'] ?? null) !== AutomationHealthService::STATUS_HEALTHY) {
+                    $confidenceReasons[] = $status['summary']
+                        ?? 'Critical automation required for AP-fee recognition is unhealthy.';
+                }
             }
         }
 
@@ -55,6 +70,10 @@ class OperatorAccountingService
 
         return [
             'currency' => $this->statementCurrency(),
+            'gross_sales' => round($grossSales, 2),
+            'net_sales' => $netSales,
+            'paid_sales_count' => $paidSalesCount,
+            'payable_basis' => $payableBasis,
             'gross_billed_fees' => round($grossBilledFees, 2),
             'reversed_fees' => round($reversedFees, 2),
             'blocked_fees' => round($blockedFees, 2),

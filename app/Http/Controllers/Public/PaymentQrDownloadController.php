@@ -4,6 +4,10 @@ namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
 use App\Support\PortalTokenService;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -23,11 +27,9 @@ class PaymentQrDownloadController extends Controller
             abort(404);
         }
 
-        if (! str_starts_with($qrImageUrl, 'data:')) {
-            abort(422, 'QR image data is invalid.');
-        }
-
-        [$content, $contentType, $extension] = $this->decodeDataUrl($qrImageUrl);
+        [$content, $contentType, $extension] = str_starts_with($qrImageUrl, 'data:')
+            ? $this->decodeDataUrl($qrImageUrl)
+            : $this->downloadRemoteQr($qrImageUrl, $payment->id);
 
         return response($content, 200, [
             'Content-Type' => $contentType,
@@ -51,6 +53,28 @@ class PaymentQrDownloadController extends Controller
         $contentType = $matches['mime'];
 
         return [$content, $contentType, $this->extensionForMimeType($contentType)];
+    }
+
+    private function downloadRemoteQr(string $qrImageUrl, int $paymentId): array
+    {
+        try {
+            $response = Http::timeout(20)
+                ->accept('image/*')
+                ->get($qrImageUrl)
+                ->throw();
+        } catch (ConnectionException|RequestException $exception) {
+            Log::warning('QR image download failed', [
+                'payment_id' => $paymentId,
+                'url' => $qrImageUrl,
+                'error' => $exception->getMessage(),
+            ]);
+
+            abort(502, 'QR image download failed.');
+        }
+
+        $contentType = $response->header('Content-Type') ?: 'image/png';
+
+        return [$response->body(), $contentType, $this->extensionForMimeType($contentType)];
     }
 
     private function extensionForMimeType(string $contentType): string
