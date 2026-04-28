@@ -99,7 +99,7 @@ const closeDialogs = () => {
 };
 
 const selectedManualPlan = computed(() => props.manualAuthorization.plans.find((plan) => String(plan.id) === String(authorizationForm.value.plan_id)) || null);
-const expirationPreview = computed(() => {
+const manualExpirationPreview = computed(() => {
   if (!selectedManualPlan.value) return '-';
   return new Date(Date.now() + (selectedManualPlan.value.duration_minutes * 60 * 1000)).toLocaleString();
 });
@@ -401,7 +401,7 @@ const historyRows = computed(() => {
               <option value="manually_paid">Manually Paid</option>
             </select>
           </div>
-          <div><label class="app-label">Expiration Preview</label><input class="app-field" type="text" :value="expirationPreview" disabled /></div>
+          <div><label class="app-label">Expiration Preview</label><input class="app-field" type="text" :value="manualExpirationPreview" disabled /></div>
         </div>
         <div v-if="selectedManualPlan" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
           Plan duration: {{ selectedManualPlan.duration_minutes }} minutes • Price: ₱{{ selectedManualPlan.price }}
