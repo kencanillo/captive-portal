@@ -268,6 +268,31 @@ class OmadaService
         return $this->submitExtPortalAuth($hotspotSession, $normalized, $session, $session->end_time);
     }
 
+    public function authorizeClientForManualSession(ControllerSetting $settings, WifiSession $session): array
+    {
+        if (! $session->end_time) {
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_VALIDATION,
+                'Session end time is missing, so Omada authorization expiry cannot be calculated.'
+            );
+        }
+
+        $remainingSeconds = now()->diffInSeconds($session->end_time, false);
+
+        if ($remainingSeconds <= 0) {
+            throw new OmadaOperationException(
+                OmadaOperationException::CATEGORY_VALIDATION,
+                'The selected plan has already expired for this manual authorization request.'
+            );
+        }
+
+        $expiresAt = now()->addSeconds($remainingSeconds);
+        $normalized = $this->normalizeSettings($settings);
+        $hotspotSession = $this->hotspotAuthenticatedClient($normalized);
+
+        return $this->submitExtPortalAuth($hotspotSession, $normalized, $session, $expiresAt);
+    }
+
     public function classifyFailure(Throwable $exception): string
     {
         return $this->classifyOmadaException($exception);

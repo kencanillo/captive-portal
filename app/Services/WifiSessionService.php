@@ -181,9 +181,17 @@ class WifiSessionService
             'wifi_session_id' => $expiredSession->id,
             'client_id' => $expiredSession->client_id,
             'mac_address' => $expiredSession->mac_address,
+            'source' => $expiredSession->source,
             'controller_deauth_attempted' => $settings !== null,
             'controller_deauth_succeeded' => $deauthorizedInController,
         ]);
+
+        if (in_array($expiredSession->source, ['manual_operator', 'manual_admin'], true)) {
+            Log::info('Expired manual session deauthorized.', [
+                'wifi_session_id' => $expiredSession->id,
+                'source' => $expiredSession->source,
+            ]);
+        }
 
         return $expiredSession;
     }
