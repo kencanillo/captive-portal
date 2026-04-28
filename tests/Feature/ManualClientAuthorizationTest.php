@@ -294,8 +294,8 @@ class ManualClientAuthorizationTest extends TestCase
         $site = Site::query()->create(['name' => 'Main', 'slug' => 'main']);
         $plan = Plan::query()->create(['name' => 'Plan', 'price' => 10, 'duration_minutes' => 10, 'is_active' => true]);
         $this->seedControllerSettings();
-        $client = Client::query()->create([
-            'name' => 'Client',
+        $activeClient = Client::query()->create([
+            'name' => 'Client Active',
             'phone_number' => '09177777777',
             'pin' => bcrypt('1234'),
             'mac_address' => 'aa:bb:cc:dd:ee:17',
@@ -303,7 +303,7 @@ class ManualClientAuthorizationTest extends TestCase
         ]);
 
         $activeManual = WifiSession::query()->create([
-            'client_id' => $client->id,
+            'client_id' => $activeClient->id,
             'plan_id' => $plan->id,
             'site_id' => $site->id,
             'mac_address' => 'aa:bb:cc:dd:ee:17',
@@ -320,8 +320,16 @@ class ManualClientAuthorizationTest extends TestCase
             'source' => 'manual_operator',
         ]);
 
+        $expiredClient = Client::query()->create([
+            'name' => 'Client Expired',
+            'phone_number' => '09177777778',
+            'pin' => bcrypt('1234'),
+            'mac_address' => 'aa:bb:cc:dd:ee:18',
+            'last_connected_at' => now(),
+        ]);
+
         $expiredManual = WifiSession::query()->create([
-            'client_id' => $client->id,
+            'client_id' => $expiredClient->id,
             'plan_id' => $plan->id,
             'site_id' => $site->id,
             'mac_address' => 'aa:bb:cc:dd:ee:18',
