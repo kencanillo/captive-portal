@@ -125,6 +125,41 @@ const submitManualAuthorization = () => {
   });
 };
 
+const selectedPlan = computed(() => props.manualAuthorization.plans.find((plan) => String(plan.id) === String(authorizationForm.value.plan_id)) || null);
+const expirationPreview = computed(() => {
+  if (! selectedPlan.value) return '-';
+  return new Date(Date.now() + (selectedPlan.value.duration_minutes * 60 * 1000)).toLocaleString();
+});
+
+const openAuthorizationModal = (item) => {
+  selectedSession.value = item;
+  authorizationForm.value = {
+    wifi_session_id: item.id,
+    client_name: item.client?.name || '',
+    phone: item.client?.phone_number || '',
+    mac_address: item.mac_address || '',
+    plan_id: '',
+    manual_payment_mode: '',
+    site_id: item.site?.id || '',
+    access_point_id: item.access_point?.id || '',
+    ap_name: item.access_point?.name || item.ap_name || '',
+    ap_mac: item.access_point?.mac_address || item.ap_mac || '',
+    ssid_name: item.ssid_name || '',
+    radio_id: item.radio_id || '',
+    note: '',
+  };
+  authorizationModalOpen.value = true;
+};
+
+const submitManualAuthorization = () => {
+  router.post(route('manual-authorizations.store'), authorizationForm.value, {
+    preserveScroll: true,
+    onSuccess: () => {
+      authorizationModalOpen.value = false;
+    },
+  });
+};
+
 const goToPage = (page) => {
   router.get('/admin/sessions', { page }, {
     preserveState: true,
@@ -283,6 +318,23 @@ const historyRows = computed(() => {
                   >
                     <SvgIcon name="verified" class="h-5 w-5" />
                   </button>
+                  <Link
+                    v-if="item.payment_status === 'paid' && !item.is_active && ['failed', 'uncertain', 'manual_required'].includes(item.release_status)"
+                    as="button"
+                    method="post"
+                    :href="`/admin/sessions/${item.id}/retry-release`"
+                    class="app-button-secondary px-3 py-2 text-[11px]"
+                  >
+                    Retry Activation
+                  </Link>
+                  <button
+                    v-if="manualAuthorization.enabled"
+                    type="button"
+                    class="app-button-primary px-3 py-2 text-[11px]"
+                    @click="openAuthorizationModal(item)"
+                  >
+                    Connect / Authorize Client
+                  </button>
                 </div>
               </td>
             </tr>
@@ -312,18 +364,19 @@ const historyRows = computed(() => {
       @close="closeDialogs"
     />
 
+    <SessionControllerCheckDialog
+      :show="controllerCheckOpen"
+      :session="selectedSession"
+      @close="closeDialogs"
+    />
+
     <div v-if="authorizationModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
       <div class="w-full max-w-2xl rounded-2xl bg-white p-6">
         <h3 class="text-lg font-semibold text-slate-950">Connect / Authorize Client</h3>
-        <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-          <p><span class="font-semibold text-slate-950">Client:</span> {{ selectedSession?.client?.name || 'Unknown client' }}</p>
-          <p><span class="font-semibold text-slate-950">Phone:</span> {{ selectedSession?.client?.phone_number || 'No phone' }}</p>
-          <p><span class="font-semibold text-slate-950">MAC:</span> {{ selectedSession?.mac_address || '-' }}</p>
-          <p><span class="font-semibold text-slate-950">Site:</span> {{ selectedSession?.site?.name || 'N/A' }}</p>
-          <p><span class="font-semibold text-slate-950">Access Point:</span> {{ selectedSession?.access_point?.name || selectedSession?.ap_name || 'N/A' }}</p>
-          <p><span class="font-semibold text-slate-950">SSID:</span> {{ selectedSession?.ssid_name || 'N/A' }}</p>
-        </div>
         <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <div><label class="app-label">Client Name</label><input v-model="authorizationForm.client_name" class="app-field" type="text" /></div>
+          <div><label class="app-label">Phone</label><input v-model="authorizationForm.phone" class="app-field" type="text" /></div>
+          <div><label class="app-label">MAC Address</label><input v-model="authorizationForm.mac_address" class="app-field" type="text" /></div>
           <div>
             <label class="app-label">Plan</label>
             <select v-model="authorizationForm.plan_id" class="app-field">
@@ -339,10 +392,17 @@ const historyRows = computed(() => {
               <option value="manually_paid">Manually Paid</option>
             </select>
           </div>
+          <div><label class="app-label">Site</label><input class="app-field" type="text" :value="selectedSession?.site?.name || 'N/A'" disabled /></div>
+          <div><label class="app-label">Access Point</label><input class="app-field" type="text" :value="selectedSession?.access_point?.name || selectedSession?.ap_name || 'N/A'" disabled /></div>
+          <div><label class="app-label">SSID</label><input class="app-field" type="text" :value="selectedSession?.ssid_name || 'N/A'" disabled /></div>
           <div><label class="app-label">Expiration Preview</label><input class="app-field" type="text" :value="expirationPreview" disabled /></div>
         </div>
-        <div v-if="selectedManualPlan" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-          Plan duration: {{ selectedManualPlan.duration_minutes }} minutes • Price: ₱{{ selectedManualPlan.price }}
+        <div v-if="selectedPlan" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+          Plan duration: {{ selectedPlan.duration_minutes }} minutes • Price: ₱{{ selectedPlan.price }}
+        </div>
+        <div class="mt-4">
+          <label class="app-label">Note / Reason (optional)</label>
+          <textarea v-model="authorizationForm.note" class="app-field" rows="2" />
         </div>
         <div class="mt-5 flex justify-end gap-3">
           <button type="button" class="app-button-secondary" @click="authorizationModalOpen = false">Cancel</button>
