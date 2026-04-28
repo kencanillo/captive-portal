@@ -90,12 +90,6 @@ const closeDialogs = () => {
   historyOpen.value = false;
 };
 
-const selectedManualPlan = computed(() => props.manualAuthorization.plans.find((plan) => String(plan.id) === String(authorizationForm.value.plan_id)) || null);
-const expirationPreview = computed(() => {
-  if (! selectedManualPlan.value) return '-';
-  return new Date(Date.now() + (selectedManualPlan.value.duration_minutes * 60 * 1000)).toLocaleString();
-});
-
 const openAuthorizationModal = (item) => {
   selectedSession.value = item;
   authorizationForm.value = {
@@ -130,35 +124,6 @@ const expirationPreview = computed(() => {
   if (! selectedPlan.value) return '-';
   return new Date(Date.now() + (selectedPlan.value.duration_minutes * 60 * 1000)).toLocaleString();
 });
-
-const openAuthorizationModal = (item) => {
-  selectedSession.value = item;
-  authorizationForm.value = {
-    wifi_session_id: item.id,
-    client_name: item.client?.name || '',
-    phone: item.client?.phone_number || '',
-    mac_address: item.mac_address || '',
-    plan_id: '',
-    manual_payment_mode: '',
-    site_id: item.site?.id || '',
-    access_point_id: item.access_point?.id || '',
-    ap_name: item.access_point?.name || item.ap_name || '',
-    ap_mac: item.access_point?.mac_address || item.ap_mac || '',
-    ssid_name: item.ssid_name || '',
-    radio_id: item.radio_id || '',
-    note: '',
-  };
-  authorizationModalOpen.value = true;
-};
-
-const submitManualAuthorization = () => {
-  router.post(route('manual-authorizations.store'), authorizationForm.value, {
-    preserveScroll: true,
-    onSuccess: () => {
-      authorizationModalOpen.value = false;
-    },
-  });
-};
 
 const goToPage = (page) => {
   router.get('/admin/sessions', { page }, {
