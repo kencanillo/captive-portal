@@ -4,7 +4,7 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import AdminPagination from '@/Components/AdminPagination.vue';
 import SessionHistoryDialog from '@/Components/SessionHistoryDialog.vue';
-import SessionControllerCheckDialog from '@/Components/SessionControllerCheckDialog.vue';
+import SvgIcon from '@/Components/SvgIcon.vue';
 import { formatNumber } from '@/utils/formatters';
 
 const props = defineProps({
@@ -27,7 +27,6 @@ const props = defineProps({
 });
 
 const historyOpen = ref(false);
-const controllerCheckOpen = ref(false);
 const selectedSession = ref(null);
 const authorizationModalOpen = ref(false);
 const authorizationForm = ref({
@@ -87,14 +86,43 @@ const openHistory = (item) => {
   historyOpen.value = true;
 };
 
-const openControllerCheck = (item) => {
-  selectedSession.value = item;
-  controllerCheckOpen.value = true;
-};
-
 const closeDialogs = () => {
   historyOpen.value = false;
-  controllerCheckOpen.value = false;
+};
+
+const selectedPlan = computed(() => props.manualAuthorization.plans.find((plan) => String(plan.id) === String(authorizationForm.value.plan_id)) || null);
+const expirationPreview = computed(() => {
+  if (! selectedPlan.value) return '-';
+  return new Date(Date.now() + (selectedPlan.value.duration_minutes * 60 * 1000)).toLocaleString();
+});
+
+const openAuthorizationModal = (item) => {
+  selectedSession.value = item;
+  authorizationForm.value = {
+    wifi_session_id: item.id,
+    client_name: item.client?.name || '',
+    phone: item.client?.phone_number || '',
+    mac_address: item.mac_address || '',
+    plan_id: '',
+    manual_payment_mode: '',
+    site_id: item.site?.id || '',
+    access_point_id: item.access_point?.id || '',
+    ap_name: item.access_point?.name || item.ap_name || '',
+    ap_mac: item.access_point?.mac_address || item.ap_mac || '',
+    ssid_name: item.ssid_name || '',
+    radio_id: item.radio_id || '',
+    note: '',
+  };
+  authorizationModalOpen.value = true;
+};
+
+const submitManualAuthorization = () => {
+  router.post(route('manual-authorizations.store'), authorizationForm.value, {
+    preserveScroll: true,
+    onSuccess: () => {
+      authorizationModalOpen.value = false;
+    },
+  });
 };
 
 const selectedPlan = computed(() => props.manualAuthorization.plans.find((plan) => String(plan.id) === String(authorizationForm.value.plan_id)) || null);
@@ -263,22 +291,32 @@ const historyRows = computed(() => {
               <td class="text-[11px] text-slate-500">{{ item.end_time || '-' }}</td>
               <td>
                 <div class="flex flex-wrap gap-2">
+                  <Link
+                    v-if="item.payment_status === 'paid' && !item.is_active && ['failed', 'uncertain', 'manual_required'].includes(item.release_status)"
+                    as="button"
+                    method="post"
+                    :href="`/admin/sessions/${item.id}/retry-release`"
+                    class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                    title="Retry Activation"
+                  >
+                    <SvgIcon name="pending" class="h-5 w-5" />
+                  </Link>
                   <button
                     type="button"
-                    class="app-button-secondary px-3 py-2 text-[11px]"
+                    class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                    title="View History"
                     @click="openHistory(item)"
                   >
-                    View History
+                    <SvgIcon name="info" class="h-5 w-5" />
                   </button>
                   <button
+                    v-if="manualAuthorization.enabled"
                     type="button"
-                    class="rounded-full border px-3 py-2 text-[11px] font-semibold transition"
-                    :class="controllerNeedsAttention(item)
-                      ? 'border-amber-300 bg-amber-50 text-amber-900 hover:border-amber-400'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-950'"
-                    @click="openControllerCheck(item)"
+                    class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800"
+                    title="Connect / Authorize Client"
+                    @click="openAuthorizationModal(item)"
                   >
-                    Controller Check
+                    <SvgIcon name="verified" class="h-5 w-5" />
                   </button>
                   <Link
                     v-if="item.payment_status === 'paid' && !item.is_active && ['failed', 'uncertain', 'manual_required'].includes(item.release_status)"

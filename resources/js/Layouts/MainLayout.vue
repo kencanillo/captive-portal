@@ -112,10 +112,10 @@ onBeforeUnmount(() => {
     />
 
     <aside
-      class="fixed inset-y-0 left-0 z-50 w-72 transform overflow-y-auto px-5 py-6 transition duration-300 lg:translate-x-0"
+      class="fixed inset-y-0 left-0 z-50 w-72 transform overflow-hidden px-5 py-6 transition duration-300 lg:translate-x-0"
       :class="navOpen ? 'translate-x-0' : '-translate-x-full'"
     >
-      <div class="flex h-full flex-col rounded-[32px] bg-[linear-gradient(180deg,#131b2e_0%,#1a243b_100%)] px-5 py-6 shadow-[40px_0_80px_-32px_rgba(19,27,46,0.9)]">
+      <div class="flex h-full flex-col overflow-y-auto rounded-[32px] bg-[linear-gradient(180deg,#131b2e_0%,#1a243b_100%)] px-5 py-6 shadow-[40px_0_80px_-32px_rgba(19,27,46,0.9)]">
         <div class="rounded-[28px] border border-white/10 bg-white/5 px-4 py-4">
           <div class="flex items-center gap-3">
             <img src="/favicon.png" alt="Brucke logo" class="h-12 w-12 rounded-2xl object-cover shadow-[0_18px_40px_-28px_rgba(15,23,42,0.9)]" />
