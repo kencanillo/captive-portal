@@ -78,6 +78,10 @@ class WifiSession extends Model
         'authorized_at',
         'deauthorized_at',
         'authorization_source',
+        'source',
+        'authorized_by_user_id',
+        'operator_id',
+        'authorization_note',
         'last_controller_seen_at',
         'start_time',
         'end_time',
@@ -132,6 +136,16 @@ class WifiSession extends Model
     public function accessPoint(): BelongsTo
     {
         return $this->belongsTo(AccessPoint::class);
+    }
+
+    public function operator(): BelongsTo
+    {
+        return $this->belongsTo(Operator::class);
+    }
+
+    public function authorizedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'authorized_by_user_id');
     }
 
     public function payments(): HasMany

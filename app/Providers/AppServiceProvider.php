@@ -4,8 +4,10 @@ namespace App\Providers;
 
 use App\Models\Plan;
 use App\Models\Operator;
+use App\Models\Site;
 use App\Models\User;
 use App\Models\WifiSession;
+use App\Models\AccessPoint;
 use App\Policies\PlanPolicy;
 use App\Policies\WifiSessionPolicy;
 use Illuminate\Support\Facades\Gate;
@@ -48,6 +50,33 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('access-admin', fn (User $user) => (bool) $user->is_admin);
         Gate::define('access-operator-panel', fn (User $user) => ! $user->is_admin
             && $user->operator()->where('status', Operator::STATUS_APPROVED)->exists());
+        Gate::define('manual-authorize-client', function (User $user, ?int $siteId = null, ?int $accessPointId = null): bool {
+            if ((bool) $user->is_admin) {
+                return true;
+            }
+
+            $operator = $user->operator;
+
+            if (! $operator || $operator->status !== Operator::STATUS_APPROVED) {
+                return false;
+            }
+
+            if ($accessPointId) {
+                return AccessPoint::query()
+                    ->forOperator($operator)
+                    ->whereKey($accessPointId)
+                    ->exists();
+            }
+
+            if ($siteId) {
+                return Site::query()
+                    ->where('operator_id', $operator->id)
+                    ->whereKey($siteId)
+                    ->exists();
+            }
+
+            return false;
+        });
         Gate::policy(Plan::class, PlanPolicy::class);
         Gate::policy(WifiSession::class, WifiSessionPolicy::class);
     }

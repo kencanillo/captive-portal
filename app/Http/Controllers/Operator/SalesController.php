@@ -23,7 +23,10 @@ class SalesController extends Controller
 
         $baseQuery = Payment::query()
             ->forOperator($operator)
-            ->where('status', Payment::STATUS_PAID);
+            ->whereIn('status', [
+                Payment::STATUS_PAID,
+                Payment::STATUS_CASH_COLLECTED,
+            ]);
 
         $this->applyDateFilters($baseQuery, $filters);
 

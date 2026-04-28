@@ -34,34 +34,7 @@
             <div class="mb-8">
               <p class="app-kicker">Client Registration</p>
               <h2 class="mt-3 text-4xl font-black tracking-[-0.05em] text-slate-950">Register your device</h2>
-              <p class="mt-3 text-sm leading-7 text-slate-500">
-                Fill out the form while the portal resolves the device context in the background.
-              </p>
-            </div>
-
-            <div
-              class="mb-6 rounded-[22px] border px-5 py-4 text-sm"
-              :class="deviceContextResolved ? 'border-emerald-200/70 bg-emerald-50/90 text-emerald-800' : 'border-slate-200/70 bg-slate-50/80 text-slate-600'"
-            >
-              <p class="font-semibold">
-                {{ deviceContextResolved ? 'Device detected.' : (deviceContextStatus === 'failed' ? 'Device context unavailable.' : 'Detecting device...') }}
-              </p>
-              <p class="mt-1">
-                {{ deviceContextMessage }}
-              </p>
-              <div class="mt-3 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-slate-500">
-                <span>Status: {{ deviceContextStatus }}</span>
-                <span v-if="deviceContextErrorCode">Error: {{ deviceContextErrorCode }}</span>
-                <span v-if="deviceContextStalled && !deviceContextResolved">You can keep filling out the form.</span>
-              </div>
-              <button
-                v-if="['retryable', 'failed'].includes(deviceContextStatus) && !deviceContextLoading"
-                type="button"
-                class="mt-3 font-semibold underline"
-                @click="fetchDeviceContext(true)"
-              >
-                Retry device detection
-              </button>
+              <p class="mt-3 text-sm leading-7 text-slate-500">Confirm client details first, then select a plan below.</p>
             </div>
 
             <div v-if="hasActiveSession" class="mb-6 rounded-[22px] border border-sky-200/70 bg-sky-50/90 px-5 py-5">
@@ -93,67 +66,12 @@
               <p class="mt-1 text-sm text-emerald-700">Your device is already registered. Payment unlocks once device detection is ready.</p>
             </div>
 
-            <div v-if="!hasActiveSession" class="space-y-6">
-              <div>
-                <label class="app-label" for="mac_address">MAC Address</label>
-                <div
-                  id="mac_address"
-                  class="app-field flex h-14 items-center font-mono"
-                  :class="hasDetectedMacAddress ? 'text-slate-950' : 'text-slate-400'"
-                >
-                  {{ hasDetectedMacAddress ? activeMacAddress : 'Waiting for device detection' }}
-                </div>
-                <p class="mt-2 text-sm text-slate-500">
-                  This field is controller-driven and cannot be edited by the client.
-                </p>
-              </div>
-
-              <div v-if="existingClient" class="rounded-[22px] bg-slate-50/90 px-5 py-4">
-                <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Known Account</p>
-                <div class="mt-3 space-y-2 text-sm text-slate-600">
-                  <p><span class="font-semibold text-slate-950">Registered Name:</span> {{ existingClient?.name }}</p>
-                  <p><span class="font-semibold text-slate-950">Registered Phone:</span> {{ existingClient?.phone_number }}</p>
-                </div>
-                <p class="mt-3 text-sm text-slate-500">
-                  PIN verification is still required before payment. Existing-device detection does not unlock checkout by itself.
-                </p>
-              </div>
-
-              <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div>
-                  <label class="app-label" for="name">Full Name</label>
-                  <input id="name" v-model="registrationForm.name" type="text" class="app-field h-14" />
-                </div>
-
-                <div>
-                  <label class="app-label" for="phone_number">Phone Number</label>
-                  <input id="phone_number" v-model="registrationForm.phone_number" type="tel" class="app-field h-14" placeholder="09XXXXXXXXX" />
-                </div>
-              </div>
-
-              <div>
-                <label class="app-label" for="pin">PIN</label>
-                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-                  <input
-                    id="pin"
-                    v-model="registrationForm.pin"
-                    type="password"
-                    maxlength="20"
-                    class="app-field h-14 text-center text-xl tracking-[0.45em]"
-                    placeholder="PIN"
-                  />
-                  <input
-                    id="pin_confirmation"
-                    v-model="registrationForm.pin_confirmation"
-                    type="password"
-                    maxlength="20"
-                    class="app-field h-14 text-center text-xl tracking-[0.45em]"
-                    placeholder="Confirm PIN"
-                  />
-                </div>
-                <p class="mt-2 text-sm text-slate-500">
-                  Phone number plus PIN identifies the account. Internet access still depends on this detected device MAC.
-                </p>
+            <div v-if="!hasActiveSession" class="rounded-[22px] border border-slate-200/70 bg-slate-50/80 px-5 py-4">
+              <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Client Details</p>
+              <div class="mt-3 space-y-1 text-sm text-slate-700">
+                <p><span class="font-semibold text-slate-950">Name:</span> {{ registrationForm.name || 'Not set' }}</p>
+                <p><span class="font-semibold text-slate-950">Phone:</span> {{ registrationForm.phone_number || 'Not set' }}</p>
+                <p><span class="font-semibold text-slate-950">MAC:</span> {{ hasDetectedMacAddress ? activeMacAddress : 'Waiting for device detection' }}</p>
               </div>
             </div>
 
@@ -194,7 +112,10 @@
                 No plans are available right now.
               </div>
 
-              <p class="text-sm text-slate-500">
+              <p v-if="registrationDialogOpen" class="text-sm text-slate-500">
+                Complete client details first to unlock plan selection.
+              </p>
+              <p v-else class="text-sm text-slate-500">
                 {{ paymentActionLockedReason || 'Device context is ready. Choose a plan to continue.' }}
               </p>
             </div>
@@ -209,6 +130,44 @@
         </div>
       </section>
     </main>
+
+    <div
+      v-if="!hasActiveSession && registrationDialogOpen"
+      class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm"
+    >
+      <div class="w-full max-w-2xl rounded-[24px] border border-white/70 bg-white p-6 shadow-2xl">
+        <p class="app-kicker">Client Registration</p>
+        <h3 class="mt-2 text-2xl font-bold tracking-[-0.04em] text-slate-950">Enter your details</h3>
+        <p v-if="isExistingClientFlow" class="mt-4 rounded-[18px] border border-emerald-200/70 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-900">
+          Welcome back, {{ existingClient?.name || 'client' }}. Please enter your PIN to continue.
+        </p>
+        <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <template v-if="!isExistingClientFlow">
+            <div>
+              <label class="app-label" for="name">Full Name</label>
+              <input id="name" v-model="registrationForm.name" type="text" class="app-field h-12" />
+            </div>
+            <div>
+              <label class="app-label" for="phone_number">Phone Number</label>
+              <input id="phone_number" v-model="registrationForm.phone_number" type="tel" class="app-field h-12" placeholder="09XXXXXXXXX" />
+            </div>
+          </template>
+          <div :class="isExistingClientFlow ? 'md:col-span-2' : ''">
+            <label class="app-label" for="pin">PIN</label>
+            <input id="pin" v-model="registrationForm.pin" type="password" maxlength="20" class="app-field h-12 text-center tracking-[0.35em]" placeholder="PIN" />
+          </div>
+          <div v-if="!isExistingClientFlow">
+            <label class="app-label" for="pin_confirmation">Confirm PIN</label>
+            <input id="pin_confirmation" v-model="registrationForm.pin_confirmation" type="password" maxlength="20" class="app-field h-12 text-center tracking-[0.35em]" placeholder="Confirm PIN" />
+          </div>
+        </div>
+        <div class="mt-5 flex justify-end">
+          <button class="app-button-primary" :disabled="!hasValidRegistrationInput" @click="registrationDialogOpen = false">
+            Continue to Plans
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 <script setup>
@@ -258,6 +217,7 @@ const deviceContextLoading = ref(false);
 const plansLoading = ref(!props.plansPrefetched);
 const plansError = ref('');
 const plans = ref(props.initialPlans);
+const registrationDialogOpen = ref(true);
 const portalToken = ref(null);
 const portalContext = ref({
   ...props.initialPortalContext,
@@ -465,6 +425,10 @@ onMounted(() => {
   activeSessionCountdownTimer = window.setInterval(() => {
     syncActiveSessionCountdown();
   }, 1000);
+
+  if (hasActiveSession.value) {
+    registrationDialogOpen.value = false;
+  }
 });
 
 onBeforeUnmount(() => {
@@ -484,11 +448,14 @@ const activeMacAddress = computed(() => registrationForm.value.mac_address || po
 const hasDetectedMacAddress = computed(() => Boolean(activeMacAddress.value.trim()));
 const hasActiveSession = computed(() => Boolean(activeSession.value));
 const deviceContextResolved = computed(() => deviceContextStatus.value === 'resolved' && Boolean(portalToken.value) && hasDetectedMacAddress.value);
+const isExistingClientFlow = computed(() => Boolean(existingClient.value));
 const hasValidRegistrationInput = computed(() => (
-  Boolean(registrationForm.value.name.trim())
-  && Boolean(registrationForm.value.phone_number.trim())
-  && registrationForm.value.pin.trim().length >= 4
-  && registrationForm.value.pin === registrationForm.value.pin_confirmation
+  registrationForm.value.pin.trim().length >= 4
+  && (isExistingClientFlow.value || (
+    Boolean(registrationForm.value.name.trim())
+    && Boolean(registrationForm.value.phone_number.trim())
+    && registrationForm.value.pin === registrationForm.value.pin_confirmation
+  ))
 ));
 const activeSessionRemainingLabel = computed(() => {
   if (!hasActiveSession.value) {
@@ -510,17 +477,21 @@ const activeSessionRemainingLabel = computed(() => {
 const validateRegistrationForm = (requireDeviceContext = true) => {
   if (requireDeviceContext && !hasDetectedMacAddress.value) return 'Device detection is still in progress.';
   if (requireDeviceContext && !portalToken.value) return 'Portal context is unavailable. Retry device detection before starting payment.';
-  if (!registrationForm.value.name.trim()) return 'Name is required.';
-  if (!registrationForm.value.phone_number.trim()) return 'Phone number is required.';
+  if (!isExistingClientFlow.value && !registrationForm.value.name.trim()) return 'Name is required.';
+  if (!isExistingClientFlow.value && !registrationForm.value.phone_number.trim()) return 'Phone number is required.';
   if (!registrationForm.value.pin.trim()) return 'PIN is required.';
   if (registrationForm.value.pin.length < 4) return 'PIN must be at least 4 characters.';
-  if (!registrationForm.value.pin_confirmation.trim()) return 'Confirm PIN is required.';
-  if (registrationForm.value.pin !== registrationForm.value.pin_confirmation) return 'PIN confirmation does not match.';
+  if (!isExistingClientFlow.value && !registrationForm.value.pin_confirmation.trim()) return 'Confirm PIN is required.';
+  if (!isExistingClientFlow.value && registrationForm.value.pin !== registrationForm.value.pin_confirmation) return 'PIN confirmation does not match.';
 
   return null;
 };
 
 const paymentActionLockedReason = computed(() => {
+  if (registrationDialogOpen.value) {
+    return 'Complete client details first.';
+  }
+
   if (hasActiveSession.value) {
     return 'This device already has active internet access.';
   }
@@ -561,10 +532,10 @@ const payWithGCash = async (planId) => {
       plan_id: planId,
       portal_token: portalToken.value,
       client_registration: {
-        name: registrationForm.value.name,
-        phone_number: registrationForm.value.phone_number,
+        name: isExistingClientFlow.value ? (existingClient.value?.name || registrationForm.value.name) : registrationForm.value.name,
+        phone_number: isExistingClientFlow.value ? (existingClient.value?.phone_number || registrationForm.value.phone_number) : registrationForm.value.phone_number,
         pin: registrationForm.value.pin,
-        pin_confirmation: registrationForm.value.pin_confirmation,
+        pin_confirmation: isExistingClientFlow.value ? registrationForm.value.pin : registrationForm.value.pin_confirmation,
       },
     };
 
