@@ -392,9 +392,6 @@ const historyRows = computed(() => {
       <div class="w-full max-w-2xl rounded-2xl bg-white p-6">
         <h3 class="text-lg font-semibold text-slate-950">Connect / Authorize Client</h3>
         <div class="mt-4 grid gap-4 md:grid-cols-2">
-          <div><label class="app-label">Client Name</label><input v-model="authorizationForm.client_name" class="app-field" type="text" /></div>
-          <div><label class="app-label">Phone</label><input v-model="authorizationForm.phone" class="app-field" type="text" /></div>
-          <div><label class="app-label">MAC Address</label><input v-model="authorizationForm.mac_address" class="app-field" type="text" /></div>
           <div>
             <label class="app-label">Plan</label>
             <select v-model="authorizationForm.plan_id" class="app-field">
@@ -410,17 +407,9 @@ const historyRows = computed(() => {
               <option value="manually_paid">Manually Paid</option>
             </select>
           </div>
-          <div><label class="app-label">Site</label><input class="app-field" type="text" :value="selectedSession?.site?.name || 'N/A'" disabled /></div>
-          <div><label class="app-label">Access Point</label><input class="app-field" type="text" :value="selectedSession?.access_point?.name || selectedSession?.ap_name || 'N/A'" disabled /></div>
-          <div><label class="app-label">SSID</label><input class="app-field" type="text" :value="selectedSession?.ssid_name || 'N/A'" disabled /></div>
-          <div><label class="app-label">Expiration Preview</label><input class="app-field" type="text" :value="expirationPreview" disabled /></div>
         </div>
         <div v-if="selectedPlan" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
           Plan duration: {{ selectedPlan.duration_minutes }} minutes • Price: ₱{{ selectedPlan.price }}
-        </div>
-        <div class="mt-4">
-          <label class="app-label">Note / Reason (optional)</label>
-          <textarea v-model="authorizationForm.note" class="app-field" rows="2" />
         </div>
         <div class="mt-5 flex justify-end gap-3">
           <button type="button" class="app-button-secondary" @click="authorizationModalOpen = false">Cancel</button>
