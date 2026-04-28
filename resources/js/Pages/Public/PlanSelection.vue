@@ -138,20 +138,25 @@
       <div class="w-full max-w-2xl rounded-[24px] border border-white/70 bg-white p-6 shadow-2xl">
         <p class="app-kicker">Client Registration</p>
         <h3 class="mt-2 text-2xl font-bold tracking-[-0.04em] text-slate-950">Enter your details</h3>
+        <p v-if="isExistingClientFlow" class="mt-4 rounded-[18px] border border-emerald-200/70 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-900">
+          Welcome back, {{ existingClient?.name || 'client' }}. Please enter your PIN to continue.
+        </p>
         <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label class="app-label" for="name">Full Name</label>
-            <input id="name" v-model="registrationForm.name" type="text" class="app-field h-12" />
-          </div>
-          <div>
-            <label class="app-label" for="phone_number">Phone Number</label>
-            <input id="phone_number" v-model="registrationForm.phone_number" type="tel" class="app-field h-12" placeholder="09XXXXXXXXX" />
-          </div>
-          <div>
+          <template v-if="!isExistingClientFlow">
+            <div>
+              <label class="app-label" for="name">Full Name</label>
+              <input id="name" v-model="registrationForm.name" type="text" class="app-field h-12" />
+            </div>
+            <div>
+              <label class="app-label" for="phone_number">Phone Number</label>
+              <input id="phone_number" v-model="registrationForm.phone_number" type="tel" class="app-field h-12" placeholder="09XXXXXXXXX" />
+            </div>
+          </template>
+          <div :class="isExistingClientFlow ? 'md:col-span-2' : ''">
             <label class="app-label" for="pin">PIN</label>
             <input id="pin" v-model="registrationForm.pin" type="password" maxlength="20" class="app-field h-12 text-center tracking-[0.35em]" placeholder="PIN" />
           </div>
-          <div>
+          <div v-if="!isExistingClientFlow">
             <label class="app-label" for="pin_confirmation">Confirm PIN</label>
             <input id="pin_confirmation" v-model="registrationForm.pin_confirmation" type="password" maxlength="20" class="app-field h-12 text-center tracking-[0.35em]" placeholder="Confirm PIN" />
           </div>
@@ -443,11 +448,14 @@ const activeMacAddress = computed(() => registrationForm.value.mac_address || po
 const hasDetectedMacAddress = computed(() => Boolean(activeMacAddress.value.trim()));
 const hasActiveSession = computed(() => Boolean(activeSession.value));
 const deviceContextResolved = computed(() => deviceContextStatus.value === 'resolved' && Boolean(portalToken.value) && hasDetectedMacAddress.value);
+const isExistingClientFlow = computed(() => Boolean(existingClient.value));
 const hasValidRegistrationInput = computed(() => (
-  Boolean(registrationForm.value.name.trim())
-  && Boolean(registrationForm.value.phone_number.trim())
-  && registrationForm.value.pin.trim().length >= 4
-  && registrationForm.value.pin === registrationForm.value.pin_confirmation
+  registrationForm.value.pin.trim().length >= 4
+  && (isExistingClientFlow.value || (
+    Boolean(registrationForm.value.name.trim())
+    && Boolean(registrationForm.value.phone_number.trim())
+    && registrationForm.value.pin === registrationForm.value.pin_confirmation
+  ))
 ));
 const activeSessionRemainingLabel = computed(() => {
   if (!hasActiveSession.value) {
@@ -469,12 +477,12 @@ const activeSessionRemainingLabel = computed(() => {
 const validateRegistrationForm = (requireDeviceContext = true) => {
   if (requireDeviceContext && !hasDetectedMacAddress.value) return 'Device detection is still in progress.';
   if (requireDeviceContext && !portalToken.value) return 'Portal context is unavailable. Retry device detection before starting payment.';
-  if (!registrationForm.value.name.trim()) return 'Name is required.';
-  if (!registrationForm.value.phone_number.trim()) return 'Phone number is required.';
+  if (!isExistingClientFlow.value && !registrationForm.value.name.trim()) return 'Name is required.';
+  if (!isExistingClientFlow.value && !registrationForm.value.phone_number.trim()) return 'Phone number is required.';
   if (!registrationForm.value.pin.trim()) return 'PIN is required.';
   if (registrationForm.value.pin.length < 4) return 'PIN must be at least 4 characters.';
-  if (!registrationForm.value.pin_confirmation.trim()) return 'Confirm PIN is required.';
-  if (registrationForm.value.pin !== registrationForm.value.pin_confirmation) return 'PIN confirmation does not match.';
+  if (!isExistingClientFlow.value && !registrationForm.value.pin_confirmation.trim()) return 'Confirm PIN is required.';
+  if (!isExistingClientFlow.value && registrationForm.value.pin !== registrationForm.value.pin_confirmation) return 'PIN confirmation does not match.';
 
   return null;
 };
@@ -524,10 +532,10 @@ const payWithGCash = async (planId) => {
       plan_id: planId,
       portal_token: portalToken.value,
       client_registration: {
-        name: registrationForm.value.name,
-        phone_number: registrationForm.value.phone_number,
+        name: isExistingClientFlow.value ? (existingClient.value?.name || registrationForm.value.name) : registrationForm.value.name,
+        phone_number: isExistingClientFlow.value ? (existingClient.value?.phone_number || registrationForm.value.phone_number) : registrationForm.value.phone_number,
         pin: registrationForm.value.pin,
-        pin_confirmation: registrationForm.value.pin_confirmation,
+        pin_confirmation: isExistingClientFlow.value ? registrationForm.value.pin : registrationForm.value.pin_confirmation,
       },
     };
 
