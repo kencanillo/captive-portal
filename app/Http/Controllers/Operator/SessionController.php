@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Operator;
 
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
+use App\Models\Plan;
 use App\Models\WifiSession;
 use App\Services\WifiSessionReleaseService;
 use Carbon\CarbonInterface;
@@ -129,6 +130,20 @@ class SessionController extends Controller
                 'name' => $accessPoint->name,
                 'mac_address' => $accessPoint->mac_address,
             ]),
+            'manualAuthorization' => [
+                'enabled' => $request->user()->can('manual-authorize-client', [null, $operatorAccessPoints->first()?->id]),
+                'plans' => Plan::query()
+                    ->where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'price', 'duration_minutes'])
+                    ->map(fn (Plan $plan) => [
+                        'id' => $plan->id,
+                        'name' => $plan->name,
+                        'price' => $plan->price,
+                        'duration_minutes' => $plan->duration_minutes,
+                    ]),
+            ],
             'sessions' => $sessions->through(function (WifiSession $session): array {
                 return [
                     'id' => $session->id,
@@ -152,6 +167,7 @@ class SessionController extends Controller
                     'ap_name' => $session->ap_name,
                     'ap_mac' => $session->ap_mac,
                     'ssid_name' => $session->ssid_name,
+                    'radio_id' => $session->radio_id,
                     'plan' => $session->plan ? [
                         'id' => $session->plan->id,
                         'name' => $session->plan->name,
