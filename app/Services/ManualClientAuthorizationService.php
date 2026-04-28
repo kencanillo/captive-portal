@@ -20,6 +20,9 @@ use Throwable;
 
 class ManualClientAuthorizationService
 {
+    private const PAYMENT_MODE_ADMIN_APPROVED = 'admin_approved';
+    private const PAYMENT_MODE_MANUALLY_PAID = 'manually_paid';
+
     public function __construct(
         private readonly OmadaService $omadaService,
         private readonly WifiSessionAuthorizationService $wifiSessionAuthorizationService,
@@ -179,13 +182,14 @@ class ManualClientAuthorizationService
                 'provider' => Payment::PROVIDER_MANUAL,
                 'payment_flow' => 'manual_authorization',
                 'reference_id' => 'manual-'.$session->id.'-'.now()->format('YmdHis'),
-                'status' => $operator ? Payment::STATUS_CASH_COLLECTED : Payment::STATUS_PAID,
+                'status' => $this->resolveManualPaymentStatus($attributes['manual_payment_mode'] ?? null),
                 'amount' => $plan->price,
                 'currency' => 'PHP',
                 'paid_at' => now(),
                 'raw_response' => [
                     'note' => $attributes['note'] ?? null,
                     'manual_authorization' => true,
+                    'manual_payment_mode' => $attributes['manual_payment_mode'] ?? null,
                 ],
             ]);
 
@@ -338,5 +342,14 @@ class ManualClientAuthorizationService
                 'last_seen_at' => now(),
             ]
         );
+    }
+
+    private function resolveManualPaymentStatus(?string $manualPaymentMode): string
+    {
+        return match ($manualPaymentMode) {
+            self::PAYMENT_MODE_ADMIN_APPROVED => Payment::STATUS_WAIVED,
+            self::PAYMENT_MODE_MANUALLY_PAID => Payment::STATUS_CASH_COLLECTED,
+            default => throw new RuntimeException('Manual payment mode is invalid.'),
+        };
     }
 }

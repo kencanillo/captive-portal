@@ -33,6 +33,7 @@ class ManualClientAuthorizationTest extends TestCase
             'phone' => '09170000000',
             'mac_address' => 'aa-bb-cc-dd-ee-ff',
             'plan_id' => $plan->id,
+            'manual_payment_mode' => 'admin_approved',
             'site_id' => $site->id,
             'access_point_id' => $accessPoint->id,
             'ap_mac' => $accessPoint->mac_address,
@@ -46,6 +47,10 @@ class ManualClientAuthorizationTest extends TestCase
             'operator_id' => null,
             'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
             'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+        ]);
+        $this->assertDatabaseHas('payments', [
+            'provider' => Payment::PROVIDER_MANUAL,
+            'status' => Payment::STATUS_WAIVED,
         ]);
     }
 
@@ -61,6 +66,7 @@ class ManualClientAuthorizationTest extends TestCase
             'phone' => '09171111111',
             'mac_address' => 'aa:bb:cc:dd:ee:11',
             'plan_id' => $plan->id,
+            'manual_payment_mode' => 'manually_paid',
             'site_id' => $site->id,
             'access_point_id' => $accessPoint->id,
             'ap_mac' => $accessPoint->mac_address,
@@ -125,6 +131,7 @@ class ManualClientAuthorizationTest extends TestCase
         $this->actingAs($operatorUser)->post(route('manual-authorizations.store'), [
             'wifi_session_id' => $session->id,
             'plan_id' => $plan->id,
+            'manual_payment_mode' => 'manually_paid',
             'note' => 'Paid in cash at store.',
         ])->assertSessionHas('success');
 
@@ -156,6 +163,7 @@ class ManualClientAuthorizationTest extends TestCase
             'phone' => '09172222222',
             'mac_address' => 'aa:bb:cc:dd:ee:12',
             'plan_id' => $plan->id,
+            'manual_payment_mode' => 'manually_paid',
             'site_id' => $otherSite->id,
             'access_point_id' => $otherAccessPoint->id,
             'ap_mac' => $otherAccessPoint->mac_address,
@@ -169,6 +177,7 @@ class ManualClientAuthorizationTest extends TestCase
             'phone' => '09173333333',
             'mac_address' => 'aa:bb:cc:dd:ee:13',
             'plan_id' => $plan->id,
+            'manual_payment_mode' => 'manually_paid',
             'site_id' => $otherSite->id,
             'access_point_id' => $otherAccessPoint->id,
             'ap_mac' => $otherAccessPoint->mac_address,
@@ -190,6 +199,7 @@ class ManualClientAuthorizationTest extends TestCase
             'phone' => '09174444444',
             'mac_address' => 'aa:bb:cc:dd:ee:14',
             'plan_id' => $inactive->id,
+            'manual_payment_mode' => 'manually_paid',
             'site_id' => $site->id,
             'access_point_id' => $accessPoint->id,
             'ap_mac' => $accessPoint->mac_address,
@@ -229,6 +239,7 @@ class ManualClientAuthorizationTest extends TestCase
             'phone' => '09175555555',
             'mac_address' => 'aa:bb:cc:dd:ee:15',
             'plan_id' => $active->id,
+            'manual_payment_mode' => 'manually_paid',
             'site_id' => $site->id,
             'access_point_id' => $accessPoint->id,
             'ap_mac' => $accessPoint->mac_address,
@@ -253,6 +264,7 @@ class ManualClientAuthorizationTest extends TestCase
             'phone' => '09176666666',
             'mac_address' => 'aa:bb:cc:dd:ee:16',
             'plan_id' => $plan->id,
+            'manual_payment_mode' => 'manually_paid',
             'site_id' => $site->id,
             'access_point_id' => $accessPoint->id,
             'ap_mac' => $accessPoint->mac_address,

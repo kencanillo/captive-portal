@@ -19,6 +19,7 @@ class ManualAuthorizationController extends Controller
             'phone' => ['nullable', 'string', 'max:40'],
             'mac_address' => ['required_without:wifi_session_id', 'nullable', 'string', 'max:40'],
             'plan_id' => ['required', 'integer'],
+            'manual_payment_mode' => ['required', 'string', 'in:admin_approved,manually_paid'],
             'site_id' => ['nullable', 'integer'],
             'access_point_id' => ['nullable', 'integer'],
             'ap_name' => ['nullable', 'string', 'max:120'],

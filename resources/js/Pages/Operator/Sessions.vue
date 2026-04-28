@@ -44,6 +44,7 @@ const authorizationForm = ref({
   phone: '',
   mac_address: '',
   plan_id: '',
+  manual_payment_mode: '',
   site_id: '',
   access_point_id: '',
   ap_name: '',
@@ -118,6 +119,7 @@ const openAuthorizationModal = (item) => {
     phone: item.client?.phone_number || '',
     mac_address: item.mac_address || '',
     plan_id: '',
+    manual_payment_mode: '',
     site_id: item.site?.id || '',
     access_point_id: item.access_point?.id || '',
     ap_name: item.access_point?.name || item.ap_name || '',
@@ -407,6 +409,14 @@ const historyRows = computed(() => {
               <option v-for="plan in manualAuthorization.plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
             </select>
           </div>
+          <div>
+            <label class="app-label">Authorization Mode</label>
+            <select v-model="authorizationForm.manual_payment_mode" class="app-field">
+              <option value="">Select mode</option>
+              <option value="admin_approved">Admin Approved</option>
+              <option value="manually_paid">Manually Paid</option>
+            </select>
+          </div>
           <div><label class="app-label">Site</label><input class="app-field" type="text" :value="selectedSession?.site?.name || 'N/A'" disabled /></div>
           <div><label class="app-label">Access Point</label><input class="app-field" type="text" :value="selectedSession?.access_point?.name || selectedSession?.ap_name || 'N/A'" disabled /></div>
           <div><label class="app-label">SSID</label><input class="app-field" type="text" :value="selectedSession?.ssid_name || 'N/A'" disabled /></div>
@@ -421,7 +431,14 @@ const historyRows = computed(() => {
         </div>
         <div class="mt-5 flex justify-end gap-3">
           <button type="button" class="app-button-secondary" @click="authorizationModalOpen = false">Cancel</button>
-          <button type="button" class="app-button-primary" @click="submitManualAuthorization">Authorize</button>
+          <button
+            type="button"
+            class="app-button-primary"
+            :disabled="!authorizationForm.plan_id || !authorizationForm.manual_payment_mode"
+            @click="submitManualAuthorization"
+          >
+            Authorize
+          </button>
         </div>
       </div>
     </div>
