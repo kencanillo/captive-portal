@@ -26,6 +26,7 @@ use App\Http\Controllers\Operator\SalesController as OperatorSalesController;
 use App\Http\Controllers\Operator\SessionController as OperatorSessionController;
 use App\Http\Controllers\Operator\AccessPointClaimController as OperatorAccessPointClaimController;
 use App\Http\Controllers\Operator\PayoutController as OperatorPayoutController;
+use App\Http\Controllers\ManualAuthorizationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Public\CaptivePortalController;
@@ -121,6 +122,8 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::get('/settings', SettingsController::class)->name('settings.index');
+    Route::post('/manual-authorizations', [ManualAuthorizationController::class, 'store'])->name('manual-authorizations.store');
+    Route::post('/manual-authorizations/{wifiSession}/retry', [ManualAuthorizationController::class, 'retry'])->name('manual-authorizations.retry');
 
     Route::get('/operator/pending', function () {
         $operator = request()->user()?->loadMissing('operator')->operator;

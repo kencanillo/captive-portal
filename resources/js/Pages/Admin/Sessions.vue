@@ -20,11 +20,31 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  manualAuthorization: {
+    type: Object,
+    required: true,
+  },
 });
 
 const historyOpen = ref(false);
 const controllerCheckOpen = ref(false);
 const selectedSession = ref(null);
+const authorizationModalOpen = ref(false);
+const authorizationForm = ref({
+  wifi_session_id: '',
+  client_name: '',
+  phone: '',
+  mac_address: '',
+  plan_id: '',
+  manual_payment_mode: '',
+  site_id: '',
+  access_point_id: '',
+  ap_name: '',
+  ap_mac: '',
+  ssid_name: '',
+  radio_id: '',
+  note: '',
+});
 
 const sessionRows = computed(() => props.sessions.data || []);
 const activeCount = computed(() => sessionRows.value.filter((item) => item.is_active).length);
@@ -75,6 +95,41 @@ const openControllerCheck = (item) => {
 const closeDialogs = () => {
   historyOpen.value = false;
   controllerCheckOpen.value = false;
+};
+
+const selectedPlan = computed(() => props.manualAuthorization.plans.find((plan) => String(plan.id) === String(authorizationForm.value.plan_id)) || null);
+const expirationPreview = computed(() => {
+  if (! selectedPlan.value) return '-';
+  return new Date(Date.now() + (selectedPlan.value.duration_minutes * 60 * 1000)).toLocaleString();
+});
+
+const openAuthorizationModal = (item) => {
+  selectedSession.value = item;
+  authorizationForm.value = {
+    wifi_session_id: item.id,
+    client_name: item.client?.name || '',
+    phone: item.client?.phone_number || '',
+    mac_address: item.mac_address || '',
+    plan_id: '',
+    manual_payment_mode: '',
+    site_id: item.site?.id || '',
+    access_point_id: item.access_point?.id || '',
+    ap_name: item.access_point?.name || item.ap_name || '',
+    ap_mac: item.access_point?.mac_address || item.ap_mac || '',
+    ssid_name: item.ssid_name || '',
+    radio_id: item.radio_id || '',
+    note: '',
+  };
+  authorizationModalOpen.value = true;
+};
+
+const submitManualAuthorization = () => {
+  router.post(route('manual-authorizations.store'), authorizationForm.value, {
+    preserveScroll: true,
+    onSuccess: () => {
+      authorizationModalOpen.value = false;
+    },
+  });
 };
 
 const goToPage = (page) => {
@@ -234,6 +289,14 @@ const historyRows = computed(() => {
                   >
                     Retry Activation
                   </Link>
+                  <button
+                    v-if="manualAuthorization.enabled"
+                    type="button"
+                    class="app-button-primary px-3 py-2 text-[11px]"
+                    @click="openAuthorizationModal(item)"
+                  >
+                    Connect / Authorize Client
+                  </button>
                 </div>
               </td>
             </tr>
@@ -268,5 +331,53 @@ const historyRows = computed(() => {
       :session="selectedSession"
       @close="closeDialogs"
     />
+
+    <div v-if="authorizationModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+      <div class="w-full max-w-2xl rounded-2xl bg-white p-6">
+        <h3 class="text-lg font-semibold text-slate-950">Connect / Authorize Client</h3>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <div><label class="app-label">Client Name</label><input v-model="authorizationForm.client_name" class="app-field" type="text" /></div>
+          <div><label class="app-label">Phone</label><input v-model="authorizationForm.phone" class="app-field" type="text" /></div>
+          <div><label class="app-label">MAC Address</label><input v-model="authorizationForm.mac_address" class="app-field" type="text" /></div>
+          <div>
+            <label class="app-label">Plan</label>
+            <select v-model="authorizationForm.plan_id" class="app-field">
+              <option value="">Select plan</option>
+              <option v-for="plan in manualAuthorization.plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="app-label">Authorization Mode</label>
+            <select v-model="authorizationForm.manual_payment_mode" class="app-field">
+              <option value="">Select mode</option>
+              <option value="admin_approved">Admin Approved</option>
+              <option value="manually_paid">Manually Paid</option>
+            </select>
+          </div>
+          <div><label class="app-label">Site</label><input class="app-field" type="text" :value="selectedSession?.site?.name || 'N/A'" disabled /></div>
+          <div><label class="app-label">Access Point</label><input class="app-field" type="text" :value="selectedSession?.access_point?.name || selectedSession?.ap_name || 'N/A'" disabled /></div>
+          <div><label class="app-label">SSID</label><input class="app-field" type="text" :value="selectedSession?.ssid_name || 'N/A'" disabled /></div>
+          <div><label class="app-label">Expiration Preview</label><input class="app-field" type="text" :value="expirationPreview" disabled /></div>
+        </div>
+        <div v-if="selectedPlan" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+          Plan duration: {{ selectedPlan.duration_minutes }} minutes • Price: ₱{{ selectedPlan.price }}
+        </div>
+        <div class="mt-4">
+          <label class="app-label">Note / Reason (optional)</label>
+          <textarea v-model="authorizationForm.note" class="app-field" rows="2" />
+        </div>
+        <div class="mt-5 flex justify-end gap-3">
+          <button type="button" class="app-button-secondary" @click="authorizationModalOpen = false">Cancel</button>
+          <button
+            type="button"
+            class="app-button-primary"
+            :disabled="!authorizationForm.plan_id || !authorizationForm.manual_payment_mode"
+            @click="submitManualAuthorization"
+          >
+            Authorize
+          </button>
+        </div>
+      </div>
+    </div>
   </MainLayout>
 </template>

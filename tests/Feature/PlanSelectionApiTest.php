@@ -359,7 +359,7 @@ class PlanSelectionApiTest extends TestCase
             'amount_paid' => $plan->price,
             'payment_status' => WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
             'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
-            'is_active' => false,
+            'is_active' => 0,
             'extends_session_id' => $activeSession->id,
         ]);
 
@@ -373,7 +373,7 @@ class PlanSelectionApiTest extends TestCase
             'amount_paid' => $plan->price,
             'payment_status' => WifiSession::PAYMENT_STATUS_PENDING,
             'session_status' => WifiSession::SESSION_STATUS_PENDING_PAYMENT,
-            'is_active' => false,
+            'is_active' => 0,
             'extends_session_id' => $activeSession->id,
         ]);
     }
