@@ -7,6 +7,7 @@ use App\Models\DeviceTransferRequest;
 use App\Services\DeviceTransferService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 use RuntimeException;
@@ -31,12 +32,34 @@ class DeviceTransferRequestController extends Controller
 
     public function approve(Request $request, DeviceTransferRequest $deviceTransferRequest, DeviceTransferService $deviceTransferService): RedirectResponse
     {
+        $request->merge([
+            'phone_number' => blank($request->input('phone_number')) ? null : $request->input('phone_number'),
+            'pin' => blank($request->input('pin')) ? null : $request->input('pin'),
+            'pin_confirmation' => blank($request->input('pin_confirmation')) ? null : $request->input('pin_confirmation'),
+        ]);
+
         $validated = $request->validate([
             'review_notes' => ['nullable', 'string', 'max:2000'],
+            'phone_number' => [
+                'nullable',
+                'string',
+                'max:20',
+                Rule::unique('clients', 'phone_number')->ignore($deviceTransferRequest->client_id),
+            ],
+            'pin' => ['required', 'string', 'min:4', 'max:20', 'confirmed'],
+            'pin_confirmation' => ['required', 'string', 'max:20'],
         ]);
 
         try {
-            $deviceTransferService->approve($deviceTransferRequest, $request->user(), $validated['review_notes'] ?? null);
+            $deviceTransferService->approve(
+                $deviceTransferRequest,
+                $request->user(),
+                $validated['review_notes'] ?? null,
+                [
+                    'phone_number' => $validated['phone_number'] ?? null,
+                    'pin' => $validated['pin'] ?? null,
+                ],
+            );
         } catch (RuntimeException $exception) {
             return redirect()
                 ->route('admin.transfer-requests.index')

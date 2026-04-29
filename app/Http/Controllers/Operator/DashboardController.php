@@ -111,10 +111,14 @@ class DashboardController extends Controller
                         WifiSession::PAYMENT_STATUS_AWAITING_PAYMENT,
                         WifiSession::PAYMENT_STATUS_PAID,
                     ]),
-                    'wifiSessions as paid_sessions_count' => fn ($query) => $query->where('payment_status', WifiSession::STATUS_PAID),
+                    'wifiSessions as paid_sessions_count' => fn ($query) => $query
+                        ->where('payment_status', WifiSession::STATUS_PAID)
+                        ->whereHas('latestPayment', fn ($q) => $q->where('status', '!=', Payment::STATUS_WAIVED)),
                 ])
                 ->withSum([
-                    'wifiSessions as revenue_total' => fn ($query) => $query->where('payment_status', WifiSession::STATUS_PAID),
+                    'wifiSessions as revenue_total' => fn ($query) => $query
+                        ->where('payment_status', WifiSession::STATUS_PAID)
+                        ->whereHas('latestPayment', fn ($q) => $q->where('status', '!=', Payment::STATUS_WAIVED)),
                 ], 'amount_paid')
                 ->orderByDesc('is_online')
                 ->latest('last_synced_at')

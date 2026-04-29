@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\ControllerSetting;
 use App\Models\Operator;
+use App\Models\Payment;
 use App\Models\PayoutRequest;
 use App\Models\Plan;
 use App\Models\Site;
@@ -33,7 +34,10 @@ class DashboardController extends Controller
         $trendEnd = now()->endOfDay();
 
         $activeSessions = WifiSession::query()->where('is_active', true)->count();
-        $totalRevenue = WifiSession::query()->where('payment_status', WifiSession::STATUS_PAID)->sum('amount_paid');
+        $totalRevenue = WifiSession::query()
+            ->where('payment_status', WifiSession::STATUS_PAID)
+            ->whereHas('latestPayment', fn ($query) => $query->where('status', '!=', Payment::STATUS_WAIVED))
+            ->sum('amount_paid');
         $mostPopularPlan = Plan::query()
             ->withCount('wifiSessions')
             ->orderByDesc('wifi_sessions_count')
@@ -41,6 +45,7 @@ class DashboardController extends Controller
         $revenueTrendSource = WifiSession::query()
             ->selectRaw('DATE(updated_at) as revenue_date, SUM(amount_paid) as total_amount')
             ->where('payment_status', WifiSession::STATUS_PAID)
+            ->whereHas('latestPayment', fn ($query) => $query->where('status', '!=', Payment::STATUS_WAIVED))
             ->whereBetween('updated_at', [$trendStart, $trendEnd])
             ->groupByRaw('DATE(updated_at)')
             ->orderBy('revenue_date')
@@ -64,6 +69,7 @@ class DashboardController extends Controller
         $analytics = [
             'revenue_today' => WifiSession::query()
                 ->where('payment_status', WifiSession::STATUS_PAID)
+                ->whereHas('latestPayment', fn ($query) => $query->where('status', '!=', Payment::STATUS_WAIVED))
                 ->whereDate('updated_at', now()->toDateString())
                 ->sum('amount_paid'),
             'active_users_now' => $activeSessions,
@@ -89,14 +95,19 @@ class DashboardController extends Controller
             ->with('site:id,name')
             ->withCount([
                 'wifiSessions as active_sessions_count' => fn ($query) => $query->where('is_active', true),
-                'wifiSessions as paid_sessions_count' => fn ($query) => $query->where('payment_status', WifiSession::STATUS_PAID),
+                'wifiSessions as paid_sessions_count' => fn ($query) => $query
+                    ->where('payment_status', WifiSession::STATUS_PAID)
+                    ->whereHas('latestPayment', fn ($q) => $q->where('status', '!=', Payment::STATUS_WAIVED)),
             ])
             ->withSum([
-                'wifiSessions as revenue_total' => fn ($query) => $query->where('payment_status', WifiSession::STATUS_PAID),
+                'wifiSessions as revenue_total' => fn ($query) => $query
+                    ->where('payment_status', WifiSession::STATUS_PAID)
+                    ->whereHas('latestPayment', fn ($q) => $q->where('status', '!=', Payment::STATUS_WAIVED)),
             ], 'amount_paid')
             ->withSum([
                 'wifiSessions as revenue_today' => fn ($query) => $query
                     ->where('payment_status', WifiSession::STATUS_PAID)
+                    ->whereHas('latestPayment', fn ($q) => $q->where('status', '!=', Payment::STATUS_WAIVED))
                     ->whereDate('updated_at', now()->toDateString()),
             ], 'amount_paid')
             ->orderByDesc('revenue_total')
@@ -124,7 +135,9 @@ class DashboardController extends Controller
                 'wifiSessions as active_sessions_count' => fn ($query) => $query->where('is_active', true),
             ])
             ->withSum([
-                'wifiSessions as revenue_total' => fn ($query) => $query->where('payment_status', WifiSession::STATUS_PAID),
+                'wifiSessions as revenue_total' => fn ($query) => $query
+                    ->where('payment_status', WifiSession::STATUS_PAID)
+                    ->whereHas('latestPayment', fn ($q) => $q->where('status', '!=', Payment::STATUS_WAIVED)),
             ], 'amount_paid')
             ->orderByDesc('revenue_total')
             ->get()

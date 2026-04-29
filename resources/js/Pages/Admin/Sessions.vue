@@ -29,6 +29,14 @@ const props = defineProps({
 const historyOpen = ref(false);
 const selectedSession = ref(null);
 const authorizationModalOpen = ref(false);
+const sessionStatusFilter = ref('all');
+const sessionSearch = ref('');
+const deauthTooltip = ref({
+  visible: false,
+  left: 0,
+  top: 0,
+  item: null,
+});
 const authorizationForm = ref({
   wifi_session_id: '',
   plan_id: '',
@@ -36,9 +44,35 @@ const authorizationForm = ref({
 });
 
 const sessionRows = computed(() => props.sessions.data || []);
-const activeCount = computed(() => sessionRows.value.filter((item) => item.is_active).length);
-const paidCount = computed(() => sessionRows.value.filter((item) => item.payment_status === 'paid').length);
-const needsAttentionCount = computed(() => sessionRows.value.filter((item) => controllerNeedsAttention(item)).length);
+const filteredSessionRows = computed(() => {
+  const query = sessionSearch.value.trim().toLowerCase();
+
+  return sessionRows.value.filter((item) => {
+    const matchesStatus = sessionStatusFilter.value === 'all'
+      || (sessionStatusFilter.value === 'active' && item.is_active)
+      || (sessionStatusFilter.value === 'expired' && item.session_status === 'expired')
+      || (sessionStatusFilter.value === 'needs_omada' && controllerNeedsAttention(item))
+      || (sessionStatusFilter.value === item.payment_status)
+      || (sessionStatusFilter.value === item.release_status);
+
+    if (!matchesStatus) return false;
+    if (!query) return true;
+
+    return [
+      item.id,
+      item.client?.name,
+      item.client?.phone_number,
+      item.mac_address,
+      item.site?.name,
+      item.access_point?.name,
+      item.ap_name,
+      item.plan?.name,
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+  });
+});
+const activeCount = computed(() => filteredSessionRows.value.filter((item) => item.is_active).length);
+const paidCount = computed(() => filteredSessionRows.value.filter((item) => item.payment_status === 'paid').length);
+const needsAttentionCount = computed(() => filteredSessionRows.value.filter((item) => controllerNeedsAttention(item)).length);
 
 const activationStatusLabel = (status) => ({
   succeeded: 'Access enabled',
@@ -58,6 +92,20 @@ const activationTone = (status) => ({
   manual_required: 'bg-rose-100 text-rose-700',
 }[status] || 'bg-slate-100 text-slate-600');
 
+const deauthorizationStatusLabel = (status) => ({
+  pending: 'Deauth pending',
+  failed: 'Deauth retrying',
+  succeeded: 'Deauthorized',
+  manual_required: 'Check Omada',
+}[status] || 'No deauth state');
+
+const deauthorizationTone = (status) => ({
+  pending: 'bg-amber-100 text-amber-700',
+  failed: 'bg-rose-100 text-rose-700',
+  succeeded: 'bg-emerald-100 text-emerald-700',
+  manual_required: 'bg-rose-100 text-rose-700',
+}[status] || 'bg-slate-100 text-slate-600');
+
 const paymentTone = (status) => ({
   paid: 'bg-emerald-100 text-emerald-700',
   pending: 'bg-amber-100 text-amber-700',
@@ -68,7 +116,9 @@ const paymentTone = (status) => ({
 
 function controllerNeedsAttention(item) {
   return ['not_authorized_in_controller', 'reconcile_failed'].includes(item.last_reconcile_result)
-    || Boolean(item.controller_check_message);
+    || ['failed', 'manual_required'].includes(item.controller_deauthorization_status)
+    || Boolean(item.controller_check_message)
+    || Boolean(item.manual_controller_deauthorization_required);
 }
 
 const openHistory = (item) => {
@@ -78,6 +128,30 @@ const openHistory = (item) => {
 
 const closeDialogs = () => {
   historyOpen.value = false;
+};
+
+const showDeauthTooltip = (item, event) => {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const tooltipWidth = Math.min(288, window.innerWidth - 24);
+  const left = Math.min(
+    Math.max(12, rect.right + 8),
+    window.innerWidth - tooltipWidth - 12,
+  );
+  const top = Math.min(
+    Math.max(12, rect.top - 8),
+    window.innerHeight - 180,
+  );
+
+  deauthTooltip.value = {
+    visible: true,
+    left,
+    top,
+    item,
+  };
+};
+
+const hideDeauthTooltip = () => {
+  deauthTooltip.value.visible = false;
 };
 
 const openAuthorizationModal = (item) => {
@@ -159,13 +233,30 @@ const historyRows = computed(() => {
       </p>
     </section>
 
-    <section class="app-table-shell mt-8">
+    <section class="app-table-shell mt-8 overflow-visible">
       <div class="px-6 py-6">
         <p class="app-kicker">Client Activity</p>
         <h2 class="mt-2 app-section-title">Current session list</h2>
+        <div class="mt-5 grid gap-3 md:grid-cols-[220px,1fr]">
+          <select v-model="sessionStatusFilter" class="app-field">
+            <option value="all">All sessions</option>
+            <option value="active">Connected active</option>
+            <option value="expired">Expired</option>
+            <option value="needs_omada">Needs Omada check</option>
+            <option value="paid">Paid</option>
+            <option value="pending">Pending payment</option>
+            <option value="failed">Failed</option>
+          </select>
+          <input
+            v-model="sessionSearch"
+            class="app-field"
+            type="search"
+            placeholder="Search client, phone, MAC, site, AP, or plan"
+          />
+        </div>
       </div>
 
-      <div class="app-table-wrap">
+      <div class="app-table-wrap md:overflow-visible">
         <table class="app-table app-table-compact">
           <thead>
             <tr>
@@ -181,7 +272,7 @@ const historyRows = computed(() => {
           </thead>
           <tbody>
             <tr
-              v-for="item in sessionRows"
+              v-for="item in filteredSessionRows"
               :key="item.id"
               :class="{ 'app-table-row-active': item.is_active }"
             >
@@ -218,12 +309,43 @@ const historyRows = computed(() => {
                 </span>
               </td>
               <td>
-                <div class="space-y-2">
-                  <span class="app-badge app-badge-compact" :class="activationTone(item.release_status)">
+                <div class="space-y-1 text-[8px] leading-tight">
+                  <span class="app-badge app-badge-compact whitespace-nowrap !px-2 !py-0.5 !text-[8px] !tracking-[0.14em]" :class="activationTone(item.release_status)">
                     {{ activationStatusLabel(item.release_status) }}
                   </span>
-                  <p class="text-[11px] text-slate-500">{{ item.release_attempt_count || 0 }} attempts</p>
-                  <p v-if="item.release_outcome_type" class="text-[11px] text-slate-500">{{ item.release_outcome_type }}</p>
+                  <p class="text-[8px] text-slate-500">{{ item.release_attempt_count || 0 }} attempts</p>
+                  <p v-if="item.release_outcome_type" class="text-[8px] text-slate-500">{{ item.release_outcome_type }}</p>
+                  <div v-if="item.controller_deauthorization_status" class="space-y-1">
+                    <span class="inline-flex max-w-full items-center align-middle">
+                      <button
+                        v-if="item.controller_deauthorization_last_error || item.manual_controller_deauthorization_required"
+                        type="button"
+                        class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-[8px] font-bold uppercase leading-none tracking-[0.14em] shadow-sm transition"
+                        :class="deauthorizationTone(item.controller_deauthorization_status)"
+                        title="Omada deauthorization details"
+                        @mouseenter="showDeauthTooltip(item, $event)"
+                        @mouseleave="hideDeauthTooltip"
+                        @focus="showDeauthTooltip(item, $event)"
+                        @blur="hideDeauthTooltip"
+                      >
+                        <span>{{ deauthorizationStatusLabel(item.controller_deauthorization_status) }}</span>
+                        <SvgIcon name="info" class="h-3 w-3 shrink-0" />
+                      </button>
+                      <span
+                        v-else
+                        class="app-badge app-badge-compact whitespace-nowrap !px-2 !py-0.5 !text-[8px] !tracking-[0.14em]"
+                        :class="deauthorizationTone(item.controller_deauthorization_status)"
+                      >
+                        {{ deauthorizationStatusLabel(item.controller_deauthorization_status) }}
+                      </span>
+                    </span>
+                    <p class="text-[8px] text-slate-500">
+                      {{ item.controller_deauthorization_attempt_count || 0 }} deauth attempts
+                    </p>
+                    <p v-if="item.controller_deauthorization_next_attempt_at" class="text-[8px] text-slate-500">
+                      Next retry {{ item.controller_deauthorization_next_attempt_at }}
+                    </p>
+                  </div>
                 </div>
               </td>
               <td class="font-semibold text-slate-950">{{ item.remaining_time }}</td>
@@ -269,7 +391,7 @@ const historyRows = computed(() => {
                 </div>
               </td>
             </tr>
-            <tr v-if="!sessionRows.length">
+            <tr v-if="!filteredSessionRows.length">
               <td colspan="8">
                 <div class="app-empty">No WiFi sessions are available in this dataset.</div>
               </td>
@@ -300,6 +422,21 @@ const historyRows = computed(() => {
       :session="selectedSession"
       @close="closeDialogs"
     />
+
+    <Teleport to="body">
+      <div
+        v-if="deauthTooltip.visible && deauthTooltip.item"
+        class="pointer-events-none fixed z-[10000] w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-rose-100 bg-white p-3 text-left text-[11px] leading-5 text-rose-700 shadow-2xl ring-1 ring-rose-100/70"
+        :style="{ left: `${deauthTooltip.left}px`, top: `${deauthTooltip.top}px` }"
+      >
+        <span v-if="deauthTooltip.item.controller_deauthorization_last_error" class="block">
+          {{ deauthTooltip.item.controller_deauthorization_last_error }}
+        </span>
+        <span v-if="deauthTooltip.item.manual_controller_deauthorization_required" class="mt-2 block font-semibold">
+          Omada still needs manual verification. Disconnect/reconnect the client, then unauthorize it.
+        </span>
+      </div>
+    </Teleport>
 
     <div v-if="authorizationModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
       <div class="w-full max-w-2xl rounded-2xl bg-white p-6">

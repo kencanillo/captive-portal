@@ -133,6 +133,11 @@ class SessionController extends Controller
                         'last_reconciled_at' => optional($session->last_reconciled_at)?->toDateTimeString(),
                         'reconcile_attempt_count' => $session->reconcile_attempt_count,
                         'last_reconcile_result' => $session->last_reconcile_result,
+                        'controller_deauthorization_status' => $session->controller_deauthorization_status,
+                        'controller_deauthorization_attempt_count' => $session->controller_deauthorization_attempt_count,
+                        'controller_deauthorization_last_attempt_at' => optional($session->controller_deauthorization_last_attempt_at)?->toDateTimeString(),
+                        'controller_deauthorization_next_attempt_at' => optional($session->controller_deauthorization_next_attempt_at)?->toDateTimeString(),
+                        'controller_deauthorization_last_error' => $session->controller_deauthorization_last_error,
                         'controller_check_message' => $session->last_reconcile_result === 'not_authorized_in_controller'
                             ? 'Controller inspection confirmed the client is not currently authorized.'
                             : ($session->last_reconcile_result === 'reconcile_failed'
@@ -140,6 +145,7 @@ class SessionController extends Controller
                                 : null),
                         'release_stuck_at' => optional($session->release_stuck_at)?->toDateTimeString(),
                         'manual_followup_required' => $session->release_status === WifiSession::RELEASE_STATUS_MANUAL_REQUIRED,
+                        'manual_controller_deauthorization_required' => $session->controller_deauthorization_status === WifiSession::CONTROLLER_DEAUTH_STATUS_MANUAL_REQUIRED,
                         'released_by_path' => $session->released_by_path,
                         'release_metadata' => $session->release_metadata,
                         'is_active' => $session->is_active,
@@ -230,5 +236,4 @@ class SessionController extends Controller
 
         return implode(' ', $parts);
     }
-
 }

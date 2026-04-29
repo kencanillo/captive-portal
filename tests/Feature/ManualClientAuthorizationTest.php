@@ -289,6 +289,89 @@ class ManualClientAuthorizationTest extends TestCase
             ->assertSessionHas('success');
     }
 
+    public function test_waived_sessions_not_counted_in_revenue(): void
+    {
+        [$site, $accessPoint] = $this->createSiteAndAccessPoint();
+        $plan = Plan::query()->create(['name' => '1 Hour', 'price' => 50, 'duration_minutes' => 60, 'is_active' => true]);
+
+        $paidClient = Client::query()->create([
+            'name' => 'Paid Client',
+            'phone_number' => '09179999999',
+            'pin' => bcrypt('1234'),
+            'mac_address' => 'aa:bb:cc:dd:ee:19',
+            'last_connected_at' => now(),
+        ]);
+
+        $paidSession = WifiSession::query()->create([
+            'client_id' => $paidClient->id,
+            'plan_id' => $plan->id,
+            'site_id' => $site->id,
+            'access_point_id' => $accessPoint->id,
+            'mac_address' => 'aa:bb:cc:dd:ee:19',
+            'ap_mac' => $accessPoint->mac_address,
+            'ap_name' => $accessPoint->name,
+            'ssid_name' => 'Guest SSID',
+            'radio_id' => 1,
+            'amount_paid' => 50,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
+            'start_time' => now()->subMinute(),
+            'end_time' => now()->addMinutes(59),
+            'is_active' => true,
+        ]);
+
+        Payment::query()->create([
+            'wifi_session_id' => $paidSession->id,
+            'provider' => Payment::PROVIDER_PAYMONGO,
+            'reference_id' => 'pi_paid',
+            'status' => Payment::STATUS_PAID,
+            'amount' => 50,
+            'currency' => 'PHP',
+        ]);
+
+        $waivedClient = Client::query()->create([
+            'name' => 'Waived Client',
+            'phone_number' => '09178888888',
+            'pin' => bcrypt('1234'),
+            'mac_address' => 'aa:bb:cc:dd:ee:20',
+            'last_connected_at' => now(),
+        ]);
+
+        $waivedSession = WifiSession::query()->create([
+            'client_id' => $waivedClient->id,
+            'plan_id' => $plan->id,
+            'site_id' => $site->id,
+            'access_point_id' => $accessPoint->id,
+            'mac_address' => 'aa:bb:cc:dd:ee:20',
+            'ap_mac' => $accessPoint->mac_address,
+            'ap_name' => $accessPoint->name,
+            'ssid_name' => 'Guest SSID',
+            'radio_id' => 1,
+            'amount_paid' => 50,
+            'payment_status' => WifiSession::PAYMENT_STATUS_PAID,
+            'session_status' => WifiSession::SESSION_STATUS_ACTIVE,
+            'start_time' => now()->subMinute(),
+            'end_time' => now()->addMinutes(59),
+            'is_active' => true,
+        ]);
+
+        Payment::query()->create([
+            'wifi_session_id' => $waivedSession->id,
+            'provider' => Payment::PROVIDER_MANUAL,
+            'reference_id' => 'manual-waived',
+            'status' => Payment::STATUS_WAIVED,
+            'amount' => 50,
+            'currency' => 'PHP',
+        ]);
+
+        $revenue = WifiSession::query()
+            ->where('payment_status', WifiSession::STATUS_PAID)
+            ->whereHas('latestPayment', fn ($query) => $query->where('status', '!=', Payment::STATUS_WAIVED))
+            ->sum('amount_paid');
+
+        $this->assertEquals(50.0, $revenue);
+    }
+
     public function test_scheduler_only_deauthorizes_expired_manual_sessions(): void
     {
         $site = Site::query()->create(['name' => 'Main', 'slug' => 'main']);

@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\WifiSession;
 use App\Support\MacAddress;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use RuntimeException;
@@ -20,8 +21,7 @@ class DeviceTransferService
     public function __construct(
         private readonly OmadaService $omadaService,
         private readonly WifiSessionAuthorizationService $wifiSessionAuthorizationService,
-    ) {
-    }
+    ) {}
 
     public function createOrReuseFromPortalFlow(
         Client $client,
@@ -84,9 +84,13 @@ class DeviceTransferService
         });
     }
 
-    public function approve(DeviceTransferRequest $transferRequest, User $admin, ?string $reviewNotes = null): DeviceTransferRequest
-    {
-        $resolvedRequest = DB::transaction(function () use ($transferRequest, $admin, $reviewNotes) {
+    public function approve(
+        DeviceTransferRequest $transferRequest,
+        User $admin,
+        ?string $reviewNotes = null,
+        array $credentialUpdates = [],
+    ): DeviceTransferRequest {
+        $resolvedRequest = DB::transaction(function () use ($transferRequest, $admin, $reviewNotes, $credentialUpdates) {
             /** @var DeviceTransferRequest $lockedRequest */
             $lockedRequest = DeviceTransferRequest::query()
                 ->with([
@@ -152,7 +156,11 @@ class DeviceTransferService
                 'mac_address' => $activeSession->mac_address,
                 'client_device_id' => $activeSession->client_device_id,
             ];
-            $originalClientMacAddress = $lockedRequest->client->mac_address;
+            $originalClientAttributes = [
+                'mac_address' => $lockedRequest->client->mac_address,
+                'phone_number' => $lockedRequest->client->phone_number,
+                'pin' => $lockedRequest->client->pin,
+            ];
             $originalFromDeviceStatus = $lockedRequest->fromDevice?->status;
             $oldSessionSnapshot = $this->snapshotSession($activeSession);
             $deauthorizedOldDevice = false;
@@ -189,6 +197,8 @@ class DeviceTransferService
                 $this->omadaService->authorizeClient($settings, $activeSession->fresh(['site', 'accessPoint', 'plan', 'client']));
                 $this->wifiSessionAuthorizationService->markSessionAuthorized($activeSession, 'device_transfer');
 
+                $changedCredentials = $this->applyCredentialUpdates($lockedRequest->client, $credentialUpdates);
+
                 if ($lockedRequest->fromDevice) {
                     $lockedRequest->fromDevice->forceFill([
                         'status' => 'replaced',
@@ -209,6 +219,8 @@ class DeviceTransferService
                         'target_client_device_id' => $targetDevice->id,
                         'remaining_seconds_at_execution' => now()->diffInSeconds($activeSession->end_time, false),
                         'deauthorized_old_device' => true,
+                        'credentials_updated' => $changedCredentials !== [],
+                        'credential_updates' => $changedCredentials,
                     ],
                 ])->save();
 
@@ -229,7 +241,10 @@ class DeviceTransferService
                 if ($activeSession->mac_address !== $originalSessionAttributes['mac_address']
                     || (int) $activeSession->client_device_id !== (int) $originalSessionAttributes['client_device_id']) {
                     $activeSession->forceFill($originalSessionAttributes)->save();
-                    $lockedRequest->client->forceFill(['mac_address' => $originalClientMacAddress])->save();
+                    $lockedRequest->client->forceFill($originalClientAttributes)->save();
+                } elseif ($lockedRequest->client->phone_number !== $originalClientAttributes['phone_number']
+                    || $lockedRequest->client->pin !== $originalClientAttributes['pin']) {
+                    $lockedRequest->client->forceFill($originalClientAttributes)->save();
                 }
 
                 if ($lockedRequest->fromDevice && $lockedRequest->fromDevice->status !== $originalFromDeviceStatus) {
@@ -356,5 +371,41 @@ class DeviceTransferService
         return (bool) $session->is_active
             && $session->end_time !== null
             && $session->end_time->isFuture();
+    }
+
+    private function applyCredentialUpdates(Client $client, array $credentialUpdates): array
+    {
+        $updates = [];
+        $changed = [];
+        $phoneNumber = $credentialUpdates['phone_number'] ?? null;
+        $pin = $credentialUpdates['pin'] ?? null;
+
+        if (filled($phoneNumber) && $phoneNumber !== $client->phone_number) {
+            $existingClient = Client::query()
+                ->where('phone_number', $phoneNumber)
+                ->whereKeyNot($client->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingClient) {
+                throw new RuntimeException('The requested phone number is already assigned to another client.');
+            }
+
+            $updates['phone_number'] = $phoneNumber;
+            $changed[] = 'phone_number';
+        }
+
+        if (filled($pin)) {
+            $updates['pin'] = Hash::make($pin);
+            $changed[] = 'pin';
+        }
+
+        if ($updates === []) {
+            return [];
+        }
+
+        $client->forceFill($updates)->save();
+
+        return $changed;
     }
 }

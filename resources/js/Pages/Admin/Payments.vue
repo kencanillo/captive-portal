@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import AdminMiniLineChart from '@/Components/AdminMiniLineChart.vue';
@@ -12,12 +12,37 @@ const props = defineProps({
   },
 });
 
+const paymentStatusFilter = ref('all');
+const paymentSearch = ref('');
 const paymentRows = computed(() => props.payments.data || []);
+const filteredPaymentRows = computed(() => {
+  const query = paymentSearch.value.trim().toLowerCase();
+
+  return paymentRows.value.filter((payment) => {
+    const matchesStatus = paymentStatusFilter.value === 'all'
+      || payment.status === paymentStatusFilter.value
+      || (paymentStatusFilter.value === 'pending_group' && ['pending', 'awaiting_payment'].includes(payment.status))
+      || (paymentStatusFilter.value === 'failed_group' && ['failed', 'canceled'].includes(payment.status));
+
+    if (!matchesStatus) return false;
+    if (!query) return true;
+
+    return [
+      payment.id,
+      payment.wifi_session_id,
+      payment.provider,
+      payment.reference_id,
+      payment.wifi_session?.site?.name,
+      payment.wifi_session?.access_point?.name,
+      payment.wifi_session?.ap_name,
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+  });
+});
 const statusCounts = computed(() => ({
-  paid: paymentRows.value.filter((payment) => payment.status === 'paid').length,
-  pending: paymentRows.value.filter((payment) => ['pending', 'awaiting_payment'].includes(payment.status)).length,
-  expired: paymentRows.value.filter((payment) => payment.status === 'expired').length,
-  failed: paymentRows.value.filter((payment) => ['failed', 'canceled'].includes(payment.status)).length,
+  paid: filteredPaymentRows.value.filter((payment) => payment.status === 'paid').length,
+  pending: filteredPaymentRows.value.filter((payment) => ['pending', 'awaiting_payment'].includes(payment.status)).length,
+  expired: filteredPaymentRows.value.filter((payment) => payment.status === 'expired').length,
+  failed: filteredPaymentRows.value.filter((payment) => ['failed', 'canceled'].includes(payment.status)).length,
 }));
 
 const statusSeries = computed(() => ([
@@ -74,6 +99,23 @@ const goToPage = (page) => {
       <div class="px-6 py-6">
         <p class="app-kicker">Transactions</p>
         <h2 class="mt-2 app-section-title">Provider payment records</h2>
+        <div class="mt-5 grid gap-3 md:grid-cols-[220px,1fr]">
+          <select v-model="paymentStatusFilter" class="app-field">
+            <option value="all">All payments</option>
+            <option value="paid">Paid</option>
+            <option value="pending_group">Pending / awaiting</option>
+            <option value="expired">Expired</option>
+            <option value="failed_group">Failed / canceled</option>
+            <option value="waived">Waived</option>
+            <option value="cash_collected">Cash collected</option>
+          </select>
+          <input
+            v-model="paymentSearch"
+            class="app-field"
+            type="search"
+            placeholder="Search reference, session, provider, site, or AP"
+          />
+        </div>
       </div>
 
       <div class="app-table-wrap">
@@ -91,7 +133,7 @@ const goToPage = (page) => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="payment in paymentRows" :key="payment.id">
+            <tr v-for="payment in filteredPaymentRows" :key="payment.id">
               <td class="font-semibold text-slate-950">{{ payment.id }}</td>
               <td>{{ payment.wifi_session_id }}</td>
               <td>{{ payment.wifi_session?.site?.name || '-' }}</td>
@@ -105,7 +147,7 @@ const goToPage = (page) => {
               </td>
               <td class="text-[11px] text-slate-500">{{ payment.created_at }}</td>
             </tr>
-            <tr v-if="!paymentRows.length">
+            <tr v-if="!filteredPaymentRows.length">
               <td colspan="8">
                 <div class="app-empty">No payment records are available.</div>
               </td>

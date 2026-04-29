@@ -369,6 +369,94 @@ class OmadaServiceTest extends TestCase
             && $request->hasHeader('Authorization', 'AccessToken=access-token'));
     }
 
+    public function test_deauthorize_client_disconnects_then_retries_unauth_once_when_controller_rejects_unauth(): void
+    {
+        $unauthAttempts = 0;
+
+        Http::fake(function ($request) use (&$unauthAttempts) {
+            if ($request->url() === 'https://localhost:8043/api/info') {
+                return Http::response([
+                    'errorCode' => 0,
+                    'msg' => 'Success.',
+                    'result' => [
+                        'controllerVer' => '6.1.0.19',
+                        'apiVer' => '3',
+                        'omadacId' => 'controller-id',
+                    ],
+                ]);
+            }
+
+            if ($request->url() === 'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials') {
+                return Http::response([
+                    'errorCode' => 0,
+                    'msg' => 'Open API Get Access Token successfully.',
+                    'result' => [
+                        'accessToken' => 'access-token',
+                        'expiresIn' => 7200,
+                    ],
+                ]);
+            }
+
+            if ($request->url() === 'https://localhost:8043/openapi/v1/controller-id/sites/main-branch/hotspot/clients/AA-BB-CC-DD-EE-FF/unauth') {
+                $unauthAttempts++;
+
+                if ($unauthAttempts === 1) {
+                    return Http::response([
+                        'errorCode' => -1,
+                        'msg' => 'Controller temporarily rejected unauth.',
+                    ]);
+                }
+
+                return Http::response([
+                    'errorCode' => 0,
+                    'msg' => 'Success.',
+                ]);
+            }
+
+            if ($request->url() === 'https://localhost:8043/openapi/v1/controller-id/sites/main-branch/clients/AA-BB-CC-DD-EE-FF/disconnect') {
+                return Http::response([
+                    'errorCode' => 0,
+                    'msg' => 'Success.',
+                ]);
+            }
+
+            return Http::response(['errorCode' => -1, 'msg' => 'Unexpected request.'], 500);
+        });
+
+        $service = app(OmadaService::class);
+
+        $session = new WifiSession([
+            'mac_address' => 'aa:bb:cc:dd:ee:ff',
+        ]);
+        $session->setRelation('site', new Site([
+            'name' => 'Main Branch',
+            'slug' => 'main-branch',
+        ]));
+
+        $service->deauthorizeClient(new ControllerSetting([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'api_client_id' => 'pilot-client',
+            'api_client_secret' => 'pilot-secret',
+        ]), $session);
+
+        $this->assertSame(2, $unauthAttempts);
+
+        $urls = Http::recorded()
+            ->map(fn (array $record) => $record[0]->url())
+            ->values()
+            ->all();
+
+        $this->assertSame([
+            'https://localhost:8043/api/info',
+            'https://localhost:8043/openapi/authorize/token?grant_type=client_credentials',
+            'https://localhost:8043/openapi/v1/controller-id/sites/main-branch/hotspot/clients/AA-BB-CC-DD-EE-FF/unauth',
+            'https://localhost:8043/openapi/v1/controller-id/sites/main-branch/clients/AA-BB-CC-DD-EE-FF/disconnect',
+            'https://localhost:8043/openapi/v1/controller-id/sites/main-branch/hotspot/clients/AA-BB-CC-DD-EE-FF/unauth',
+            'https://localhost:8043/openapi/v1/controller-id/sites/main-branch/clients/AA-BB-CC-DD-EE-FF/disconnect',
+        ], $urls);
+    }
+
     public function test_deauthorize_client_refreshes_a_stale_local_omada_site_id_before_retrying(): void
     {
         $site = Site::query()->create([

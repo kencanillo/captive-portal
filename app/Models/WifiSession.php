@@ -2,48 +2,79 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class WifiSession extends Model
 {
     use HasFactory;
 
     public const PAYMENT_STATUS_PENDING = 'pending';
+
     public const PAYMENT_STATUS_AWAITING_PAYMENT = 'awaiting_payment';
+
     public const PAYMENT_STATUS_PAID = 'paid';
+
     public const PAYMENT_STATUS_EXPIRED = 'expired';
+
     public const PAYMENT_STATUS_FAILED = 'failed';
+
     public const PAYMENT_STATUS_CANCELED = 'canceled';
 
     public const SESSION_STATUS_PENDING_PAYMENT = 'pending_payment';
+
     public const SESSION_STATUS_PAID = 'paid';
+
     public const SESSION_STATUS_ACTIVE = 'active';
+
     public const SESSION_STATUS_EXPIRED = 'expired';
+
     public const SESSION_STATUS_RELEASE_FAILED = 'release_failed';
+
     public const SESSION_STATUS_MERGED = 'merged';
 
     public const RELEASE_STATUS_PENDING = 'pending';
+
     public const RELEASE_STATUS_IN_PROGRESS = 'in_progress';
+
     public const RELEASE_STATUS_SUCCEEDED = 'succeeded';
+
     public const RELEASE_STATUS_FAILED = 'failed';
+
     public const RELEASE_STATUS_UNCERTAIN = 'uncertain';
+
     public const RELEASE_STATUS_MANUAL_REQUIRED = 'manual_required';
 
     public const RELEASE_OUTCOME_SUCCESS = 'success';
+
     public const RELEASE_OUTCOME_RETRYABLE_CONTROLLER_FAILURE = 'retryable_controller_failure';
+
     public const RELEASE_OUTCOME_RETRYABLE_TIMEOUT = 'retryable_timeout';
+
     public const RELEASE_OUTCOME_NON_RETRYABLE_CONFIGURATION_FAILURE = 'non_retryable_configuration_failure';
+
     public const RELEASE_OUTCOME_NON_RETRYABLE_VALIDATION_FAILURE = 'non_retryable_validation_failure';
+
     public const RELEASE_OUTCOME_UNCERTAIN_CONTROLLER_STATE = 'uncertain_controller_state';
+
     public const RELEASE_OUTCOME_MANUAL_FOLLOWUP_REQUIRED = 'manual_followup_required';
 
+    public const CONTROLLER_DEAUTH_STATUS_PENDING = 'pending';
+
+    public const CONTROLLER_DEAUTH_STATUS_FAILED = 'failed';
+
+    public const CONTROLLER_DEAUTH_STATUS_SUCCEEDED = 'succeeded';
+
+    public const CONTROLLER_DEAUTH_STATUS_MANUAL_REQUIRED = 'manual_required';
+
     public const STATUS_PENDING = self::PAYMENT_STATUS_PENDING;
+
     public const STATUS_PAID = self::PAYMENT_STATUS_PAID;
+
     public const STATUS_FAILED = self::PAYMENT_STATUS_FAILED;
 
     protected $fillable = [
@@ -79,6 +110,11 @@ class WifiSession extends Model
         'deauthorized_at',
         'authorization_source',
         'source',
+        'controller_deauthorization_status',
+        'controller_deauthorization_attempt_count',
+        'controller_deauthorization_last_attempt_at',
+        'controller_deauthorization_next_attempt_at',
+        'controller_deauthorization_last_error',
         'authorized_by_user_id',
         'operator_id',
         'authorization_note',
@@ -107,6 +143,9 @@ class WifiSession extends Model
             'release_metadata' => 'array',
             'authorized_at' => 'datetime',
             'deauthorized_at' => 'datetime',
+            'controller_deauthorization_attempt_count' => 'integer',
+            'controller_deauthorization_last_attempt_at' => 'datetime',
+            'controller_deauthorization_next_attempt_at' => 'datetime',
             'last_controller_seen_at' => 'datetime',
             'start_time' => 'datetime',
             'end_time' => 'datetime',

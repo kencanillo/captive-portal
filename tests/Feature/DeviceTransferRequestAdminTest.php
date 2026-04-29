@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\WifiSession;
 use App\Services\OmadaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Mockery;
 use Tests\TestCase;
 
@@ -41,6 +42,8 @@ class DeviceTransferRequestAdminTest extends TestCase
 
         $this->actingAs($admin)
             ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'pin' => '5678',
+                'pin_confirmation' => '5678',
                 'review_notes' => 'Verified replacement handset.',
             ])
             ->assertRedirect('/admin/transfer-requests');
@@ -67,6 +70,91 @@ class DeviceTransferRequestAdminTest extends TestCase
         $this->assertSame('00:11:22:33:44:55', $fromDevice->fresh()->mac_address);
         $this->assertSame('replaced', $fromDevice->fresh()->status);
         $this->assertSame('aa:bb:cc:dd:ee:ff', $transferRequest->execution_metadata['to_mac_address']);
+    }
+
+    public function test_admin_approval_can_update_client_phone_number_and_pin(): void
+    {
+        $admin = User::factory()->create(['is_admin' => true]);
+        ControllerSetting::query()->create([
+            'controller_name' => 'Pilot Controller',
+            'base_url' => 'https://localhost:8043',
+            'api_client_id' => 'client-id',
+            'api_client_secret' => 'client-secret',
+        ]);
+
+        [$client, , $activeSession, $transferRequest] = $this->createPendingTransferRequest();
+
+        $omadaService = Mockery::mock(OmadaService::class);
+        $omadaService->shouldReceive('deauthorizeClient')->once()->andReturn(['errorCode' => 0]);
+        $omadaService->shouldReceive('authorizeClient')
+            ->once()
+            ->withArgs(fn ($settings, WifiSession $session) => strtolower($session->mac_address) === 'aa:bb:cc:dd:ee:ff')
+            ->andReturn(['errorCode' => 0]);
+        $this->app->instance(OmadaService::class, $omadaService);
+
+        $this->actingAs($admin)
+            ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'phone_number' => '09170000001',
+                'pin' => '9876',
+                'pin_confirmation' => '9876',
+                'review_notes' => 'Updated credentials during transfer.',
+            ])
+            ->assertRedirect('/admin/transfer-requests');
+
+        $client->refresh();
+        $activeSession->refresh();
+        $transferRequest->refresh();
+
+        $this->assertSame(DeviceTransferRequest::STATUS_EXECUTED, $transferRequest->status);
+        $this->assertSame('09170000001', $client->phone_number);
+        $this->assertTrue(Hash::check('9876', $client->pin));
+        $this->assertSame('aa:bb:cc:dd:ee:ff', $client->mac_address);
+        $this->assertSame('aa:bb:cc:dd:ee:ff', $activeSession->mac_address);
+        $this->assertTrue($transferRequest->execution_metadata['credentials_updated']);
+        $this->assertSame(['phone_number', 'pin'], $transferRequest->execution_metadata['credential_updates']);
+    }
+
+    public function test_admin_approval_rejects_phone_number_owned_by_another_client(): void
+    {
+        $admin = User::factory()->create(['is_admin' => true]);
+        [, , , $transferRequest] = $this->createPendingTransferRequest();
+
+        Client::query()->create([
+            'name' => 'Other Client',
+            'phone_number' => '09170000001',
+            'pin' => bcrypt('1234'),
+            'mac_address' => 'aa:aa:aa:aa:aa:aa',
+            'last_connected_at' => now(),
+        ]);
+
+        $this->actingAs($admin)
+            ->from('/admin/transfer-requests')
+            ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'phone_number' => '09170000001',
+                'pin' => '9876',
+                'pin_confirmation' => '9876',
+            ])
+            ->assertRedirect('/admin/transfer-requests')
+            ->assertSessionHasErrors('phone_number');
+
+        $this->assertSame(DeviceTransferRequest::STATUS_PENDING_REVIEW, $transferRequest->fresh()->status);
+    }
+
+    public function test_admin_approval_requires_pin_rotation(): void
+    {
+        $admin = User::factory()->create(['is_admin' => true]);
+        [, , , $transferRequest] = $this->createPendingTransferRequest();
+
+        $this->actingAs($admin)
+            ->from('/admin/transfer-requests')
+            ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'phone_number' => '09170000001',
+                'review_notes' => 'Missing credential rotation.',
+            ])
+            ->assertRedirect('/admin/transfer-requests')
+            ->assertSessionHasErrors('pin');
+
+        $this->assertSame(DeviceTransferRequest::STATUS_PENDING_REVIEW, $transferRequest->fresh()->status);
     }
 
     public function test_admin_denial_leaves_active_entitlement_unchanged(): void
@@ -122,6 +210,8 @@ class DeviceTransferRequestAdminTest extends TestCase
 
         $this->actingAs($admin)
             ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'pin' => '5678',
+                'pin_confirmation' => '5678',
                 'review_notes' => 'Attempted transfer.',
             ])
             ->assertRedirect('/admin/transfer-requests');
@@ -168,6 +258,8 @@ class DeviceTransferRequestAdminTest extends TestCase
 
         $this->actingAs($admin)
             ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'pin' => '5678',
+                'pin_confirmation' => '5678',
                 'review_notes' => 'Attempted transfer.',
             ])
             ->assertRedirect('/admin/transfer-requests');
@@ -212,7 +304,10 @@ class DeviceTransferRequestAdminTest extends TestCase
         ]);
 
         $this->actingAs($admin)
-            ->post("/admin/transfer-requests/{$transferRequest->id}/approve")
+            ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'pin' => '5678',
+                'pin_confirmation' => '5678',
+            ])
             ->assertRedirect('/admin/transfer-requests');
 
         $transferRequest->refresh();
@@ -237,7 +332,10 @@ class DeviceTransferRequestAdminTest extends TestCase
         ]);
 
         $this->actingAs($admin)
-            ->post("/admin/transfer-requests/{$transferRequest->id}/approve")
+            ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'pin' => '5678',
+                'pin_confirmation' => '5678',
+            ])
             ->assertRedirect('/admin/transfer-requests');
 
         $transferRequest->refresh();
@@ -267,7 +365,10 @@ class DeviceTransferRequestAdminTest extends TestCase
         $this->app->instance(OmadaService::class, $omadaService);
 
         $this->actingAs($admin)
-            ->post("/admin/transfer-requests/{$transferRequest->id}/approve")
+            ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'pin' => '5678',
+                'pin_confirmation' => '5678',
+            ])
             ->assertRedirect('/admin/transfer-requests');
 
         $activeSession->refresh();
@@ -299,11 +400,17 @@ class DeviceTransferRequestAdminTest extends TestCase
         $this->app->instance(OmadaService::class, $omadaService);
 
         $this->actingAs($admin)
-            ->post("/admin/transfer-requests/{$transferRequest->id}/approve")
+            ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'pin' => '5678',
+                'pin_confirmation' => '5678',
+            ])
             ->assertRedirect('/admin/transfer-requests');
 
         $this->actingAs($admin)
-            ->post("/admin/transfer-requests/{$transferRequest->id}/approve")
+            ->post("/admin/transfer-requests/{$transferRequest->id}/approve", [
+                'pin' => '9999',
+                'pin_confirmation' => '9999',
+            ])
             ->assertRedirect('/admin/transfer-requests')
             ->assertSessionHas('error', 'Only pending transfer requests can be approved.');
 

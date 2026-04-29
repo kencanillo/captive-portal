@@ -20,8 +20,7 @@ class WifiSessionService
         private readonly PortalSessionContextResolver $portalSessionContextResolver,
         private readonly OmadaService $omadaService,
         private readonly WifiSessionAuthorizationService $wifiSessionAuthorizationService,
-    ) {
-    }
+    ) {}
 
     public function createSession(string $macAddress, Plan $plan, array $context = [], ?array $clientRegistrationData = null): WifiSession
     {
@@ -152,17 +151,20 @@ class WifiSessionService
         $settings ??= ControllerSetting::query()->first();
         $session->loadMissing(['site', 'accessPoint', 'plan', 'client']);
         $deauthorizedInController = false;
+        $deauthorizationError = null;
 
         if ($settings) {
             try {
                 $this->omadaService->deauthorizeClient($settings, $session);
                 $deauthorizedInController = true;
             } catch (\Throwable $exception) {
+                $deauthorizationError = $exception->getMessage();
+
                 Log::warning('Failed to deauthorize expired WiFi session in Omada.', [
                     'wifi_session_id' => $session->id,
                     'client_id' => $session->client_id,
                     'mac_address' => $session->mac_address,
-                    'error' => $exception->getMessage(),
+                    'error' => $deauthorizationError,
                 ]);
             }
         }
@@ -172,10 +174,22 @@ class WifiSessionService
             'session_status' => WifiSession::SESSION_STATUS_EXPIRED,
         ])->save();
 
-        $expiredSession = $this->wifiSessionAuthorizationService->markSessionDeauthorized(
-            $session,
-            $deauthorizedInController ? 'session_expired' : 'session_expired_local_only'
-        );
+        if ($deauthorizedInController) {
+            $expiredSession = $this->wifiSessionAuthorizationService->markSessionDeauthorized($session, 'session_expired');
+            $expiredSession->forceFill([
+                'controller_deauthorization_status' => WifiSession::CONTROLLER_DEAUTH_STATUS_SUCCEEDED,
+                'controller_deauthorization_attempt_count' => (int) $expiredSession->controller_deauthorization_attempt_count + 1,
+                'controller_deauthorization_last_attempt_at' => now(),
+                'controller_deauthorization_next_attempt_at' => null,
+                'controller_deauthorization_last_error' => null,
+            ])->save();
+            $expiredSession = $expiredSession->refresh();
+        } else {
+            $expiredSession = $this->markExpiredSessionPendingControllerDeauthorization(
+                $session,
+                $deauthorizationError ?? 'Omada controller settings were unavailable.'
+            );
+        }
 
         Log::info('WiFi session expired.', [
             'wifi_session_id' => $expiredSession->id,
@@ -194,6 +208,166 @@ class WifiSessionService
         }
 
         return $expiredSession;
+    }
+
+    public function retryPendingDeauthorizations(int $limit = 100): array
+    {
+        $settings = ControllerSetting::query()->first();
+
+        if (! $settings) {
+            Log::warning('Skipping pending WiFi session deauthorization retries because controller settings are missing.');
+
+            return [
+                'processed' => 0,
+                'succeeded' => 0,
+                'failed' => 0,
+                'manual_required' => 0,
+                'skipped' => 0,
+            ];
+        }
+
+        $summary = [
+            'processed' => 0,
+            'succeeded' => 0,
+            'failed' => 0,
+            'manual_required' => 0,
+            'skipped' => 0,
+        ];
+        $maxAttempts = $this->controllerDeauthorizationMaxAttempts();
+
+        WifiSession::query()
+            ->with(['site', 'accessPoint', 'plan', 'client'])
+            ->where('payment_status', WifiSession::PAYMENT_STATUS_PAID)
+            ->where('is_active', false)
+            ->where('session_status', WifiSession::SESSION_STATUS_EXPIRED)
+            ->whereNull('deauthorized_at')
+            ->whereIn('controller_deauthorization_status', [
+                WifiSession::CONTROLLER_DEAUTH_STATUS_PENDING,
+                WifiSession::CONTROLLER_DEAUTH_STATUS_FAILED,
+            ])
+            ->where('controller_deauthorization_attempt_count', '<', $maxAttempts)
+            ->where(function ($query): void {
+                $query->whereNull('controller_deauthorization_next_attempt_at')
+                    ->orWhere('controller_deauthorization_next_attempt_at', '<=', now());
+            })
+            ->orderByRaw('controller_deauthorization_next_attempt_at IS NULL DESC')
+            ->orderBy('controller_deauthorization_next_attempt_at')
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get()
+            ->each(function (WifiSession $session) use ($settings, &$summary): void {
+                $summary['processed']++;
+
+                $result = $this->retryPendingDeauthorization($session, $settings);
+
+                if ($result === WifiSession::CONTROLLER_DEAUTH_STATUS_SUCCEEDED) {
+                    $summary['succeeded']++;
+
+                    return;
+                }
+
+                if ($result === WifiSession::CONTROLLER_DEAUTH_STATUS_MANUAL_REQUIRED) {
+                    $summary['manual_required']++;
+
+                    return;
+                }
+
+                $summary['failed']++;
+            });
+
+        Log::info('Pending WiFi session deauthorization retry completed.', $summary);
+
+        return $summary;
+    }
+
+    private function retryPendingDeauthorization(WifiSession $session, ControllerSetting $settings): string
+    {
+        try {
+            $this->omadaService->deauthorizeClient($settings, $session);
+
+            $deauthorizedSession = $this->wifiSessionAuthorizationService->markSessionDeauthorized(
+                $session,
+                'session_expired_retry'
+            );
+
+            $deauthorizedSession->forceFill([
+                'controller_deauthorization_status' => WifiSession::CONTROLLER_DEAUTH_STATUS_SUCCEEDED,
+                'controller_deauthorization_attempt_count' => (int) $deauthorizedSession->controller_deauthorization_attempt_count + 1,
+                'controller_deauthorization_last_attempt_at' => now(),
+                'controller_deauthorization_next_attempt_at' => null,
+                'controller_deauthorization_last_error' => null,
+            ])->save();
+
+            Log::info('Pending WiFi session deauthorization retry succeeded.', [
+                'wifi_session_id' => $deauthorizedSession->id,
+                'client_id' => $deauthorizedSession->client_id,
+                'mac_address' => $deauthorizedSession->mac_address,
+                'controller_deauthorization_attempt_count' => $deauthorizedSession->controller_deauthorization_attempt_count,
+            ]);
+
+            return WifiSession::CONTROLLER_DEAUTH_STATUS_SUCCEEDED;
+        } catch (\Throwable $exception) {
+            $pendingSession = $this->markExpiredSessionPendingControllerDeauthorization($session, $exception->getMessage());
+
+            Log::warning('Pending WiFi session deauthorization retry failed.', [
+                'wifi_session_id' => $pendingSession->id,
+                'client_id' => $pendingSession->client_id,
+                'mac_address' => $pendingSession->mac_address,
+                'controller_deauthorization_status' => $pendingSession->controller_deauthorization_status,
+                'controller_deauthorization_attempt_count' => $pendingSession->controller_deauthorization_attempt_count,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return $pendingSession->controller_deauthorization_status;
+        }
+    }
+
+    private function markExpiredSessionPendingControllerDeauthorization(WifiSession $session, string $reason): WifiSession
+    {
+        $pendingSession = $this->wifiSessionAuthorizationService->markSessionDeauthorizationPending(
+            $session,
+            'session_expired_local_only'
+        );
+
+        $attemptCount = (int) $pendingSession->controller_deauthorization_attempt_count + 1;
+        $nextRetryAt = now()->addSeconds($this->controllerDeauthorizationBackoffSeconds($attemptCount));
+        $status = $attemptCount >= $this->controllerDeauthorizationMaxAttempts()
+            ? WifiSession::CONTROLLER_DEAUTH_STATUS_MANUAL_REQUIRED
+            : WifiSession::CONTROLLER_DEAUTH_STATUS_FAILED;
+
+        $pendingSession->forceFill([
+            'controller_deauthorization_status' => $status,
+            'controller_deauthorization_attempt_count' => $attemptCount,
+            'controller_deauthorization_last_attempt_at' => now(),
+            'controller_deauthorization_next_attempt_at' => $status === WifiSession::CONTROLLER_DEAUTH_STATUS_MANUAL_REQUIRED
+                ? null
+                : $nextRetryAt,
+            'controller_deauthorization_last_error' => $reason,
+        ])->save();
+
+        Log::warning('Expired WiFi session still needs controller deauthorization retry.', [
+            'wifi_session_id' => $pendingSession->id,
+            'client_id' => $pendingSession->client_id,
+            'mac_address' => $pendingSession->mac_address,
+            'controller_deauthorization_status' => $status,
+            'controller_deauthorization_attempt_count' => $attemptCount,
+            'controller_deauthorization_next_attempt_at' => $pendingSession->controller_deauthorization_next_attempt_at?->toDateTimeString(),
+            'error' => $reason,
+        ]);
+
+        return $pendingSession->refresh();
+    }
+
+    private function controllerDeauthorizationMaxAttempts(): int
+    {
+        return max(1, (int) config('portal.omada_deauthorization_max_attempts', 20));
+    }
+
+    private function controllerDeauthorizationBackoffSeconds(int $attemptCount): int
+    {
+        $retrySeconds = 60 * (2 ** max(0, $attemptCount - 1));
+
+        return min(900, $retrySeconds);
     }
 
     public function checkIfExpired(WifiSession $session): bool

@@ -10,24 +10,46 @@ const props = defineProps({
 });
 
 const currentPage = ref(1);
+const operatorStatusFilter = ref('all');
+const operatorSearch = ref('');
 const perPage = 20;
 
+const filteredOperators = computed(() => {
+  const query = operatorSearch.value.trim().toLowerCase();
+
+  return props.operators.filter((operator) => {
+    const matchesStatus = operatorStatusFilter.value === 'all' || operator.status === operatorStatusFilter.value;
+
+    if (!matchesStatus) return false;
+    if (!query) return true;
+
+    return [
+      operator.business_name,
+      operator.contact_name,
+      operator.email,
+      operator.phone_number,
+      operator.requested_site_name,
+      ...(operator.sites || []),
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+  });
+});
+
 const summary = computed(() => ({
-  total: props.operators.length,
-  approved: props.operators.filter((operator) => operator.status === 'approved').length,
-  pending: props.operators.filter((operator) => operator.status === 'pending').length,
-  revenue: props.operators.reduce((total, operator) => total + Number(operator.revenue_total || 0), 0),
+  total: filteredOperators.value.length,
+  approved: filteredOperators.value.filter((operator) => operator.status === 'approved').length,
+  pending: filteredOperators.value.filter((operator) => operator.status === 'pending').length,
+  revenue: filteredOperators.value.reduce((total, operator) => total + Number(operator.revenue_total || 0), 0),
 }));
 
-const lastPage = computed(() => Math.max(1, Math.ceil(props.operators.length / perPage)));
+const lastPage = computed(() => Math.max(1, Math.ceil(filteredOperators.value.length / perPage)));
 const operatorRows = computed(() => {
   const start = (currentPage.value - 1) * perPage;
 
-  return props.operators.slice(start, start + perPage);
+  return filteredOperators.value.slice(start, start + perPage);
 });
 
-const from = computed(() => props.operators.length ? ((currentPage.value - 1) * perPage) + 1 : 0);
-const to = computed(() => Math.min(currentPage.value * perPage, props.operators.length));
+const from = computed(() => filteredOperators.value.length ? ((currentPage.value - 1) * perPage) + 1 : 0);
+const to = computed(() => Math.min(currentPage.value * perPage, filteredOperators.value.length));
 
 const goToPage = (page) => {
   currentPage.value = page;
@@ -72,6 +94,21 @@ const goToPage = (page) => {
       <div class="px-6 py-6">
         <p class="app-kicker">Operator Accounts</p>
         <h2 class="mt-2 app-section-title">Approvals, site ownership, and balance view</h2>
+        <div class="mt-5 grid gap-3 md:grid-cols-[220px,1fr]">
+          <select v-model="operatorStatusFilter" class="app-field" @change="currentPage = 1">
+            <option value="all">All operators</option>
+            <option value="approved">Approved</option>
+            <option value="pending">Pending</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <input
+            v-model="operatorSearch"
+            class="app-field"
+            type="search"
+            placeholder="Search business, contact, email, phone, or site"
+            @input="currentPage = 1"
+          />
+        </div>
       </div>
 
       <div class="app-table-wrap">
@@ -130,7 +167,7 @@ const goToPage = (page) => {
       <AdminPagination
         :current-page="currentPage"
         :last-page="lastPage"
-        :total="props.operators.length"
+        :total="filteredOperators.length"
         :from="from"
         :to="to"
         @change="goToPage"
