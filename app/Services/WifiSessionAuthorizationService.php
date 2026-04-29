@@ -106,6 +106,16 @@ class WifiSessionAuthorizationService
         return $session->refresh();
     }
 
+    public function markSessionDeauthorizationPending(WifiSession $session, string $source): WifiSession
+    {
+        $session->forceFill([
+            'deauthorized_at' => null,
+            'authorization_source' => Str::limit($source, 50, ''),
+        ])->save();
+
+        return $session->refresh();
+    }
+
     private function lookupReason(?WifiSession $candidate, string $macAddress, array $networkContext): string
     {
         if ($candidate === null) {

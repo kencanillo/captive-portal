@@ -11,16 +11,53 @@ const props = defineProps({
   providerOps: Object,
 });
 
+const payoutStatusFilter = ref('all');
+const payoutSearch = ref('');
+const filteredPayoutRequests = computed(() => {
+  const query = payoutSearch.value.trim().toLowerCase();
+
+  return props.payoutRequests.filter((item) => {
+    const matchesStatus = payoutStatusFilter.value === 'all'
+      || item.status === payoutStatusFilter.value
+      || (payoutStatusFilter.value === 'needs_review' && ['pending_review', 'review_required'].includes(item.status))
+      || (payoutStatusFilter.value === 'execution_exception' && [
+        'execution_completed_but_blocked_from_settlement',
+        'execution_failed_retryable',
+        'execution_manual_followup_required',
+        'execution_terminal_failed',
+        'execution_provider_returned_under_review',
+        'execution_provider_reversed_under_review',
+        'execution_provider_rejected_under_review',
+        'execution_provider_on_hold_under_review',
+      ].includes(item.post_execution_state));
+
+    if (!matchesStatus) return false;
+    if (!query) return true;
+
+    return [
+      item.operator_name,
+      item.operator_email,
+      item.destination_type,
+      item.destination_account_name,
+      item.destination_account_reference,
+      item.provider_status,
+      item.settlement_state,
+      item.reference_id,
+      item.latest_execution_attempt?.execution_reference,
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+  });
+});
+
 const summary = computed(() => ({
-  total: props.payoutRequests.length,
-  pending: props.payoutRequests.filter((item) => item.status === 'pending_review').length,
-  approved: props.payoutRequests.filter((item) => item.status === 'approved').length,
-  reviewRequired: props.payoutRequests.filter((item) => item.status === 'review_required').length,
-  settled: props.payoutRequests.filter((item) => item.status === 'settled').length,
-  cancelled: props.payoutRequests.filter((item) => item.status === 'cancelled').length,
-  rejected: props.payoutRequests.filter((item) => item.status === 'rejected').length,
-  completedAwaitingSettlement: props.payoutRequests.filter((item) => item.post_execution_state === 'execution_completed_awaiting_settlement').length,
-  postExecutionExceptions: props.payoutRequests.filter((item) => [
+  total: filteredPayoutRequests.value.length,
+  pending: filteredPayoutRequests.value.filter((item) => item.status === 'pending_review').length,
+  approved: filteredPayoutRequests.value.filter((item) => item.status === 'approved').length,
+  reviewRequired: filteredPayoutRequests.value.filter((item) => item.status === 'review_required').length,
+  settled: filteredPayoutRequests.value.filter((item) => item.status === 'settled').length,
+  cancelled: filteredPayoutRequests.value.filter((item) => item.status === 'cancelled').length,
+  rejected: filteredPayoutRequests.value.filter((item) => item.status === 'rejected').length,
+  completedAwaitingSettlement: filteredPayoutRequests.value.filter((item) => item.post_execution_state === 'execution_completed_awaiting_settlement').length,
+  postExecutionExceptions: filteredPayoutRequests.value.filter((item) => [
     'execution_completed_but_blocked_from_settlement',
     'execution_failed_retryable',
     'execution_manual_followup_required',
@@ -38,12 +75,12 @@ const perPage = 20;
 const paginatedRows = computed(() => {
   const start = (currentPage.value - 1) * perPage;
 
-  return props.payoutRequests.slice(start, start + perPage);
+  return filteredPayoutRequests.value.slice(start, start + perPage);
 });
 
-const lastPage = computed(() => Math.max(1, Math.ceil(props.payoutRequests.length / perPage)));
-const from = computed(() => props.payoutRequests.length ? ((currentPage.value - 1) * perPage) + 1 : 0);
-const to = computed(() => Math.min(currentPage.value * perPage, props.payoutRequests.length));
+const lastPage = computed(() => Math.max(1, Math.ceil(filteredPayoutRequests.value.length / perPage)));
+const from = computed(() => filteredPayoutRequests.value.length ? ((currentPage.value - 1) * perPage) + 1 : 0);
+const to = computed(() => Math.min(currentPage.value * perPage, filteredPayoutRequests.value.length));
 
 const summaryItems = computed(() => ([
   { label: 'Requests', value: summary.value.total, tone: 'slate' },
@@ -377,6 +414,25 @@ const goToPage = (page) => {
       <div class="px-6 py-6">
         <p class="app-kicker">Payout Ledger</p>
         <h2 class="mt-2 app-section-title">Operator payout requests</h2>
+        <div class="mt-5 grid gap-3 md:grid-cols-[240px,1fr]">
+          <select v-model="payoutStatusFilter" class="app-field" @change="currentPage = 1">
+            <option value="all">All payouts</option>
+            <option value="needs_review">Needs review</option>
+            <option value="approved">Approved</option>
+            <option value="processing">Processing</option>
+            <option value="settled">Settled</option>
+            <option value="execution_exception">Execution exceptions</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <input
+            v-model="payoutSearch"
+            class="app-field"
+            type="search"
+            placeholder="Search operator, destination, provider state, or reference"
+            @input="currentPage = 1"
+          />
+        </div>
       </div>
 
       <div class="app-table-wrap">
@@ -581,7 +637,7 @@ const goToPage = (page) => {
       <AdminPagination
         :current-page="currentPage"
         :last-page="lastPage"
-        :total="props.payoutRequests.length"
+        :total="filteredPayoutRequests.length"
         :from="from"
         :to="to"
         @change="goToPage"

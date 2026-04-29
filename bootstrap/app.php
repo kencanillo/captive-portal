@@ -41,6 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('ops:dispatch-queue-worker-heartbeat')->everyMinute()->withoutOverlapping();
         $schedule->command('payments:reconcile-paymongo')->everyMinute()->withoutOverlapping();
         $schedule->command('wifi:expire-sessions')->everyMinute()->withoutOverlapping();
+        $schedule->command('wifi:retry-deauthorizations')->everyMinute()->withoutOverlapping();
         $schedule->command('omada:reconcile-authorized-clients')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('wifi:reconcile-releases')->everyMinute()->withoutOverlapping();
         $schedule->command('omada:sync-access-points')->everyMinute()->withoutOverlapping();

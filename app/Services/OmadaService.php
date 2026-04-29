@@ -23,8 +23,7 @@ class OmadaService
 {
     public function __construct(
         private readonly AccessPointHealthService $accessPointHealthService,
-    ) {
-    }
+    ) {}
 
     public function testConnection(ControllerSetting $settings): array
     {
@@ -301,6 +300,7 @@ class OmadaService
     public function deauthorizeClient(ControllerSetting $settings, WifiSession $session): array
     {
         $siteId = $this->resolveOpenApiSiteIdentifier($settings, $session);
+
         return $this->deauthorizeClientByMac($settings, $session->mac_address, $siteId);
     }
 
@@ -1422,15 +1422,49 @@ class OmadaService
 
     private function deauthorizeClientWithOpenApiSession(array $openApi, string $siteId, string $clientMac): array
     {
-        $unauthResponse = $this->request(
-            $openApi['client'],
-            'post',
-            "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/hotspot/clients/{$clientMac}/unauth"
-        );
+        try {
+            $unauthResponse = $this->submitOpenApiUnauth($openApi, $siteId, $clientMac);
+        } catch (OmadaOperationException $exception) {
+            if (! $this->shouldRetryUnauthAfterDisconnect($exception)) {
+                throw $exception;
+            }
+
+            Log::warning('Omada unauth failed; disconnecting client before one retry.', [
+                'site_identifier' => $siteId,
+                'mac_address' => MacAddress::normalizeForStorage($clientMac),
+                'error' => $exception->getMessage(),
+            ]);
+
+            $this->disconnectClientWithOpenApiSession($openApi, $siteId, $clientMac);
+
+            $unauthResponse = $this->submitOpenApiUnauth($openApi, $siteId, $clientMac);
+        }
 
         $this->disconnectClientWithOpenApiSession($openApi, $siteId, $clientMac);
 
         return $unauthResponse;
+    }
+
+    private function submitOpenApiUnauth(array $openApi, string $siteId, string $clientMac): array
+    {
+        return $this->request(
+            $openApi['client'],
+            'post',
+            "/openapi/v1/{$openApi['controller_id']}/sites/{$siteId}/hotspot/clients/{$clientMac}/unauth"
+        );
+    }
+
+    private function shouldRetryUnauthAfterDisconnect(OmadaOperationException $exception): bool
+    {
+        if ($exception->category !== OmadaOperationException::CATEGORY_CONTROLLER) {
+            return false;
+        }
+
+        $message = strtolower($exception->getMessage());
+
+        return ! str_contains($message, 'permissions to access this site')
+            && ! str_contains($message, 'site does not exist')
+            && ! str_contains($message, 'invalid site');
     }
 
     private function portalMacLookupTimeoutProfile(): array

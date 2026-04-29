@@ -50,6 +50,8 @@ services:
       portal:
         condition: service_healthy
     command: ["php", "artisan", "queue:work", "--queue=default", "--tries=3", "--sleep=3", "--timeout=120", "--verbose", "--no-interaction"]
+    healthcheck:
+      disable: true
     volumes:
       - portal-storage:/var/www/html/storage
 
@@ -72,6 +74,8 @@ services:
       portal:
         condition: service_healthy
     command: ["php", "artisan", "schedule:work", "--verbose", "--no-interaction"]
+    healthcheck:
+      disable: true
     volumes:
       - portal-storage:/var/www/html/storage
 

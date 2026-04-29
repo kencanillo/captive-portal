@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
 import MainLayout from '@/Layouts/MainLayout.vue';
 import { formatNumber } from '@/utils/formatters';
@@ -15,12 +15,40 @@ const props = defineProps({
   },
 });
 
+const claimStatusFilter = ref('all');
+const claimSearch = ref('');
+const filteredClaims = computed(() => {
+  const query = claimSearch.value.trim().toLowerCase();
+
+  return props.claims.filter((item) => {
+    const matchesStatus = claimStatusFilter.value === 'all'
+      || item.claim_status === claimStatusFilter.value
+      || (claimStatusFilter.value === 'blocked' && (['denied', 'adoption_failed'].includes(item.claim_status) || item.requires_re_review));
+
+    if (!matchesStatus) return false;
+    if (!query) return true;
+
+    return [
+      item.operator?.business_name,
+      item.operator?.user_email,
+      item.operator?.user_name,
+      item.site?.name,
+      item.requested_serial_number,
+      item.requested_mac_address,
+      item.requested_ap_name,
+      item.matched_access_point?.name,
+      item.matched_access_point?.serial_number,
+      item.matched_access_point?.mac_address,
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+  });
+});
+
 const summary = computed(() => ({
-  total: props.claims.length,
-  pending: props.claims.filter((item) => item.claim_status === 'pending_review').length,
-  approved: props.claims.filter((item) => item.claim_status === 'approved').length,
-  adopted: props.claims.filter((item) => item.claim_status === 'adopted').length,
-  blocked: props.claims.filter((item) => ['denied', 'adoption_failed'].includes(item.claim_status) || item.requires_re_review).length,
+  total: filteredClaims.value.length,
+  pending: filteredClaims.value.filter((item) => item.claim_status === 'pending_review').length,
+  approved: filteredClaims.value.filter((item) => item.claim_status === 'approved').length,
+  adopted: filteredClaims.value.filter((item) => item.claim_status === 'adopted').length,
+  blocked: filteredClaims.value.filter((item) => ['denied', 'adoption_failed'].includes(item.claim_status) || item.requires_re_review).length,
 }));
 
 const approveClaim = (id) => {
@@ -95,6 +123,21 @@ const denyClaim = (id) => {
       <div class="px-6 py-6">
         <p class="app-kicker">Admin Queue</p>
         <h2 class="mt-2 app-section-title">Claim review and adoption audit</h2>
+        <div class="mt-5 grid gap-3 md:grid-cols-[220px,1fr]">
+          <select v-model="claimStatusFilter" class="app-field">
+            <option value="all">All claims</option>
+            <option value="pending_review">Pending review</option>
+            <option value="approved">Approved</option>
+            <option value="adopted">Adopted</option>
+            <option value="blocked">Denied / failed / re-review</option>
+          </select>
+          <input
+            v-model="claimSearch"
+            class="app-field"
+            type="search"
+            placeholder="Search operator, site, serial, MAC, or AP name"
+          />
+        </div>
       </div>
 
       <div class="app-table-wrap">
@@ -112,7 +155,7 @@ const denyClaim = (id) => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="claim in claims" :key="claim.id">
+            <tr v-for="claim in filteredClaims" :key="claim.id">
               <td>
                 <p class="font-semibold text-slate-950">{{ claim.operator?.business_name || 'Unknown operator' }}</p>
                 <p class="mt-1 text-xs text-slate-500">{{ claim.operator?.user_email || claim.operator?.user_name || 'No contact' }}</p>
@@ -161,7 +204,7 @@ const denyClaim = (id) => {
                 </div>
               </td>
             </tr>
-            <tr v-if="!claims.length">
+            <tr v-if="!filteredClaims.length">
               <td colspan="8">
                 <div class="app-empty">No AP claims are waiting for review.</div>
               </td>

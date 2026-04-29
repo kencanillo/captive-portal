@@ -16,6 +16,8 @@ const props = defineProps({
   },
 });
 
+const planStatusFilter = ref('all');
+const planSearch = ref('');
 const form = reactive({
   name: '',
   description: '',
@@ -41,11 +43,34 @@ const editForm = reactive({
   sort_order: 0,
 });
 
+const filteredPlans = computed(() => {
+  const query = planSearch.value.trim().toLowerCase();
+
+  return props.plans.filter((plan) => {
+    const matchesStatus = planStatusFilter.value === 'all'
+      || (planStatusFilter.value === 'active' && plan.is_active)
+      || (planStatusFilter.value === 'inactive' && !plan.is_active)
+      || (planStatusFilter.value === 'pause_enabled' && plan.supports_pause)
+      || (planStatusFilter.value === 'no_tethering' && plan.enforce_no_tethering);
+
+    if (!matchesStatus) return false;
+    if (!query) return true;
+
+    return [
+      plan.name,
+      plan.description,
+      plan.speed_limit,
+      plan.duration_minutes,
+      plan.price,
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+  });
+});
+
 const stats = computed(() => ({
-  total: props.plans.length,
-  active: props.plans.filter((plan) => plan.is_active).length,
-  pausable: props.plans.filter((plan) => plan.supports_pause).length,
-  tetheringStrict: props.plans.filter((plan) => plan.enforce_no_tethering).length,
+  total: filteredPlans.value.length,
+  active: filteredPlans.value.filter((plan) => plan.is_active).length,
+  pausable: filteredPlans.value.filter((plan) => plan.supports_pause).length,
+  tetheringStrict: filteredPlans.value.filter((plan) => plan.enforce_no_tethering).length,
 }));
 
 const feeRatePercentLabel = computed(() => `${Math.round(props.processingFeeRate * 100)}%`);
@@ -210,11 +235,26 @@ const saveEdit = () => {
         <div class="px-6 py-6">
           <p class="app-kicker">Promo Inventory</p>
           <h2 class="mt-2 app-section-title">Existing plans</h2>
+          <div class="mt-5 grid gap-3 md:grid-cols-[220px,1fr]">
+            <select v-model="planStatusFilter" class="app-field">
+              <option value="all">All promos</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="pause_enabled">Pause enabled</option>
+              <option value="no_tethering">No tethering enforced</option>
+            </select>
+            <input
+              v-model="planSearch"
+              class="app-field"
+              type="search"
+              placeholder="Search promo name, description, duration, price, or speed"
+            />
+          </div>
         </div>
 
-        <div v-if="props.plans.length" class="space-y-4 px-6 pb-6">
+        <div v-if="filteredPlans.length" class="space-y-4 px-6 pb-6">
           <article
-            v-for="plan in props.plans"
+            v-for="plan in filteredPlans"
             :key="plan.id"
             class="rounded-[24px] border border-slate-200/80 bg-white/80 p-5 shadow-[0_18px_40px_-32px_rgba(19,27,46,0.35)]"
           >
@@ -311,7 +351,7 @@ const saveEdit = () => {
         </div>
 
         <div v-else class="px-6 pb-6">
-          <div class="app-empty">No promos exist yet. Create the first plan instead of shipping an empty checkout experience.</div>
+          <div class="app-empty">No promos match the current filters.</div>
         </div>
       </div>
     </section>

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
 import SvgIcon from '@/Components/SvgIcon.vue';
 import MainLayout from '@/Layouts/MainLayout.vue';
@@ -47,7 +47,37 @@ const correctionForms = reactive({});
 const reversalForms = reactive({});
 const resolutionForms = reactive({});
 const groupPages = reactive({});
+const accessPointStatusFilter = ref('all');
+const accessPointSearch = ref('');
 const perPage = 20;
+
+const filteredAccessPoints = computed(() => {
+  const query = accessPointSearch.value.trim().toLowerCase();
+
+  return props.accessPoints.filter((accessPoint) => {
+    const matchesStatus = accessPointStatusFilter.value === 'all'
+      || accessPoint.status_label === accessPointStatusFilter.value
+      || (accessPointStatusFilter.value === 'attention' && ['Heartbeat Missed', 'Disconnected', 'Stale Unknown', 'Failed'].includes(accessPoint.status_label))
+      || (accessPointStatusFilter.value === 'claimed' && accessPoint.claim_status === 'claimed')
+      || (accessPointStatusFilter.value === 'unclaimed' && accessPoint.claim_status !== 'claimed');
+
+    if (!matchesStatus) return false;
+    if (!query) return true;
+
+    return [
+      accessPoint.name,
+      accessPoint.mac_address,
+      accessPoint.serial_number,
+      accessPoint.model,
+      accessPoint.vendor,
+      accessPoint.site?.name,
+      accessPoint.site_name,
+      accessPoint.claimed_by_operator?.business_name,
+      accessPoint.claim_status,
+      accessPoint.billing_state,
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+  });
+});
 
 const groupedAccessPoints = computed(() => {
   const groups = new Map([
@@ -60,7 +90,7 @@ const groupedAccessPoints = computed(() => {
     ['Unknown', []],
   ]);
 
-  props.accessPoints.forEach((accessPoint) => {
+  filteredAccessPoints.value.forEach((accessPoint) => {
     const label = groups.has(accessPoint.status_label) ? accessPoint.status_label : 'Unknown';
     groups.get(label).push(accessPoint);
   });
@@ -275,6 +305,29 @@ const changeGroupPage = (label, page) => {
     </section>
 
     <section class="mt-8 space-y-6">
+      <div class="app-table-shell px-6 py-6">
+        <p class="app-kicker">Fleet Filters</p>
+        <h2 class="mt-2 app-section-title">Filter access points</h2>
+        <div class="mt-5 grid gap-3 md:grid-cols-[240px,1fr]">
+          <select v-model="accessPointStatusFilter" class="app-field">
+            <option value="all">All access points</option>
+            <option value="Connected">Connected</option>
+            <option value="Pending">Pending</option>
+            <option value="attention">Needs attention</option>
+            <option value="Disconnected">Disconnected</option>
+            <option value="Stale Unknown">Stale unknown</option>
+            <option value="claimed">Claimed</option>
+            <option value="unclaimed">Unclaimed</option>
+          </select>
+          <input
+            v-model="accessPointSearch"
+            class="app-field"
+            type="search"
+            placeholder="Search AP name, MAC, serial, model, site, operator, or billing state"
+          />
+        </div>
+      </div>
+
       <div
         v-for="group in paginatedGroups"
         :key="group.label"
